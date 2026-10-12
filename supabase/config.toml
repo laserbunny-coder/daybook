@@ -1,0 +1,8 @@
+# Supabase project settings used by the Supabase CLI when deploying.
+project_id = "daybook"
+
+[functions.ask]
+verify_jwt = true
+
+[functions.calendar]
+verify_jwt = true
