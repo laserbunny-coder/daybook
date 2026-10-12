@@ -28,10 +28,11 @@ In the repository, go to **Settings → Pages** and under **Build and deployment
 ## 2. Supabase: where your tasks are stored and synced
 
 1. Go to [supabase.com](https://supabase.com) and sign up with your GitHub account.
-2. Click **New project**. Name it `daybook`, make up a strong **database password** (save it in your note), pick the region closest to you, and create it. It takes a minute or two to start.
-3. Open **Project Settings → General** and copy the **Project ID**. That's the **project ref**.
-4. Open **Project Settings → API Keys** (or **Data API**). Copy the **Project URL** (it looks like `https://abcd1234.supabase.co`) and the **anon / publishable key**.
-5. Click your profile picture in the top right, then **Account preferences → Access Tokens**. Generate a token named `github` and copy it. This is the **access token**.
+2. If Supabase asks you to create an organization first, name it anything (like `Personal`), choose **Personal** and the **Free** plan.
+3. Click **New project**. Name it `daybook`, make up a strong **database password** (save it in your note), pick the region closest to you, and create it. It takes a minute or two to start.
+4. Open **Project Settings → General** and copy the **Project ID**. That's the **project ref**.
+5. Open **Project Settings → API Keys** (or **Data API**). Copy the **Project URL** (it looks like `https://abcd1234.supabase.co`) and the **anon / publishable key**.
+6. Click your profile picture in the top right, then **Account preferences → Access Tokens**. Generate a token named `github` and copy it. This is the **access token**.
 
 ## 3. Google: so you can sign in and Daybook can read your calendar
 
