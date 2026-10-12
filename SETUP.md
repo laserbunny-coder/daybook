@@ -44,8 +44,13 @@ In the repository, go to **Settings → Pages** and under **Build and deployment
    - Audience: **External**.
    - Contact email: your email. Agree and create.
 5. In **Data Access**, click **Add or remove scopes**, search for `calendar.readonly`, tick **Google Calendar API … /auth/calendar.readonly**, and save.
-6. In **Audience**, click **Publish app** and confirm. This stops Google from signing you out of the calendar connection every week. Google will show you a "this app isn't verified" warning when you sign in. That's expected for a personal app. Click **Advanced → Go to Daybook**.
-7. In **Clients**, click **Create client**:
+6. In **Branding**, fill in:
+   - Application home page: `https://YOUR-GITHUB-USERNAME.github.io/daybook/`
+   - Application privacy policy link: `https://YOUR-GITHUB-USERNAME.github.io/daybook/privacy.html`
+   - Authorized domains: add `YOUR-GITHUB-USERNAME.github.io` and `YOUR-PROJECT-REF.supabase.co`
+   - Developer contact email: your email. Save.
+7. In **Audience**, click **Publish app** and confirm. This stops Google from signing you out of the calendar connection every week. Google will show you a "this app isn't verified" warning when you sign in. That's expected for a personal app. Click **Advanced → Go to Daybook**.
+8. In **Clients**, click **Create client**:
    - Application type: **Web application**. Name: `Daybook`.
    - Under **Authorized redirect URIs**, add `https://YOUR-PROJECT-REF.supabase.co/auth/v1/callback`, using the project ref from step 2.
    - Create it, then copy the **Client ID** and **Client secret**.
