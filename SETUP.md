@@ -32,7 +32,7 @@ In the repository, go to **Settings → Pages** and under **Build and deployment
 3. Click **New project**. Name it `daybook`, make up a strong **database password** (save it in your note), pick the region closest to you, and create it. It takes a minute or two to start.
 4. Open **Project Settings → General** and copy the **Project ID**. That's the **project ref**.
 5. Click the **Connect** button at the top of the project page. Copy the **Project URL** (`SUPABASE_URL`, it looks like `https://abcd1234.supabase.co`) and the **anon / publishable key** (`SUPABASE_ANON_KEY` or `SUPABASE_PUBLISHABLE_KEY`; newer ones start with `sb_publishable_`). If there's no Connect button, look under **Project Settings → API Keys**.
-6. Click your profile picture in the top right, then **Account preferences → Access Tokens**. Generate a token named `github` and copy it. This is the **access token**.
+6. Click your profile picture in the top right, then **Account preferences → Access Tokens**. Generate a token named `github`, set it to **never expire** (a short expiry would stop publishing when it runs out), and copy it. This is the **access token**.
 
 ## 3. Google: so you can sign in and Daybook can read your calendar
 
