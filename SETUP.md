@@ -36,7 +36,7 @@ In the repository, go to **Settings → Pages** and under **Build and deployment
 
 ## 3. Google: so you can sign in and Daybook can read your calendar
 
-1. Go to [console.cloud.google.com](https://console.cloud.google.com) and sign in with the Google account that has your calendar.
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) and sign in with the Google account that has your calendar. If it asks you to agree to terms, do; this is free. Skip any free-trial or billing offer, since nothing here needs a credit card.
 2. At the top, open the project picker and click **New project**. Name it `Daybook` and create it. Make sure it's selected.
 3. Search for **Google Calendar API** in the top search bar, open it, and click **Enable**.
 4. Open **Google Auth Platform** (search "OAuth consent screen" if you can't find it) and click **Get started**.
