@@ -38,6 +38,11 @@ drop policy if exists "own items" on public.items;
 create policy "own items" on public.items
   for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 
+-- Signed-in people reach the table through the API; row level security above
+-- limits each person to their own rows. Signed-out visitors get nothing.
+grant select, insert, update, delete on public.items to authenticated;
+revoke all on public.items from anon;
+
 -- Live updates so the phone and the computer see each other's changes.
 do $$ begin
   alter publication supabase_realtime add table public.items;
@@ -53,6 +58,7 @@ create table if not exists public.google_tokens (
 );
 
 alter table public.google_tokens enable row level security;
+revoke all on public.google_tokens from anon, authenticated;
 
 create or replace function public.save_google_token(refresh text)
 returns void
