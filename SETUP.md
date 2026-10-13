@@ -101,4 +101,14 @@ Open the **Actions** tab, click **Publish Daybook** on the left, then **Run work
 
 It opens full screen like a regular app, and your tasks sync with your computer.
 
+## 9. Optional: connect Daybook to Claude
+
+Do this when you want any Claude chat to see and change your tasks, for example "turn these Thymer notes into tasks for Thursday".
+
+1. In Daybook, open **Projects** (on a phone) or look at the bottom of the left column (on a computer), and tap **Connect to Claude**, then **Make my address**.
+2. Tap **Copy**. The address is only shown once. It works like a password, so don't share it. If it ever leaks, make a new one, which turns the old one off.
+3. In Claude, open **Settings → Connectors → Add custom connector**. Name it `Daybook`, paste the address, and add it.
+
+To stop it, tap **Connect to Claude**, then **Turn off Claude's access**.
+
 If any step looks different from what's written here, tell Claude what you see.

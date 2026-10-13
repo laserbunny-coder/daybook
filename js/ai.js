@@ -34,6 +34,7 @@ function plannerState() {
     o.duration_min = n.m || 60;
     if (n.due) o.due = n.due;
     if (n.notes) o.notes = n.notes.slice(0, 500);
+    if (n.link) o.link = n.link;
     return o;
   }).filter(o => !o.done || o.progress);
   const calendar_events = [];
