@@ -16,15 +16,21 @@ const ICON = {
   proj: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 6h14M8 11h11M11 16h8"/><circle cx="5" cy="11" r="1"/><circle cx="8" cy="16" r="1"/></svg>',
   ask: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></svg>',
   note: '<svg class="ni" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" aria-label="Has notes"><path d="M2.5 3h7M2.5 6h7M2.5 9h4"/></svg>',
+  link: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6.5 9.5l3-3M7.3 4.2l.9-.9a2.8 2.8 0 0 1 4 4l-.9.9M8.7 11.8l-.9.9a2.8 2.8 0 0 1-4-4l.9-.9"/></svg>',
+  linkS: '<svg class="ni" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-label="Has a link"><path d="M6.5 9.5l3-3M7.3 4.2l.9-.9a2.8 2.8 0 0 1 4 4l-.9.9M8.7 11.8l-.9.9a2.8 2.8 0 0 1-4-4l.9-.9"/></svg>',
   close: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
 };
 
 /* View state (per device) */
 const UI_KEY = 'daybook-ui';
-const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', tip: true, demo: false, ...lsGet(UI_KEY, {}), pick: null, adding: null, open: null, dtpick: false, confirmDel: false };
+const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', tip: true, demo: false, ...lsGet(UI_KEY, {}), pick: null, adding: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, mcp: null };
 S.anchor = today();
 const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, tip: S.tip, demo: S.demo });
-let client = null, user = null, configured = false, shown = today();
+let client = null, user = null, configured = false, shown = today(), supaUrl = '';
+
+/* Links on items, such as the Thymer page a task came from */
+const safeLink = u => { try { const x = new URL(u); return x.protocol === 'https:' || x.protocol === 'http:' ? x.href : null; } catch { return null; } };
+const linkLabel = u => { const h = new URL(u).hostname.replace(/^www\./, ''); return h === 'thymer.com' || h.endsWith('.thymer.com') ? 'Open in Thymer' : 'Open ' + h; };
 
 /* Rendering */
 function ckHTML(n) {
@@ -37,6 +43,7 @@ function ckHTML(n) {
 function chipHTML(n, o = {}) {
   const crumbs = ancestors(n).map(a => a.t); const meta = []; const kids = hasKids(n.id);
   if (n.notes) meta.push(ICON.note);
+  if (n.link) meta.push(ICON.linkS);
   if (crumbs.length) meta.push(`<span class="pd"></span>${esc(crumbs.slice(-2).join(' › '))}`);
   if (o.time && n.s != null) meta.push(`<span class="tm">${fmtT(n.s)}</span>`);
   if (n.m && !kids) meta.push(fmtDur(n.m));
@@ -69,6 +76,27 @@ function projHTML(p) {
     ${S.col[p.id] ? addRow(p.id, 1) : `<div class="tree">${children(p.id).map(c => treeRows(c, 1)).join('')}${addRow(p.id, 1)}</div>`}</div>`;
 }
 const SYNC_TEXT = { saved: 'All changes saved', syncing: 'Saving…', offline: "You're offline. Changes are kept on this device and will sync when you're back.", error: "Couldn't save just now. Trying again.", local: '' };
+function mcpHTML() {
+  const m = S.mcp; if (!m) return '';
+  if (m.url) return `<div class="mcp"><p><b>Your Daybook connector address.</b> It's only shown this once, so copy it now.</p>
+    <input class="mcp-url" id="mcp-url" readonly value="${esc(m.url)}" aria-label="Connector address">
+    <div class="foot-acts"><button class="tb" data-act="mcp-copy">Copy</button><button class="link" data-act="mcp-close">Done</button></div>
+    <p>In Claude, open <b>Settings → Connectors → Add custom connector</b>. Name it Daybook, paste the address, and add it. Then any Claude chat can see and change your tasks.</p></div>`;
+  return `<div class="mcp"><p>Let Claude see and change your tasks from any Claude chat, for example to turn notes in Thymer into tasks here.</p>
+    <p>This makes a private address. Anyone who has it can see and change your tasks, so keep it to yourself. Making a new one turns the old one off.</p>
+    ${m.error ? `<p class="mcp-err">${esc(m.error)}</p>` : ''}
+    <div class="foot-acts"><button class="tb" data-act="mcp-make"${m.busy ? ' disabled' : ''}>${m.busy ? 'Making it…' : 'Make my address'}</button><button class="link" data-act="mcp-off">Turn off Claude's access</button><button class="link" data-act="mcp-close">Cancel</button></div></div>`;
+}
+async function mcpMake() {
+  S.mcp = { busy: true }; renderSide();
+  const { data, error } = await client.rpc('new_mcp_token');
+  S.mcp = error || !data ? { error: "Couldn't make an address. Check your connection and try again." } : { url: `${supaUrl}/functions/v1/mcp/${data}` };
+  renderSide();
+}
+async function mcpOff() {
+  const { error } = await client.rpc('revoke_mcp_token');
+  S.mcp = null; renderSide(); toast(error ? "Couldn't turn it off. Try again." : "Claude's access to Daybook is off");
+}
 function footHTML() {
   if (user) {
     const c = calendar.cal;
@@ -76,7 +104,7 @@ function footHTML() {
       <div class="acct">${esc(user.email || '')}</div>
       <div class="sync ${store.sync.state}">${SYNC_TEXT[store.sync.state] || ''}</div>
       <div>${c.connected && !c.reconnect ? 'Google Calendar connected (read-only).' : 'Google Calendar isn\'t connected.'} ${!c.connected || c.reconnect ? '<button class="link" data-act="signin">Connect it</button>' : ''}</div>
-      <div class="foot-acts"><button class="link" data-act="signout">Sign out</button></div></div>`;
+      <div class="foot-acts"><button class="link" data-act="mcp">Connect to Claude</button><button class="link" data-act="signout">Sign out</button></div>${mcpHTML()}</div>`;
   }
   return `<div class="side-f">Sample data, stored only on this device. Drag anything onto the plan, or back here to unschedule it.
     <div class="foot-acts">${configured ? '<button class="link" data-act="signin">Sign in with Google</button>' : ''}<button class="link" data-act="reset">Reset sample data</button></div></div>`;
@@ -178,7 +206,7 @@ function renderTabs() {
 /* Zoomed-in view of one item */
 function stepHTML(k) {
   const kk = hasKids(k.id), p = progress(k.id);
-  return `<div class="step${isDone(k) ? ' done' : ''}" style="--pc:${colorOf(k)}">${ckHTML(k)}<button class="step-t" data-act="open" data-id="${k.id}">${esc(k.t || 'Untitled')}${k.notes ? ICON.note : ''}</button>${kk ? `<span class="step-n">${p.done}/${p.total}</span>` : ''}${k.d ? `<span class="when set">${whenLabel(k)}</span>` : ''}<span class="chev" aria-hidden="true">›</span></div>`;
+  return `<div class="step${isDone(k) ? ' done' : ''}" style="--pc:${colorOf(k)}">${ckHTML(k)}<button class="step-t" data-act="open" data-id="${k.id}">${esc(k.t || 'Untitled')}${k.notes ? ICON.note : ''}${k.link ? ICON.linkS : ''}</button>${kk ? `<span class="step-n">${p.done}/${p.total}</span>` : ''}${k.d ? `<span class="when set">${whenLabel(k)}</span>` : ''}<span class="chev" aria-hidden="true">›</span></div>`;
 }
 const grow = t => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
 function renderDetail() {
@@ -202,6 +230,7 @@ function renderDetail() {
         <button class="chip${n.d ? ' set' : ''}" data-act="dtpick">${ICON.cal}<span>${n.d ? whenLabel(n) : 'Add to a day'}</span></button>
         ${kids.length || n.c ? '' : `<label class="chip"><span class="k">Takes about</span><select id="dt-dur">${durs.sort((a, b) => a - b).map(m => `<option value="${m}"${(n.m || 60) === m ? ' selected' : ''}>${fmtDur(m)}</option>`).join('')}</select></label>`}
         ${kids.length || n.c || n.due ? `<label class="chip${n.due ? ' set' : ''}"><span class="k">Due</span><input type="date" id="dt-due" value="${n.due || ''}"></label>` : ''}
+        ${linkHTML(n)}
       </div>
       ${S.dtpick ? pickerHTML(n, 0) : ''}
       ${n.p == null && isProj(n) ? `<div class="swatches" role="group" aria-label="Color">${PALETTE.map(c => `<button class="sw${n.c === c ? ' on' : ''}" style="--sw:${c}" data-act="color" data-c="${c}" aria-label="Color ${c}"></button>`).join('')}</div>` : ''}
@@ -218,8 +247,22 @@ function renderDetail() {
     </div></section>`;
   el.querySelectorAll('textarea').forEach(grow); el.querySelector('.dt-body').scrollTop = prevSc;
 }
+function linkHTML(n) {
+  if (S.linkEdit) return `<form class="chip link-edit" data-form="link" novalidate>${ICON.link}<input id="dt-link" type="url" inputmode="url" placeholder="Paste a Thymer page or any link" value="${esc(n.link || '')}" autocomplete="off" enterkeyhint="done" aria-label="Link"></form>`;
+  const u = n.link && safeLink(n.link);
+  if (u) return `<span class="link-pair"><a class="chip set" href="${esc(u)}" target="_blank" rel="noopener">${ICON.link}<span>${esc(linkLabel(u))}</span></a><button class="chip-edit" data-act="editlink">Change</button></span>`;
+  return `<button class="chip" data-act="editlink">${ICON.link}<span>Add link</span></button>`;
+}
+function saveLink() {
+  const i = document.getElementById('dt-link'); if (!S.linkEdit || !i) return;
+  const v = i.value.trim(); S.linkEdit = false; i.blur();
+  const u = v ? safeLink(v) || safeLink('https://' + v) : null;
+  if (v && !u) toast("That doesn't look like a web address");
+  else if (S.open && (node(S.open)?.link || null) !== u) store.update(S.open, { link: u });
+  renderDetail();
+}
 function openItem(id, focusTitle = false) {
-  S.open = id; S.dtpick = false; S.confirmDel = false; renderDetail();
+  S.open = id; S.dtpick = false; S.confirmDel = false; S.linkEdit = false; renderDetail();
   if (focusTitle) { const t = document.getElementById('dt-title'); t.focus(); t.select(); }
 }
 
@@ -269,7 +312,8 @@ document.addEventListener('click', e => {
   const a = b.dataset.act, id = b.dataset.id;
   switch (a) {
     case 'open': openItem(id); break;
-    case 'close': S.open = null; S.confirmDel = false; renderDetail(); break;
+    case 'close': S.open = null; S.confirmDel = false; S.linkEdit = false; renderDetail(); break;
+    case 'editlink': S.linkEdit = true; renderDetail(); document.getElementById('dt-link')?.focus(); break;
     case 'dtpick': S.dtpick = !S.dtpick; renderDetail(); break;
     case 'dtbreak': {
       const n = node(S.open);
@@ -302,6 +346,15 @@ document.addEventListener('click', e => {
     case 'signin': signIn(); break;
     case 'demo': enterDemo(); break;
     case 'signout': client.auth.signOut(); break;
+    case 'mcp': S.mcp = S.mcp ? null : {}; renderSide(); break;
+    case 'mcp-close': S.mcp = null; renderSide(); break;
+    case 'mcp-make': mcpMake(); break;
+    case 'mcp-off': mcpOff(); break;
+    case 'mcp-copy': {
+      const i = document.getElementById('mcp-url'); const manual = () => { i.select(); toast('Select the address and copy it'); };
+      if (navigator.clipboard) navigator.clipboard.writeText(i.value).then(() => toast('Copied'), manual); else manual();
+      break;
+    }
   }
 }, true);
 function openAI() { if (phone()) { if (S.tab !== 'ask') { S.tab = 'ask'; renderTabs(); } } else document.body.classList.remove('ai-off'); }
@@ -309,14 +362,17 @@ document.addEventListener('submit', e => {
   const f = e.target; e.preventDefault();
   if (f.id === 'askf') { const q = document.getElementById('askq'); if (q.value.trim()) { ask(q.value.trim()); q.value = ''; } return; }
   const inp = f.querySelector('input'); const v = inp.value.trim();
+  if (f.dataset.form === 'link') { saveLink(); return; }
   if (f.dataset.form === 'step') { if (v) { store.create({ t: v, p: f.dataset.p, m: 30 }); S.col[f.dataset.p] = false; inp.value = ''; renderDetail(); document.getElementById('dt-add-in')?.focus(); } return; }
   if (f.dataset.form === 'add') { if (!v) { S.adding = null; render(); return; } inp.value = ''; store.create({ t: v, p: f.dataset.p }); return; }
   if (f.dataset.form === 'inbox' && v) { inp.value = ''; store.create({ t: v }); }
 });
 document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && S.linkEdit) { S.linkEdit = false; document.activeElement?.blur(); renderDetail(); return; }
   if (e.key === 'Escape') { if (S.adding) { S.adding = null; render(); } else if (S.open) { S.open = null; renderDetail(); } }
   if (e.key === 'Enter' && e.target.id === 'dt-title') { e.preventDefault(); e.target.blur(); }
 });
+document.addEventListener('focusout', e => { if (e.target.id === 'dt-link') saveLink(); });
 document.addEventListener('focusout', e => { if (e.target.id === 'add-in' && !e.target.value.trim()) setTimeout(() => { if (S.adding && !document.activeElement?.matches('#add-in')) { S.adding = null; render(); } }, 150); });
 let savedT;
 document.addEventListener('input', e => {
@@ -433,6 +489,7 @@ async function boot() {
   try { cfg = (await import('./config.js')).default || {}; } catch { /* not set up yet */ }
   configured = !!(cfg.supabaseUrl && cfg.supabaseAnonKey && window.supabase);
   if (!configured) { enterDemo(); return; }
+  supaUrl = cfg.supabaseUrl.replace(/\/+$/, '');
   client = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, detectSessionInUrl: true, flowType: 'pkce' } });
   client.auth.onAuthStateChange((event, session) => {
     if (session?.provider_refresh_token) {
