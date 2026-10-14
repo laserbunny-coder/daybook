@@ -299,7 +299,7 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       const used = new Set([...t.byId.values()].filter((r) => r.parent_id == null && r.color).map((r) => r.color));
       const f: Partial<Row> = { title: textArg(args.title, "title", 500).trim(), color: PALETTE.find((c) => !used.has(c)) ?? PALETTE[t.byId.size % PALETTE.length] };
       if (!f.title) throw new Bad("title can't be empty.");
-      if (has(args, "area")) f.area_id = t.area(args.area).id;
+      if (has(args, "area")) { f.area_id = t.area(args.area).id; f.color = "area"; } // wears its area's colour
       if (has(args, "notes")) f.notes = textArg(args.notes, "notes", 20000) || null;
       if (has(args, "link")) f.link = linkArg(args.link);
       if (has(args, "due")) f.due = dayArg(args.due, "due");
@@ -347,6 +347,7 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       }
       if (has(args, "area")) {
         if (r.parent_id != null) throw new Bad("Only top-level projects sit in an area; this item is inside another project.");
+        if (args.area === null && r.color === "area") r.color = t.areaOf(r)?.color ?? null; // keep the colour it had
         r.area_id = args.area === null ? null : t.area(args.area).id;
       }
       if (has(args, "done")) {

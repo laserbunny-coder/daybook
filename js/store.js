@@ -43,7 +43,7 @@ export function remove(id) {
   const n0 = nodes.get(id);
   const kill = i => { const n = nodes.get(i); if (!n) return; n.x = true; touch(n); for (const c of [...nodes.values()]) if (c.p === i && !c.x) kill(c.id); };
   kill(id);
-  if (n0?.k === 'area') for (const c of nodes.values()) if (c.ar === id && !c.x) { c.ar = null; touch(c); } // its projects stay, with no area
+  if (n0?.k === 'area') for (const c of nodes.values()) if (c.ar === id && !c.x) { c.ar = null; if (c.c === 'area') c.c = n0.c; touch(c); } // its projects stay, with no area, keeping the colour they had
   emit();
 }
 export const snapshot = () => JSON.stringify([...nodes.values()]);
@@ -126,21 +126,27 @@ addEventListener('visibilitychange', () => { if (document.visibilityState === 'v
 
 /* Everyone starts with three areas, and projects from before areas existed
    go under Personal. Runs only when no area has ever existed here (deleted ones
-   count), and the ids are fixed so two devices doing it at once agree. */
-const START_AREAS = [['business', 'Business'], ['filmmaking', 'Filmmaking'], ['personal', 'Personal']];
+   count), and the ids are fixed so two devices doing it at once agree.
+   Each area has a colour; a project whose colour is 'area' wears its area's colour. */
+const START_AREAS = [['business', 'Business', '#7FA8FF'], ['filmmaking', 'Filmmaking', '#FFC56B'], ['personal', 'Personal', '#4FE3C1']];
+const AREA_COLORS = ['#7FA8FF', '#FFC56B', '#4FE3C1', '#D58CFF', '#FF8A8A', '#5FD4F0', '#C9D66B', '#FF8FC8'];
+/** A colour for a new area, one no other area has yet if possible. */
+export function nextAreaColor() { const used = new Set(areas().map(a => a.c)); return AREA_COLORS.find(c => !used.has(c)) || AREA_COLORS[areas().length % AREA_COLORS.length]; }
 function ensureAreas(who) {
-  if ([...nodes.values()].some(n => n.k === 'area')) return;
-  START_AREAS.forEach(([slug, t], i) => touch({ id: `area-${slug}-${who}`, p: null, t, notes: null, done: false, d: null, s: null, m: 60, o: i + 1, c: null, due: null, link: null, a: null, k: 'area', ar: null, x: false }));
-  const home = `area-personal-${who}`;
-  for (const n of nodes.values()) if (!n.x && n.k !== 'area' && n.p == null && !n.ar && (n.c || [...nodes.values()].some(c => c.p === n.id && !c.x))) { n.ar = home; touch(n); }
+  if (![...nodes.values()].some(n => n.k === 'area')) {
+    START_AREAS.forEach(([slug, t, c], i) => touch({ id: `area-${slug}-${who}`, p: null, t, notes: null, done: false, d: null, s: null, m: 60, o: i + 1, c, due: null, link: null, a: null, k: 'area', ar: null, x: false }));
+    const home = `area-personal-${who}`;
+    for (const n of nodes.values()) if (!n.x && n.k !== 'area' && n.p == null && !n.ar && (n.c || [...nodes.values()].some(c => c.p === n.id && !c.x))) { n.ar = home; n.c = 'area'; touch(n); }
+  }
+  for (const a of areas()) if (!a.c) { a.c = START_AREAS.find(([slug]) => a.id === `area-${slug}-${who}`)?.[2] || nextAreaColor(); touch(a); } // areas from before colours
 }
 
 /* Sample projects for trying the app without signing in. */
 export function sampleData() {
   let i = 0; const N = []; const T = today(); const D = n => add(T, n);
   const mk = (t, p, o = {}) => { const n = { id: 's' + (++i), t, p, notes: null, done: false, d: null, s: null, m: 60, o: i, c: null, due: null, k: null, ar: null, x: false, ...o }; N.push(n); return n.id; };
-  const [biz, film, life] = START_AREAS.map(([slug, t], j) => { N.push({ id: `area-${slug}-local`, t, p: null, notes: null, done: false, d: null, s: null, m: 60, o: j + 1, c: null, due: null, k: 'area', ar: null, x: false }); return `area-${slug}-local`; });
-  const w = mk('Website relaunch', null, { ar: biz, c: '#4B6CB7', due: D(18), notes: 'Goal: the new site is live before the end of the month.\nSimpler than the old one, fast on phones, and it should say clearly who we help.' });
+  const [biz, film, life] = START_AREAS.map(([slug, t, c], j) => { N.push({ id: `area-${slug}-local`, t, p: null, notes: null, done: false, d: null, s: null, m: 60, o: j + 1, c, due: null, k: 'area', ar: null, x: false }); return `area-${slug}-local`; });
+  const w = mk('Website relaunch', null, { ar: biz, c: 'area', due: D(18), notes: 'Goal: the new site is live before the end of the month.\nSimpler than the old one, fast on phones, and it should say clearly who we help.' });
   const wc = mk('Content', w);
   mk('Write About page', wc, { d: D(0), m: 90, notes: 'Start from the old About text and cut it in half.\nLead with who we help, then the short story of how we started.\nEnd with one clear next step: book a call.' });
   mk('Rewrite services copy', wc, { d: D(1), s: 540, m: 120 });
@@ -150,21 +156,21 @@ export function sampleData() {
   mk('Homepage mockup', wd, { d: D(2), m: 180 });
   mk('Review mobile navigation', wd, { d: D(3), m: 45 });
   mk('Choose hosting', w, { d: D(4), m: 45 });
-  const t = mk('Family trip to Maine', null, { ar: life, c: '#2E8B6E', due: D(25) });
+  const t = mk('Family trip to Maine', null, { ar: life, c: 'area', due: D(25) });
   mk('Book cabin', t, { done: true });
   mk('Plan driving route', t, { d: D(1), m: 30 });
   mk('Packing list', t, { notes: 'The cabin has linens and a full kitchen.\nCheck the weather two days before we leave.' });
   mk('Reserve kayak rental', t, { m: 20 });
-  const h = mk('Home office refresh', null, { ar: biz, c: '#B7791F' });
+  const h = mk('Home office refresh', null, { ar: biz, c: '#B7791F' }); // keeps its own colour
   mk('Measure desk wall', h, { d: D(0), s: 960, m: 30 });
   mk('Order shelving', h, { d: D(2), m: 30 });
   mk('Cable cleanup', h, { m: 45 });
-  const r = mk('Half marathon training', null, { ar: life, c: '#9B5BA5', due: D(40) });
+  const r = mk('Half marathon training', null, { ar: life, c: 'area', due: D(40) });
   mk('Easy run, 4 miles', r, { d: D(0), s: 420, m: 45 });
   mk('Tempo run', r, { d: D(2), s: 420, m: 45 });
   mk('Long run, 8 miles', r, { d: D(5), s: 480, m: 90 });
   mk('Register for race', r, { m: 15 });
-  const f = mk('Short film: Low Tide', null, { ar: film, c: '#5FD4F0', due: D(60), notes: 'A five-minute short about a lighthouse keeper on her last night.' });
+  const f = mk('Short film: Low Tide', null, { ar: film, c: 'area', due: D(60), notes: 'A five-minute short about a lighthouse keeper on her last night.' });
   mk('Finish script draft', f, { d: D(1), m: 120 });
   mk('Scout the harbor at golden hour', f, { d: D(4), s: 1080, m: 90 });
   mk('Make a shot list', f, { m: 60 });

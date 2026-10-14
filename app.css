@@ -416,3 +416,10 @@ button.area-t:hover{text-decoration:underline;text-underline-offset:3px;text-dec
 .bcol-add{display:block;width:100%;text-align:left;margin-top:6px;padding:8px;border-radius:10px;font-size:13px;font-weight:600;color:var(--accent)}
 .bcol-add:hover{background:var(--accent-soft)}
 @media (max-width:860px){.side-rs,.desk-only,.page-seg{display:none!important}}
+/* Area colours: the ringed swatch means "use the area's colour" */
+.sw.follow{position:relative;background:transparent;box-shadow:inset 0 0 0 5px var(--sw),0 0 0 1px var(--line)}
+.sw.follow.on{box-shadow:inset 0 0 0 5px var(--sw),0 0 0 2px var(--sw)}
+.sw-sep{width:1px;align-self:stretch;background:var(--line);margin:0 2px}
+.dt-note{font-size:13px;color:var(--muted);margin:8px 0 0}
+.area-h .pdot{margin-left:2px}
+.dt .swatches.area-sw{margin-left:0}
