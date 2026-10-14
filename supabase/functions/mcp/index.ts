@@ -4,7 +4,7 @@
 import { admin, cors } from "../_shared/common.ts";
 import { type Db, handle, type Row } from "./tools.ts";
 
-const COLS = "id,parent_id,title,notes,done,day,start_min,duration_min,sort,color,due,link,deleted";
+const COLS = "id,parent_id,title,notes,done,day,start_min,after_min,duration_min,sort,color,due,link,deleted";
 
 const headers = {
   ...cors,

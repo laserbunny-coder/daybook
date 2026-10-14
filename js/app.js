@@ -20,14 +20,15 @@ const ICON = {
   note: '<svg class="ni" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" aria-label="Has notes"><path d="M2.5 3h7M2.5 6h7M2.5 9h4"/></svg>',
   link: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6.5 9.5l3-3M7.3 4.2l.9-.9a2.8 2.8 0 0 1 4 4l-.9.9M8.7 11.8l-.9.9a2.8 2.8 0 0 1-4-4l.9-.9"/></svg>',
   linkS: '<svg class="ni" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-label="Has a link"><path d="M6.5 9.5l3-3M7.3 4.2l.9-.9a2.8 2.8 0 0 1 4 4l-.9.9M8.7 11.8l-.9.9a2.8 2.8 0 0 1-4-4l.9-.9"/></svg>',
+  min: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4.5h10M3 8h10M3 11.5h6"/></svg>',
   close: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
 };
 
 /* View state (per device) */
 const UI_KEY = 'daybook-ui';
-const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', tip: true, demo: false, ...lsGet(UI_KEY, {}), pick: null, adding: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, mcp: null };
+const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), pick: null, adding: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, mcp: null };
 S.anchor = today();
-const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, tip: S.tip, demo: S.demo });
+const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, tip: S.tip, demo: S.demo, min: S.min });
 let client = null, user = null, configured = false, shown = today(), supaUrl = '';
 
 /* Links on items, such as the Thymer page a task came from */
@@ -44,12 +45,14 @@ function ckHTML(n) {
 }
 function chipHTML(n, o = {}) {
   const crumbs = ancestors(n).map(a => a.t); const meta = []; const kids = hasKids(n.id);
-  if (n.notes) meta.push(ICON.note);
-  if (n.link) meta.push(ICON.linkS);
-  if (crumbs.length) meta.push(`<span class="pd"></span>${esc(crumbs.slice(-2).join(' › '))}`);
-  if (o.time && n.s != null) meta.push(`<span class="tm">${fmtT(n.s)}</span>`);
-  if (n.m && !kids) meta.push(fmtDur(n.m));
-  if (kids) { const p = progress(n.id); meta.push(`${p.done}/${p.total} done`); }
+  if (!o.min) { // minimal list shows just the title
+    if (n.notes) meta.push(ICON.note);
+    if (n.link) meta.push(ICON.linkS);
+    if (crumbs.length) meta.push(`<span class="pd"></span>${esc(crumbs.slice(-2).join(' › '))}`);
+    if (o.time && n.s != null) meta.push(`<span class="tm">${fmtT(n.s)}</span>`);
+    if (n.m && !kids) meta.push(fmtDur(n.m));
+    if (kids) { const p = progress(n.id); meta.push(`${p.done}/${p.total} done`); }
+  }
   return `<div class="item${isDone(n) ? ' done' : ''}${o.compact ? ' compact' : ''}" data-drag data-id="${n.id}" style="--pc:${colorOf(n)}">${ckHTML(n)}<div class="it-body"><div class="it-t">${esc(n.t || 'Untitled')}</div>${meta.length ? `<div class="it-m">${meta.join('<span>·</span>')}</div>` : ''}</div></div>`;
 }
 const whenLabel = n => dayShort(n.d) + (n.s != null ? ' ' + fmtT(n.s) : '');
@@ -133,16 +136,27 @@ function loadHTML(d) {
   return `<div class="load${tasks + meet > 540 ? ' heavy' : ''}">${tasks ? fmtDur(tasks) + ' of tasks' : ''}${tasks && meet ? ' · ' : ''}${meet ? fmtDur(meet) + ' booked' : ''}</div>`;
 }
 const evRow = e => `<div class="evr"><span>${e.allDay ? 'All day' : fmtT(e.s)}</span>${esc(e.t)}</div>`;
-function listHTML(d) { const its = dayItems(d); return `<div class="list${its.length ? '' : ' empty'}" data-drop="list" data-date="${d}">${its.map(n => chipHTML(n, { time: true })).join('')}</div>`; }
+/* In the List view, tasks sit between the day's calendar events. Gap 0 is before
+   the first event, gap i is after event i. A task with a time goes where its time
+   falls; one without sits after the event that starts at its "a" minute. */
+const gapOf = (E, min) => min == null ? 0 : E.filter(e => e.s <= min).length;
+function dayGaps(d) {
+  const E = timedOn(d), gaps = E.map(() => []).concat([[]]);
+  for (const n of dayItems(d)) gaps[gapOf(E, n.s ?? n.a)].push(n);
+  return { E, gaps };
+}
+function listHTML(d) {
+  const { E, gaps } = dayGaps(d), chips = g => g.map(n => chipHTML(n, { time: true, min: S.min })).join('');
+  const all = eventsOn(d).filter(e => e.allDay).map(evRow).join('');
+  const body = chips(gaps[0]) + E.map((e, i) => evRow(e) + chips(gaps[i + 1])).join('');
+  return `${all}<div class="list${body ? '' : ' empty'}" data-drop="list" data-date="${d}">${body}</div>`;
+}
 function weekList(days) {
   return `<div class="wk">${days.map(d => `<section class="wcol${d === today() ? ' today' : ''}${d < today() ? ' past' : ''}">
     <button class="dh" data-act="goday" data-d="${d}"><span>${DAYN[pd(d).getDay()]}</span><b>${pd(d).getDate()}</b></button>
-    ${eventsOn(d).map(evRow).join('')}${listHTML(d)}${loadHTML(d)}</section>`).join('')}</div>`;
+    ${listHTML(d)}${S.min ? '' : loadHTML(d)}</section>`).join('')}</div>`;
 }
-function dayList(d) {
-  const E = eventsOn(d);
-  return `<div class="dl">${E.length ? `<div class="evs"><div class="evs-h">On your calendar</div>${E.map(evRow).join('')}</div>` : ''}${listHTML(d)}${loadHTML(d)}</div>`;
-}
+function dayList(d) { return `<div class="dl">${listHTML(d)}${S.min ? '' : loadHTML(d)}</div>`; }
 function layout(items) {
   items.sort((a, b) => a.s - b.s || b.m - a.m); const cl = []; let cur = [], end = -1;
   for (const it of items) { if (cur.length && it.s >= end) { cl.push(cur); cur = []; end = -1; } cur.push(it); end = Math.max(end, it.s + it.m); }
@@ -185,8 +199,9 @@ function renderMain() {
     <div class="mh-l"><h1>${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div></div>
     <div class="mh-r"><div class="seg" role="group" aria-label="Range"><button data-act="view" data-v="day" ${P('view', 'day')}>Day</button><button data-act="view" data-v="week" ${P('view', 'week')}>Week</button></div>
     <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button></div>
+    ${S.mode === 'list' ? `<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Minimal list" title="Minimal list: just task titles">${ICON.min}</button>` : ''}
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
-  <div class="mbody vscroll" id="mbody" data-k="${key}">${warn}
+  <div class="mbody vscroll${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
     ${S.tip ? `<div class="tip"><span>Tap a task to open it and add notes. Drag to move it. On a phone, press and hold, then drag.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
     <div class="strip" data-drop="inbox"><div class="strip-l">Unscheduled · ${un.length}</div><div class="strip-row hscroll">${un.length ? un.map(n => chipHTML(n, { compact: true })).join('') : '<span class="strip-empty">Nothing waiting. Add tasks under Projects.</span>'}</div></div>
     ${S.mode === 'list' ? (S.view === 'week' ? weekList(days) : dayList(days[0])) : timed(days)}
@@ -290,10 +305,10 @@ function toggle(id) {
   else if (!hasKids(id) && node(id).done && anc.length) { const r = rootOf(n), p = progress(r.id); toast(`${r.t}: ${p.done} of ${p.total} done`); }
 }
 function reorder(date, id, idx, patch) {
-  const list = dayItems(date).filter(n => n.id !== id); list.splice(Math.max(0, Math.min(idx, list.length)), 0, node(id));
+  const list = dayGaps(date).gaps.flat().filter(n => n.id !== id); list.splice(Math.max(0, Math.min(idx, list.length)), 0, node(id));
   store.updateMany(list.map((n, i) => [n.id, n.id === id ? { ...patch, o: i } : { o: i }]));
 }
-function setDay(id, d) { const n = node(id); const patch = { d: d || null, o: Date.now() / 1000 }; if (n.d !== d) patch.s = null; S.pick = null; S.dtpick = false; store.update(id, patch); if (d) toast(`${n.t} → ${d === today() ? 'today' : DAYL[pd(d).getDay()] + ' ' + fmtShort(d)}`); }
+function setDay(id, d) { const n = node(id); const patch = { d: d || null, o: Date.now() / 1000 }; if (n.d !== d) { patch.s = null; patch.a = null; } S.pick = null; S.dtpick = false; store.update(id, patch); if (d) toast(`${n.t} → ${d === today() ? 'today' : DAYL[pd(d).getDay()] + ' ' + fmtShort(d)}`); }
 function newProject() {
   const used = new Set(store.all().filter(n => n.p == null && n.c).map(n => n.c));
   const c = PALETTE.find(x => !used.has(x)) || PALETTE[store.all().length % PALETTE.length];
@@ -334,6 +349,7 @@ document.addEventListener('click', e => {
     case 'new-project': newProject(); break;
     case 'view': S.view = b.dataset.v; render(); break;
     case 'mode': S.mode = b.dataset.v; render(); break;
+    case 'min': S.min = !S.min; render(); break;
     case 'prev': case 'next': S.anchor = add(S.anchor, (a === 'prev' ? -1 : 1) * (S.view === 'week' ? 7 : 1)); render(); break;
     case 'today': S.anchor = today(); render(); break;
     case 'goday': S.anchor = b.dataset.d; S.view = 'day'; render(); break;
@@ -416,8 +432,10 @@ function moveDrag(x, y) {
     let min = H0 * 60 + Math.round((y - (D.timed ? D.offY : 12) - r.top) / hp * 60 / 15) * 15; min = Math.max(H0 * 60, Math.min(min, H1 * 60 - dur)); D.min = min;
     ind.style.top = ((min - H0 * 60) / 60 * hp) + 'px'; ind.style.height = (dur / 60 * hp - 2) + 'px'; ind.textContent = `${fmtT(min)} – ${fmtT(min + dur)}`; t.appendChild(ind);
   } else if (type === 'list') {
-    const its = [...t.querySelectorAll(':scope > .item:not(.dragging)')]; let i = its.findIndex(it => { const r = it.getBoundingClientRect(); return y < r.top + r.height / 2; }); if (i < 0) i = its.length; D.idx = i;
-    if (its[i]) t.insertBefore(ins, its[i]); else t.appendChild(ins); t.classList.add('over');
+    // Rows are tasks and calendar events; count how many of each come before the drop point
+    const rows = [...t.querySelectorAll(':scope > .item:not(.dragging), :scope > .evr')]; let i = rows.findIndex(it => { const r = it.getBoundingClientRect(); return y < r.top + r.height / 2; }); if (i < 0) i = rows.length;
+    const before = rows.slice(0, i); D.gap = before.filter(r => r.classList.contains('evr')).length; D.idx = before.length - D.gap;
+    if (rows[i]) t.insertBefore(ins, rows[i]); else t.appendChild(ins); t.classList.add('over');
   } else t.classList.add('over');
 }
 function endDrag() {
@@ -429,9 +447,15 @@ function endDrag() {
   if (!d.t) return render();
   const type = d.t.dataset.drop, date = d.t.dataset.date || null;
   if (type === 'col') store.update(n.id, { d: date, s: d.min, m: n.m || 60 });
-  else if (type === 'tray') store.update(n.id, { d: date, s: null, o: Date.now() / 1000 });
-  else if (type === 'list') { const patch = { d: date }; if (n.d !== date && n.s != null && timedOn(date).some(e => e.s < n.s + (n.m || 60) && n.s < e.s + e.m)) patch.s = null; reorder(date, n.id, d.idx, patch); }
-  else if (type === 'inbox') store.update(n.id, { d: null, s: null });
+  else if (type === 'tray') store.update(n.id, { d: date, s: null, a: null, o: Date.now() / 1000 });
+  else if (type === 'list') {
+    // Dropped between events: remember which event it follows, but no exact time.
+    // A task that has a time keeps it only if that time still fits where it was dropped.
+    const E = timedOn(date), patch = { d: date, a: d.gap ? E[d.gap - 1].s : null };
+    if (n.s != null && gapOf(E, n.s) !== d.gap) patch.s = null;
+    reorder(date, n.id, d.idx, patch);
+  }
+  else if (type === 'inbox') store.update(n.id, { d: null, s: null, a: null });
   else render();
 }
 function autoScroll() {

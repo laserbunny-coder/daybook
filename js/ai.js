@@ -80,7 +80,7 @@ function applyActions(actions) {
     const m = a.duration_min && a.duration_min >= 5 ? Math.min(a.duration_min, 1440) : null;
     const s = Number.isInteger(a.start_min) && a.start_min >= 0 && a.start_min < 1440 ? a.start_min : null;
     const day = /^\d{4}-\d{2}-\d{2}$/.test(a.day || '') ? a.day : null;
-    if (a.type === 'schedule' && valid(a.id)) { store.update(a.id, { d: day, s: day ? s : null, ...(m ? { m } : {}) }, true); count++; }
+    if (a.type === 'schedule' && valid(a.id)) { store.update(a.id, { d: day, s: day ? s : null, ...(node(a.id).d !== day ? { a: null } : {}), ...(m ? { m } : {}) }, true); count++; }
     else if (a.type === 'add_task' && a.title) { store.create({ t: a.title, p: valid(a.parent_id) ? a.parent_id : null, d: day, s: day ? s : null, m: m || 60, notes: a.notes || null }); count++; }
     else if (a.type === 'add_steps' && valid(a.id)) { (a.steps || []).forEach((st, i) => { if (st.title) store.create({ t: st.title, p: a.id, m: Math.max(5, st.duration_min || 30), o: Date.now() / 1000 + i }); count++; }); store.update(a.id, { done: false }, true); }
     else if (a.type === 'rename' && valid(a.id) && a.title) { store.update(a.id, { t: a.title }, true); count++; }

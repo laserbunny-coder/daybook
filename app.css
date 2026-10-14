@@ -126,6 +126,12 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .ins{height:2px;background:var(--accent);border-radius:2px;margin:-1px 4px}
 .evr{display:flex;flex-wrap:wrap;gap:0 6px;font-size:12px;color:var(--ev-fg);padding:3px 4px;align-items:baseline}
 .evr span{font:500 11px var(--f-mono);min-width:44px;color:var(--muted)}
+/* Calendar events inside the List view mark the gaps tasks can be dragged into */
+.list > .evr,.wcol > .evr,.dl > .evr{background:var(--ev);border-radius:8px;padding:5px 8px}
+.dl > .evr,.dl .list > .evr{padding:7px 12px;font-size:13px}
+.min-btn[aria-pressed="true"]{background:var(--sunk);color:var(--fg)}
+.mbody.min .dl .item{padding:7px 12px}
+.mbody.min .list{gap:5px}
 
 /* Week list */
 .wk{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));min-height:100%}
@@ -144,8 +150,6 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 
 /* Day list */
 .dl{max-width:640px;margin:0 auto;padding:18px 20px 40px;display:flex;flex-direction:column;gap:10px}
-.dl .evs{display:flex;flex-direction:column;gap:2px;padding:10px 12px;background:var(--ev);border-radius:10px}
-.dl .evs-h{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ev-fg);margin-bottom:2px}
 .dl .item{padding:11px 12px}
 .dl .list{gap:8px;min-height:120px}
 
@@ -349,3 +353,4 @@ a.chip{text-decoration:none}
 .mcp b{color:var(--fg)}
 .mcp-url{width:100%;font:12px var(--f-mono);padding:7px 8px;border-radius:8px;border:1px solid var(--line);background:var(--sunk);color:var(--fg)}
 .mcp-err{color:#B5651D}
+.mbody.min .wcol .item{padding:6px 7px;gap:6px}
