@@ -3,7 +3,7 @@
 :root{
   --bg:#06070D; --surface:rgba(255,255,255,.055); --solid:#11131F; --sunk:rgba(255,255,255,.08); --fg:#F1F2FA; --muted:#A6A9C2; --faint:#6F7391;
   --line:rgba(255,255,255,.1); --edge:rgba(255,255,255,.14); --accent:#8FA8FF; --accent-fg:#06070D; --accent-soft:rgba(127,150,255,.16);
-  --glow:linear-gradient(160deg,#5B7CFF,#A24BFF); --ev:rgba(255,255,255,.035); --ev-fg:#C3C6DA; --ok:#4FE3C1; --now:#FF7AB8;
+  --glow:linear-gradient(160deg,#5B7CFF,#A24BFF); --ev:rgba(255,255,255,.035); --stripes:repeating-linear-gradient(-45deg,rgba(255,255,255,.075) 0 1.5px,transparent 1.5px 8px); --ev-fg:#C3C6DA; --ok:#4FE3C1; --now:#FF7AB8;
   --warn:#FFB86B; --danger:#FF6B7A;
   --f-display:"Unbounded", ui-sans-serif, system-ui, sans-serif;
   --f-body:"Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -146,8 +146,9 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .ins{height:2px;background:var(--accent);border-radius:2px;margin:-1px 4px}
 .evr{display:flex;flex-wrap:wrap;gap:0 6px;font-size:12px;color:var(--ev-fg);padding:3px 4px;align-items:baseline}
 .evr span{font:500 11px var(--f-mono);min-width:44px;color:var(--muted)}
-/* Calendar events inside the List view mark the gaps tasks can be dragged into */
-.list > .evr,.wcol > .evr,.dl > .evr{background:var(--ev);border:1px dashed var(--edge);border-radius:14px;padding:5px 8px}
+/* Calendar events inside the List view mark the gaps tasks can be dragged into.
+   Every calendar event wears faint diagonal stripes: fixed, comes from Google, not editable here. */
+.list > .evr,.wcol > .evr,.dl > .evr{background:var(--stripes) var(--ev);border:1px dashed var(--edge);border-radius:14px;padding:5px 8px}
 .dl > .evr,.dl .list > .evr{padding:7px 12px;font-size:13px}
 .min-btn[aria-pressed="true"]{background:var(--sunk);color:var(--fg)}
 .mbody.min .dl .item{padding:7px 12px}
@@ -197,7 +198,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .b-in{min-width:0;flex:1}
 .b-t{font-weight:600;overflow-wrap:break-word}
 .b-time{font:500 10px var(--f-mono);color:var(--muted);margin-top:1px}
-.ev{background:var(--ev);color:var(--ev-fg);z-index:1;border:1px dashed rgba(255,255,255,.22)}
+.ev{background:var(--stripes) var(--ev);color:var(--ev-fg);z-index:1;border:1px dashed rgba(255,255,255,.22)}
 .ev .b-t{font-weight:500}
 .rs{position:absolute;left:0;right:0;bottom:0;height:9px;cursor:ns-resize;touch-action:none}
 .rs::after{content:"";position:absolute;left:50%;bottom:3px;width:18px;height:2px;margin-left:-9px;border-radius:2px;background:var(--pc);opacity:0;transition:opacity .15s}
@@ -343,7 +344,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .tip.warn{background:color-mix(in srgb,var(--warn) 14%,transparent)}
 .wcol.past{opacity:.7}
 .strip-empty{font-size:13px;color:var(--faint);padding:4px 0}
-.ev-all{font-size:11px;padding:3px 6px;border-radius:8px;border:1px dashed var(--edge);background:var(--ev);color:var(--ev-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ev-all{font-size:11px;padding:3px 6px;border-radius:8px;border:1px dashed var(--edge);background:var(--stripes) var(--ev);color:var(--ev-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pick-date{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
 .pick-date input{border:0;background:transparent;font:inherit;color:var(--fg);max-width:130px}
 .chip input[type=date]{border:0;background:transparent;font:inherit;font-weight:600;color:inherit;outline:none;padding:0}
