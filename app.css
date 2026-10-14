@@ -208,7 +208,10 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .rs::after{content:"";position:absolute;left:50%;bottom:3px;width:18px;height:2px;margin-left:-9px;border-radius:2px;background:var(--pc);opacity:0;transition:opacity .15s}
 .block:hover .rs::after{opacity:.7}
 @media (hover:none){.rs{height:14px}.rs::after{opacity:.5}}
-.ind{position:absolute;left:2px;right:2px;border:1.5px dashed var(--accent);border-radius:10px;background:color-mix(in srgb,var(--accent) 10%,transparent);z-index:3;pointer-events:none;font:500 10px var(--f-mono);color:var(--accent);padding:3px 6px}
+.ind{position:absolute;left:2px;right:2px;border:1.5px dashed var(--accent);border-radius:10px;background:color-mix(in srgb,var(--accent) 10%,transparent);z-index:3;pointer-events:none;font:500 10px var(--f-mono);color:var(--accent);padding:3px 6px;overflow:hidden}
+.ind-t{font:600 12px/1.3 var(--f-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ind-time{opacity:.8}
+.ghost.off{visibility:hidden}
 .now{position:absolute;left:0;right:0;height:2px;background:var(--now);box-shadow:0 0 12px var(--now);z-index:4;pointer-events:none}
 .now::before{content:"";position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--now)}
 

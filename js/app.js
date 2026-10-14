@@ -490,12 +490,14 @@ function moveDrag(x, y) {
   D.x = x; D.y = y; const hp = HP();
   if (D.kind === 'resize') { const r = D.block.getBoundingClientRect(); const n = node(D.id); const m = Math.max(15, Math.min(Math.round((y - r.top) / hp * 60 / 15) * 15, H1 * 60 - n.s)); D.newM = m; D.block.style.height = (m / 60 * hp - 2) + 'px'; D.block.querySelector('.b-time').textContent = `${fmtT(n.s)} – ${fmtT(n.s + m)}`; return; }
   D.g.style.transform = `translate(${x - D.offX}px,${y - D.offY}px)`;
-  const t = document.elementFromPoint(x, y)?.closest('[data-drop]'); clearMarks(); D.t = t || null; if (!t) return;
+  const t = document.elementFromPoint(x, y)?.closest('[data-drop]'); clearMarks(); D.g.classList.remove('off'); D.t = t || null; if (!t) return;
   const type = t.dataset.drop;
   if (type === 'col') {
     const r = t.getBoundingClientRect(); const dur = node(D.id).m || 60;
     let min = H0 * 60 + Math.round((y - (D.timed ? D.offY : 12) - r.top) / hp * 60 / 15) * 15; min = Math.max(H0 * 60, Math.min(min, H1 * 60 - dur)); D.min = min;
-    ind.style.top = ((min - H0 * 60) / 60 * hp) + 'px'; ind.style.height = (dur / 60 * hp - 2) + 'px'; ind.textContent = `${fmtT(min)} – ${fmtT(min + dur)}`; t.appendChild(ind);
+    ind.style.top = ((min - H0 * 60) / 60 * hp) + 'px'; ind.style.height = (dur / 60 * hp - 2) + 'px'; t.appendChild(ind);
+    // Over the time grid the dashed outline stands in for the item, so the floating copy hides
+    ind.innerHTML = `<div class="ind-t">${esc(node(D.id).t || 'Untitled')}</div><div class="ind-time">${fmtT(min)} – ${fmtT(min + dur)}</div>`; D.g.classList.add('off');
   } else if (type === 'list') {
     // Rows are tasks and calendar events; count how many of each come before the drop point
     const rows = [...t.querySelectorAll(':scope > .item:not(.dragging), :scope > .evr')]; let i = rows.findIndex(it => { const r = it.getBoundingClientRect(); return y < r.top + r.height / 2; }); if (i < 0) i = rows.length;
