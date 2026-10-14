@@ -22,9 +22,17 @@ body::before{content:"";position:fixed;inset:-25%;z-index:-1;pointer-events:none
   radial-gradient(34% 30% at 46% 92%,rgba(176,59,255,.40),transparent 70%),radial-gradient(22% 20% at 70% 60%,rgba(91,124,255,.18),transparent 70%);
   animation:aurora 28s ease-in-out infinite alternate}
 @keyframes aurora{from{transform:translate(0,0) rotate(0deg) scale(1)}to{transform:translate(4%,3%) rotate(8deg) scale(1.12)}}
-.orb{display:block;flex:none;width:30px;height:30px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff 0 6%,#9CB4FF 18%,#7B4DFF 48%,#1AC9A4 80%);box-shadow:0 0 22px 2px rgba(123,77,255,.55);animation:pulse 4s ease-in-out infinite}
-.orb.big{width:72px;height:72px;box-shadow:0 0 48px 8px rgba(123,77,255,.55)}
-@keyframes pulse{50%{transform:scale(1.06);box-shadow:0 0 34px 6px rgba(26,201,164,.45)}}
+/* Ask Claude's planet: soft violet world with drifting teal cloud bands and a hazy atmosphere */
+.orb{position:relative;display:block;flex:none;width:30px;height:30px;border-radius:50%;overflow:hidden;
+  background:radial-gradient(circle at 74% 80%,rgba(6,7,13,.85) 0 16%,rgba(6,7,13,.45) 40%,transparent 66%),
+    radial-gradient(circle at 32% 28%,#98A3EE 0,#7465E0 34%,#47309A 68%,#1E1F50 100%);
+  box-shadow:0 0 18px 2px rgba(124,110,240,.32);animation:planet 9s ease-in-out infinite}
+.orb::before{content:"";position:absolute;inset:0;border-radius:50%;background:repeating-linear-gradient(-22deg,transparent 0 9%,rgba(120,240,215,.2) 14%,rgba(255,255,255,.06) 18%,transparent 24%);background-size:220% 100%;animation:clouds 40s linear infinite;filter:blur(1px)}
+.orb::after{content:"";position:absolute;inset:0;border-radius:50%;box-shadow:inset 0 0 6px 1px rgba(150,160,255,.45),inset -3px -3px 8px rgba(79,227,193,.22)}
+.orb.big{width:72px;height:72px;box-shadow:0 0 44px 6px rgba(124,110,240,.32)}
+.orb.big::before{filter:blur(2px)}
+@keyframes planet{50%{box-shadow:0 0 26px 4px rgba(79,227,193,.24)}}
+@keyframes clouds{to{background-position:220% 0}}
 .glass{backdrop-filter:blur(20px) saturate(1.2);-webkit-backdrop-filter:blur(20px) saturate(1.2)}
 button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
 input{font:inherit;color:inherit}
@@ -107,8 +115,8 @@ body.ai-off .ai{display:none}
 .tip button{color:var(--muted);font-size:18px;line-height:1}
 
 /* Items */
-.item{display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:14px;background:var(--surface);border:1px solid var(--edge);user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;cursor:grab;touch-action:manipulation;transition:box-shadow .15s,opacity .15s}
-.item:hover{background:rgba(255,255,255,.08)}
+.item{display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:14px;background:rgba(255,255,255,.085);border:1px solid rgba(255,255,255,.17);box-shadow:inset 0 1px 0 rgba(255,255,255,.09),0 8px 20px -14px rgba(0,0,0,.7);backdrop-filter:blur(16px) saturate(1.3);-webkit-backdrop-filter:blur(16px) saturate(1.3);user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;cursor:grab;touch-action:manipulation;transition:box-shadow .15s,opacity .15s}
+.item:hover{background:rgba(255,255,255,.11)}
 .item .ck,.item .ring{margin-top:1px}
 .it-body{min-width:0;flex:1}
 .it-t{font-weight:500;overflow-wrap:break-word;hyphens:auto}
@@ -310,7 +318,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
   input,textarea:not(.dt-title),select{font-size:16px!important}
   .dt-title{font-size:24px}
 }
-@media (prefers-reduced-motion:reduce){*{transition:none!important}body::before,.orb{animation:none!important}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}body::before,.orb,.orb::before{animation:none!important}}
 
 .phone-only{display:none}
 @media (max-width:860px){.phone-only{display:inline-block}}
