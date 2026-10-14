@@ -18,7 +18,7 @@ self.addEventListener('fetch', e => {
   // Network first so updates show up right away; the cache covers offline.
   // no-cache makes the browser check with the server instead of reusing its
   // own short-lived copy, which kept old versions around for ten minutes.
-  e.respondWith(fetch(own ? new Request(e.request, { cache: 'no-cache' }) : e.request).then(res => {
+  e.respondWith((own ? fetch(e.request.url, { cache: 'no-cache' }) : fetch(e.request)).then(res => {
     if (res.ok || res.type === 'opaque') { const copy = res.clone(); caches.open(VERSION).then(c => c.put(e.request, copy)); }
     return res;
   }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(r => r || caches.match('index.html'))));
