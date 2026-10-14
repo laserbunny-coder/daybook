@@ -3,7 +3,7 @@
 import * as store from './store.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { add, DAYL, dayShort, esc, fmtDur, fmtT, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
-import { children, dayItems, hasKids, isDone, leaves, node, progress, rootOf, unscheduled } from './tree.js';
+import { children, dayItems, hasKids, heldBy, isDone, leaves, node, progress, rootOf, unscheduled } from './tree.js';
 
 let ctx = { cloud: false, client: null, anchor: () => today(), showPlan: () => {}, render: () => {} };
 const MSGS = lsGet('daybook-chat', []).filter(m => !m.typing).map(m => ({ ...m, u: null }));
@@ -30,6 +30,7 @@ function plannerState() {
     const o = { id: n.id, title: n.t, parent_id: n.p, done: !!n.done };
     if (hasKids(n.id) || n.c) { const p = progress(n.id); o.progress = `${p.done}/${p.total}`; }
     if (n.d) o.day = n.d;
+    else { const h = heldBy(n); if (h) o.scheduled_with = h.id; }
     if (n.s != null) o.start_min = n.s;
     o.duration_min = n.m || 60;
     if (n.due) o.due = n.due;

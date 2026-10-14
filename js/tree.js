@@ -19,5 +19,8 @@ const GLOW = { '#4B6CB7': '#7FA8FF', '#2E8B6E': '#4FE3C1', '#B7791F': '#FFC56B',
 export const glow = c => (c && GLOW[c.toUpperCase()]) || c;
 export const colorOf = n => glow(rootOf(n).c) || '#B9BCD0';
 export const dayItems = d => store.all().filter(n => n.d === d).sort((a, b) => a.o - b.o);
-export const unscheduled = () => store.all().filter(n => !n.d && !hasKids(n.id) && !n.done && !n.c);
+/* A step with no day of its own rides along with the nearest scheduled project above it. */
+export const heldBy = n => { let p = n.p && node(n.p); while (p) { if (p.d) return p; p = p.p && node(p.p); } return null; };
+export const riders = id => children(id).filter(c => !c.d).flatMap(c => hasKids(c.id) ? riders(c.id) : [c]);
+export const unscheduled = () => store.all().filter(n => !n.d && !hasKids(n.id) && !n.done && !n.c && !heldBy(n));
 export const PALETTE = ['#7FA8FF', '#4FE3C1', '#FFC56B', '#D58CFF', '#FF8A8A', '#5FD4F0', '#C9D66B', '#FF8FC8'];

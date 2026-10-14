@@ -49,7 +49,7 @@ export const TOOLS = [
       properties: {
         from: str("First day to include, YYYY-MM-DD."),
         to: str("Last day to include, YYYY-MM-DD."),
-        unscheduled: { type: "boolean", description: "Only tasks with no day." },
+        unscheduled: { type: "boolean", description: "Only tasks with no day of their own and no scheduled project above them (steps of a scheduled project are worked on with it)." },
         project_id: str("Only tasks anywhere under this project."),
         query: str("Only tasks whose title contains these words."),
         include_done: { type: "boolean", description: "Include tasks already checked off." },
@@ -246,7 +246,7 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       const words = typeof args.query === "string" ? args.query.toLowerCase().split(/\s+/).filter(Boolean) : [];
       let rows = [...t.byId.values()].filter((r) => !t.isProject(r));
       if (!args.include_done) rows = rows.filter((r) => !r.done);
-      if (args.unscheduled) rows = rows.filter((r) => !r.day);
+      if (args.unscheduled) rows = rows.filter((r) => !r.day && !t.ancestors(r).some((a) => a.day));
       if (from) rows = rows.filter((r) => r.day && r.day >= from);
       if (to) rows = rows.filter((r) => r.day && r.day <= to);
       if (under) rows = rows.filter((r) => t.ancestors(r).includes(under));
