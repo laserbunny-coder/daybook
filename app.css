@@ -122,6 +122,19 @@ body.ai-off .ai{display:none}
 .item.done .it-t{color:var(--faint);text-decoration:line-through}
 .item.compact{padding:5px 8px;gap:7px;border-radius:10px;font-size:13px}
 .item.compact .it-m{display:none}
+.subs{margin-top:6px;display:flex;flex-direction:column;gap:2px;border-left:1.5px solid color-mix(in srgb,var(--pc) 45%,transparent);padding-left:8px}
+.sub{display:flex;align-items:center;gap:7px;font-size:13px;padding:2px 0;cursor:grab;border-radius:6px}
+.sub:hover{background:rgba(255,255,255,.06)}
+.sub .ck,.sub .ring{width:14px;height:14px;flex:none;margin:0}
+.sub span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sub.done span{color:var(--faint);text-decoration:line-through}
+.item.compact .subs{margin-top:4px;padding-left:6px}
+.item.compact .sub{font-size:12px}
+.block .subs{margin-top:3px;padding-left:6px}
+.block .sub{font-size:11px;padding:1px 0}
+.block .sub .ck{width:12px;height:12px}
+.sub.dragging{opacity:.35}
+.ghost.sub{background:var(--solid);border:1px solid var(--edge);padding:6px 10px;border-radius:10px}
 .item.compact .ck,.item.compact .ring{width:15px;height:15px;margin-top:2px}
 .item.compact .ring{-webkit-mask:radial-gradient(circle,transparent 4px,#000 4.5px);mask:radial-gradient(circle,transparent 4px,#000 4.5px)}
 .dragging{opacity:.3}
