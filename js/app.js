@@ -529,12 +529,14 @@ function startDrag() {
     if (D.timed) { g.style.height = r.height + 'px'; D.offX = Math.min(P.x - r.left, w - 10); } else D.offY = Math.min(D.offY, 24);
     document.body.appendChild(g); D.g = g; el.classList.add('dragging');
   }
-  D.fromDr = !!el.closest('.drawer'); if (D.fromDr) document.body.classList.add('dr-drag');
+  D.fromDr = !!el.closest('.drawer'); // the drawer steps aside once the finger starts carrying the item away (see moveDrag)
   if (D.kind !== 'resize' && node(D.id)?.d) document.body.classList.add('drag-sched'); // the tab bar offers to unschedule it
   el.classList.remove('pressing'); document.body.classList.add('is-dragging'); P = null; moveDrag(D.x, D.y); requestAnimationFrame(autoScroll);
 }
 function clearMarks() { ind.remove(); ins.remove(); document.querySelectorAll('.over').forEach(x => x.classList.remove('over')); }
 function moveDrag(x, y) {
+  if (D.fromDr && !D.sunk && Math.hypot(x - D.x, y - D.y) > 12) { D.sunk = true; document.body.classList.add('dr-drag'); }
+  if (!D.sunk && D.fromDr) { D.g.style.transform = `translate(${x - D.offX}px,${y - D.offY}px)`; return; } // still over the drawer: nothing to drop on yet
   D.x = x; D.y = y; const hp = HP();
   if (D.kind === 'resize') { const r = D.block.getBoundingClientRect(); const n = node(D.id); const m = Math.max(15, Math.min(Math.round((y - r.top) / hp * 60 / 15) * 15, H1 * 60 - n.s)); D.newM = m; D.block.style.height = (m / 60 * hp - 2) + 'px'; D.block.querySelector('.b-time').textContent = `${fmtT(n.s)} – ${fmtT(n.s + m)}`; return; }
   D.g.style.transform = `translate(${x - D.offX}px,${y - D.offY}px)`;
@@ -618,7 +620,8 @@ document.addEventListener('touchmove', e => {
   if (!SW || D) return; const t = e.touches[0], dy = t.clientY - SW.y, dx = Math.abs(t.clientX - SW.x);
   if (SW.up ? dy < -18 && -dy > dx : dy > 36 && dy > dx) { setDrawer(SW.up); renderTabs(); SW = null; justDragged = true; setTimeout(() => justDragged = false, 300); }
 }, { passive: true });
-document.addEventListener('contextmenu', e => { if (e.target.closest('[data-drag]')) e.preventDefault(); });
+// A phone's long-press menu would cancel the touch mid-drag. Once the drawer slides away the finger is over the plan, not the item, so block it during any press or drag.
+document.addEventListener('contextmenu', e => { if (P || D || e.target.closest('[data-drag]')) e.preventDefault(); });
 
 /* Zoom the time-blocked view: pinch on a phone, Ctrl (or Cmd) + scroll wheel or trackpad pinch on a computer */
 const ZOOM_KEY = 'daybook-zoom', HP_MIN = 20, HP_MAX = 200;
