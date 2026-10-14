@@ -235,13 +235,13 @@ function renderDetail() {
   if (!n) { S.open = null; el.hidden = true; el.innerHTML = ''; return; }
   const ae = document.activeElement;
   if (!el.hidden && el.contains(ae) && ae.matches('textarea,input') && el.querySelector('.dt-body')?.dataset.id === n.id && ae.id !== 'dt-add-in') return; // don't interrupt typing
-  const body = el.querySelector('.dt-body'); const prevSc = body?.dataset.id === n.id ? body.scrollTop : 0;
+  const body = el.querySelector('.dt-body'); const same = !el.hidden && body?.dataset.id === n.id; const prevSc = same ? body.scrollTop : 0;
   el.hidden = false; const anc = ancestors(n), kids = children(n.id), pr = progress(n.id), pct = pr.total ? Math.round(pr.done / pr.total * 100) : 0;
   const up = anc[anc.length - 1]; const durs = [5, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 480];
   if (!durs.includes(n.m || 60)) durs.push(n.m || 60);
   const count = leaves(n.id).length - (kids.length ? 0 : 1);
   el.innerHTML = `<div class="dt-back" data-act="close"></div>
-  <section class="dt" role="dialog" aria-modal="true" aria-label="${esc(n.t)}" style="--pc:${colorOf(n)}">
+  <section class="dt${same ? ' still' : ''}" role="dialog" aria-modal="true" aria-label="${esc(n.t)}" style="--pc:${colorOf(n)}">
     <div class="dt-top"><button class="dt-up" data-act="${up ? 'open' : 'close'}" data-id="${up ? up.id : ''}">${ICON.prev}<span>${up ? esc(up.t) : 'Back'}</span></button><button class="ib" data-act="close" aria-label="Close">${ICON.close}</button></div>
     <div class="dt-body vscroll" data-id="${n.id}">
       ${anc.length > 1 ? `<div class="dt-crumbs">${anc.map(a => `<button data-act="open" data-id="${a.id}">${esc(a.t)}</button>`).join('<span>›</span>')}</div>` : ''}
