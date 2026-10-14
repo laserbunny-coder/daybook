@@ -14,7 +14,10 @@ export function progress(id) {
 export function isDone(n) { if (!hasKids(n.id)) return n.done; const p = progress(n.id); return p.total > 0 && p.done === p.total; }
 export function ancestors(n) { const a = []; let p = n.p && node(n.p); while (p) { a.unshift(p); p = p.p && node(p.p); } return a; }
 export const rootOf = n => ancestors(n)[0] || n;
-export const colorOf = n => rootOf(n).c || '#8A918C';
+/* Aurora look: project colours glow on the dark glass. Older saved colours map to their glowing twin. */
+const GLOW = { '#4B6CB7': '#7FA8FF', '#2E8B6E': '#4FE3C1', '#B7791F': '#FFC56B', '#9B5BA5': '#D58CFF', '#C0564B': '#FF8A8A', '#3E8E9E': '#5FD4F0', '#7A7F2E': '#C9D66B', '#B0567F': '#FF8FC8', '#8A918C': '#B9BCD0' };
+export const glow = c => (c && GLOW[c.toUpperCase()]) || c;
+export const colorOf = n => glow(rootOf(n).c) || '#B9BCD0';
 export const dayItems = d => store.all().filter(n => n.d === d).sort((a, b) => a.o - b.o);
 export const unscheduled = () => store.all().filter(n => !n.d && !hasKids(n.id) && !n.done && !n.c);
-export const PALETTE = ['#4B6CB7', '#2E8B6E', '#B7791F', '#9B5BA5', '#C0564B', '#3E8E9E', '#7A7F2E', '#B0567F'];
+export const PALETTE = ['#7FA8FF', '#4FE3C1', '#FFC56B', '#D58CFF', '#FF8A8A', '#5FD4F0', '#C9D66B', '#FF8FC8'];

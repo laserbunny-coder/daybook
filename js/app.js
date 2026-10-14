@@ -3,7 +3,7 @@ import * as calendar from './calendar.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { initAI, ask, undo, renderMsgs, clearChat, breakDownLocal } from './ai.js';
 import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fmtDur, fmtShort, fmtT, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
-import { ancestors, children, colorOf, dayItems, hasKids, isDone, isProj, leaves, node, PALETTE, progress, rootOf, unscheduled } from './tree.js';
+import { ancestors, children, colorOf, dayItems, glow, hasKids, isDone, isProj, leaves, node, PALETTE, progress, rootOf, unscheduled } from './tree.js';
 
 const H0 = 6, H1 = 23;
 const HP = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hp')) || 48;
@@ -75,7 +75,7 @@ function treeRows(n, dep) {
 function projHTML(p) {
   const pr = progress(p.id), pct = pr.total ? Math.round(pr.done / pr.total * 100) : 0;
   let due = ''; if (p.due) { const left = daysBetween(today(), p.due); due = `<div class="due">Due ${fmtShort(p.due)} · ${left < 0 ? `${-left} days overdue` : left === 0 ? 'today' : `${left} days left`}</div>`; }
-  return `<div class="proj" style="--pc:${p.c || colorOf(p)}">
+  return `<div class="proj" style="--pc:${glow(p.c) || colorOf(p)}">
     <div class="proj-h" data-drag data-id="${p.id}"><button class="caret${S.col[p.id] ? ' shut' : ''}" data-act="fold" data-id="${p.id}" aria-label="Show or hide ${esc(p.t)}"></button><span class="pdot"></span><span class="proj-t">${esc(p.t || 'Untitled')}</span><span class="proj-n">${pr.total ? pct + '%' : ''}</span><button class="plus" data-act="add" data-id="${p.id}" aria-label="Add a task to ${esc(p.t)}" title="Add a task">+</button></div>
     <div class="bar"><i style="width:${pct}%"></i></div>${due}
     ${S.col[p.id] ? addRow(p.id, 1) : `<div class="tree">${children(p.id).map(c => treeRows(c, 1)).join('')}${addRow(p.id, 1)}</div>`}</div>`;
@@ -249,7 +249,7 @@ function renderDetail() {
         ${linkHTML(n)}
       </div>
       ${S.dtpick ? pickerHTML(n, 0) : ''}
-      ${n.p == null && isProj(n) ? `<div class="swatches" role="group" aria-label="Color">${PALETTE.map(c => `<button class="sw${n.c === c ? ' on' : ''}" style="--sw:${c}" data-act="color" data-c="${c}" aria-label="Color ${c}"></button>`).join('')}</div>` : ''}
+      ${n.p == null && isProj(n) ? `<div class="swatches" role="group" aria-label="Color">${PALETTE.map(c => `<button class="sw${glow(n.c) === c ? ' on' : ''}" style="--sw:${c}" data-act="color" data-c="${c}" aria-label="Color ${c}"></button>`).join('')}</div>` : ''}
       <div class="dt-sec">Notes</div>
       <textarea id="dt-notes" class="dt-notes" placeholder="Thoughts, links, where to start. These will be here when you sit down to do it." aria-label="Notes">${esc(n.notes || '')}</textarea>
       <div class="dt-saved" id="dt-saved" aria-live="polite"></div>
@@ -310,7 +310,7 @@ function reorder(date, id, idx, patch) {
 }
 function setDay(id, d) { const n = node(id); const patch = { d: d || null, o: Date.now() / 1000 }; if (n.d !== d) { patch.s = null; patch.a = null; } S.pick = null; S.dtpick = false; store.update(id, patch); if (d) toast(`${n.t} → ${d === today() ? 'today' : DAYL[pd(d).getDay()] + ' ' + fmtShort(d)}`); }
 function newProject() {
-  const used = new Set(store.all().filter(n => n.p == null && n.c).map(n => n.c));
+  const used = new Set(store.all().filter(n => n.p == null && n.c).map(n => glow(n.c)));
   const c = PALETTE.find(x => !used.has(x)) || PALETTE[store.all().length % PALETTE.length];
   const n = store.create({ t: '', c, o: Date.now() / 1000 });
   openItem(n.id, true);
