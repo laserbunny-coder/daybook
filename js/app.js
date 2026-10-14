@@ -3,7 +3,7 @@ import * as calendar from './calendar.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { initAI, ask, undo, renderMsgs, clearChat, breakDownLocal } from './ai.js';
 import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
-import { ancestors, children, colorOf, dayItems, glow, hasKids, isDone, isProj, leaves, node, PALETTE, progress, rootOf, unscheduled } from './tree.js';
+import { ancestors, children, colorOf, dayItems, glow, hasKids, isDone, isProj, leaves, node, PALETTE, progress, rootOf } from './tree.js';
 
 const H0 = 6, H1 = 23;
 const HP = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hp')) || 48;
@@ -28,7 +28,7 @@ const ICON = {
 
 /* View state (per device) */
 const UI_KEY = 'daybook-ui';
-const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), pick: null, adding: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, mcp: null };
+const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), pick: null, adding: null, drOpen: false, drAt: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, mcp: null };
 S.anchor = today();
 const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min });
 let client = null, user = null, configured = false, shown = today(), supaUrl = '';
@@ -193,8 +193,8 @@ function blocksHTML(d) {
     const pos = `top:${hpx((s - H0 * 60) / 60)};height:max(${hpx((e - s) / 60)} - 2px, 18px);left:${it.lane / it.lanes * 100}%;width:calc(${100 / it.lanes}% - 4px)`;
     const tm = `${fmtT(it.s)} – ${fmtT(it.s + it.m)}`;
     if (it.ev) return `<div class="ev" style="${pos}" title="${esc(it.ev.cal || '')}"><div class="b-t">${esc(it.ev.t)}</div><div class="b-time">${tm}</div></div>`;
-    const n = it.n;
-    return `<div class="block${isDone(n) ? ' done' : ''}" data-drag data-id="${n.id}" style="${pos};--pc:${colorOf(n)}">${ckHTML(n)}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${tm}</div></div><div class="rs"></div></div>`;
+    const n = it.n, pr = hasKids(n.id) && progress(n.id); // a whole project in a block is a work session: show how far along it is
+    return `<div class="block${isDone(n) ? ' done' : ''}" data-drag data-id="${n.id}" style="${pos};--pc:${colorOf(n)}">${ckHTML(n)}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${tm}${pr ? ` · ${pr.done}/${pr.total}` : ''}</div></div><div class="rs"></div></div>`;
   }).join('');
 }
 function nowHTML(d) { if (d !== today()) return ''; const m = nowMin(); if (m < H0 * 60 || m > H1 * 60) return ''; return `<div class="now" style="top:${hpx((m - H0 * 60) / 60)}"></div>`; }
@@ -206,6 +206,41 @@ function timed(days) {
     <div class="trow tbody"><div class="gut hrs">${hrs.map(h => `<div class="hl" style="top:${hpx(h - H0)}">${h % 12 || 12}${h < 12 ? 'am' : 'pm'}</div>`).join('')}</div>
     ${days.map(d => `<div class="col${d === today() ? ' today' : ''}" data-drop="col" data-date="${d}">${blocksHTML(d)}${nowHTML(d)}</div>`).join('')}</div>
   </div></div>`;
+}
+/* Phone: the projects drawer. It pulls up out of the tab bar over the plan; hold anything in it and drag it onto the day.
+   A whole project dropped on a time becomes a work session for its steps. */
+function drRow(n) {
+  const kids = hasKids(n.id), when = n.d ? `<span class="dr-when">${whenLabel(n)}</span>` : '';
+  if (!kids) return `<div class="dr-row" data-drag data-id="${n.id}" data-act="open" style="--pc:${colorOf(n)}"><span class="dr-ck"></span><div class="dr-txt"><b>${esc(n.t || 'Untitled')}</b>${n.m ? `<small>${fmtDur(n.m)}</small>` : ''}</div>${when}</div>`;
+  const open = leaves(n.id).filter(l => !l.done).length, p = progress(n.id);
+  return `<div class="dr-row" data-drag data-id="${n.id}" data-act="dr-in" style="--pc:${colorOf(n)}"><span class="ring" style="--p:${p.total ? p.done / p.total : 0}"></span><div class="dr-txt"><b>${esc(n.t || 'Untitled')}</b><small>${open ? `${open} open step${open > 1 ? 's' : ''}` : 'All done'}</small></div>${when}<span class="chev" aria-hidden="true">›</span></div>`;
+}
+function drawerHTML() {
+  if (!phone()) return '';
+  const at = S.drAt && node(S.drAt); if (!at) S.drAt = null;
+  let top, body;
+  if (at) {
+    const kids = children(at.id), open = kids.filter(k => !isDone(k)), done = kids.length - open.length, p = progress(at.id);
+    top = `<button class="dr-up" data-act="dr-in" data-id="${at.p || ''}" aria-label="Back">${ICON.prev}</button><div class="dr-title">${esc(at.t || 'Untitled')}</div>`;
+    body = `<div class="dr-row dr-sess" data-drag data-id="${at.id}" data-act="open" style="--pc:${colorOf(at)}"><span class="ring" style="--p:${p.total ? p.done / p.total : 0}"></span><div class="dr-txt"><b>Whole ${at.p ? 'part' : 'project'}</b><small>Drag onto your day as a work session</small></div>${at.d ? `<span class="dr-when">${whenLabel(at)}</span>` : ''}</div>
+      <div class="dr-sub">Steps</div>${open.map(drRow).join('') || `<div class="dr-empty">${kids.length ? 'Every step is done.' : 'No steps yet. Add them in Projects.'}</div>`}
+      ${done ? `<div class="dr-empty">${done} done</div>` : ''}`;
+  } else {
+    const { groups, loose } = areaGroups(), todo = loose.filter(n => !n.done);
+    top = `<div class="dr-title">Projects</div><span class="dr-hint">Hold and drag onto your day</span>`;
+    body = groups.filter(g => g.projs.length).map(g => `<div class="dr-area"><span class="pdot" style="--pc:${g.a?.c || '#B9BCD0'}"></span>${g.a ? esc(g.a.t || 'Untitled area') : 'No area'}</div>${g.projs.map(drRow).join('')}`).join('')
+      + (todo.length ? `<div class="dr-area"><span class="pdot" style="--pc:var(--muted)"></span>Inbox</div>${todo.map(drRow).join('')}` : '')
+      || '<div class="dr-empty">No projects yet. Add them in Projects.</div>';
+  }
+  return `<div class="dr-back${S.drOpen ? ' on' : ''}" data-act="dr-close"></div>
+  <section class="drawer${S.drOpen ? ' on' : ''}" id="drawer" aria-label="Projects to schedule"${S.drOpen ? '' : ' inert'}>
+    <div class="dr-h" id="dr-h"><span class="dr-grab"></span><div class="dr-top">${top}</div></div>
+    <div class="dr-b" id="dr-b" data-k="${S.drAt || ''}">${body}</div></section>`;
+}
+function setDrawer(open) {
+  S.drOpen = open; document.body.classList.toggle('dr-on', open);
+  const d = document.getElementById('drawer'); if (!d) return;
+  d.classList.toggle('on', open); d.inert = !open; d.previousElementSibling.classList.toggle('on', open);
 }
 const pageSeg = () => `<div class="seg page-seg" role="group" aria-label="Page"><button data-act="page" data-v="plan" aria-pressed="${!boardShown()}">Plan</button><button data-act="page" data-v="projects" aria-pressed="${boardShown()}">Projects</button></div>`;
 function renderBoard(el) {
@@ -228,7 +263,8 @@ function renderMain() {
   calendar.ensure(days[0], days[days.length - 1]);
   const we = pd(add(ws, 6)), a = pd(S.anchor);
   const title = S.view === 'week' ? `${MON[pd(ws).getMonth()]} ${pd(ws).getDate()} – ${pd(ws).getMonth() === we.getMonth() ? '' : MON[we.getMonth()] + ' '}${we.getDate()}` : `${S.anchor === today() ? 'Today' : DAYL[a.getDay()]}, ${MON[a.getMonth()]} ${a.getDate()}`;
-  const P = (k, v) => `aria-pressed="${S[k] === v}"`; const un = unscheduled();
+  const P = (k, v) => `aria-pressed="${S[k] === v}"`;
+  const prevDr = document.getElementById('dr-b'); const drSc = prevDr && prevDr.dataset.k === (S.drAt || '') ? prevDr.scrollTop : 0;
   const warn = store.sync.state === 'offline' || store.sync.state === 'error' ? `<div class="tip warn"><span>${SYNC_TEXT[store.sync.state]}</span></div>` : '';
   el.innerHTML = `<header class="mh">
     <div class="mh-l">${pageSeg()}<h1>${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div></div>
@@ -237,10 +273,10 @@ function renderMain() {
     ${S.mode === 'list' ? `<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Minimal list" title="Minimal list: just task titles">${ICON.min}</button>` : ''}
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
   <div class="mbody vscroll${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
-    ${S.tip ? `<div class="tip"><span>Tap a task to open it and add notes. Drag to move it. On a phone, press and hold, then drag.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
-    <div class="strip" data-drop="inbox"><div class="strip-l">Unscheduled · ${un.length}</div><div class="strip-row hscroll">${un.length ? un.map(n => chipHTML(n, { compact: true })).join('') : '<span class="strip-empty">Nothing waiting. Add tasks under Projects.</span>'}</div></div>
+    ${S.tip ? `<div class="tip"><span>Tap a task to open it and add notes. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
     ${S.mode === 'list' ? (S.view === 'week' ? weekList(days) : dayList(days[0])) : timed(days)}
-  </div>`;
+  </div>${drawerHTML()}`;
+  const dr = document.getElementById('dr-b'); if (dr) dr.scrollTop = drSc;
   const mb = document.getElementById('mbody');
   if (sc != null) { mb.scrollTop = sc; const tw = mb.querySelector('.tw'); if (tw && hsc != null) tw.scrollLeft = hsc; }
   else if (S.mode === 'timed') {
@@ -250,7 +286,9 @@ function renderMain() {
 }
 function renderTabs() {
   const t = [['plan', 'Plan', ICON.plan], ['projects', 'Projects', ICON.proj], ['ask', 'Ask Claude', ICON.ask]];
-  document.getElementById('tabs').innerHTML = t.map(([k, l, i]) => `<button data-act="tab" data-v="${k}" aria-current="${S.tab === k}">${i}<span>${l}</span></button>`).join('');
+  const nav = document.getElementById('tabs'); nav.dataset.drop = 'inbox';
+  nav.innerHTML = t.map(([k, l, i]) => `<button data-act="tab" data-v="${k}" aria-current="${S.tab === k}">${i}<span>${l}</span></button>`).join('')
+    + (S.tab === 'plan' ? `<button class="tab-grab" data-act="drawer" aria-label="${S.drOpen ? 'Hide' : 'Show'} projects to schedule" aria-expanded="${S.drOpen}"></button>` : '');
   document.body.dataset.tab = S.tab; document.body.dataset.page = boardShown() ? 'projects' : 'plan';
 }
 
@@ -422,7 +460,10 @@ document.addEventListener('click', e => {
     case 'today': S.anchor = today(); render(); break;
     case 'goday': S.anchor = b.dataset.d; S.view = 'day'; render(); break;
     case 'tip': S.tip = false; render(); break;
-    case 'tab': S.tab = b.dataset.v; render(); break;
+    case 'tab': S.tab = b.dataset.v; S.drOpen = false; document.body.classList.remove('dr-on'); render(); break;
+    case 'drawer': setDrawer(!S.drOpen); renderTabs(); break;
+    case 'dr-close': setDrawer(false); renderTabs(); break;
+    case 'dr-in': S.drAt = id || null; renderMain(); break;
     case 'ai-toggle': document.body.classList.toggle('ai-off'); break;
     case 'reset': store.resetLocal(store.sampleData); toast('Sample data restored'); break;
     case 'ask': openAI(); ask(b.dataset.q); break;
@@ -488,6 +529,8 @@ function startDrag() {
     if (D.timed) { g.style.height = r.height + 'px'; D.offX = Math.min(P.x - r.left, w - 10); } else D.offY = Math.min(D.offY, 24);
     document.body.appendChild(g); D.g = g; el.classList.add('dragging');
   }
+  D.fromDr = !!el.closest('.drawer'); if (D.fromDr) document.body.classList.add('dr-drag');
+  if (D.kind !== 'resize' && node(D.id)?.d) document.body.classList.add('drag-sched'); // the tab bar offers to unschedule it
   el.classList.remove('pressing'); document.body.classList.add('is-dragging'); P = null; moveDrag(D.x, D.y); requestAnimationFrame(autoScroll);
 }
 function clearMarks() { ind.remove(); ins.remove(); document.querySelectorAll('.over').forEach(x => x.classList.remove('over')); }
@@ -511,7 +554,8 @@ function moveDrag(x, y) {
   } else t.classList.add('over');
 }
 function endDrag() {
-  const d = D; D = null; clearMarks(); document.body.classList.remove('is-dragging'); d.g?.remove(); d.el.classList.remove('dragging');
+  const d = D; D = null; clearMarks(); document.body.classList.remove('is-dragging', 'dr-drag', 'drag-sched'); d.g?.remove(); d.el.classList.remove('dragging');
+  if (d.fromDr && d.t) { S.drOpen = false; document.body.classList.remove('dr-on'); renderTabs(); }
   const n = node(d.id);
   justDragged = true; setTimeout(() => justDragged = false, 80);
   if (!n) return render();
@@ -565,6 +609,15 @@ document.addEventListener('touchmove', e => {
 }, { passive: false });
 const tend = e => { clearTimeout(lp); if (D) { e.preventDefault(); endDrag(); } if (P) { P.el.classList.remove('pressing'); P = null; } };
 document.addEventListener('touchend', tend, { passive: false }); document.addEventListener('touchcancel', tend, { passive: false });
+let SW = null;
+document.addEventListener('touchstart', e => {
+  const t = e.touches[0], up = S.tab === 'plan' && !S.drOpen && e.target.closest('#tabs'), down = S.drOpen && e.target.closest('#dr-h');
+  SW = e.touches.length === 1 && (up || down) ? { x: t.clientX, y: t.clientY, up: !!up } : null;
+}, { passive: true });
+document.addEventListener('touchmove', e => {
+  if (!SW || D) return; const t = e.touches[0], dy = t.clientY - SW.y, dx = Math.abs(t.clientX - SW.x);
+  if (SW.up ? dy < -18 && -dy > dx : dy > 36 && dy > dx) { setDrawer(SW.up); renderTabs(); SW = null; justDragged = true; setTimeout(() => justDragged = false, 300); }
+}, { passive: true });
 document.addEventListener('contextmenu', e => { if (e.target.closest('[data-drag]')) e.preventDefault(); });
 
 /* Zoom the time-blocked view: pinch on a phone, Ctrl (or Cmd) + scroll wheel or trackpad pinch on a computer */

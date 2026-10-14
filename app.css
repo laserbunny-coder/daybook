@@ -130,7 +130,7 @@ body.ai-off .ai{display:none}
 .item.compact .ring{-webkit-mask:radial-gradient(circle,transparent 4px,#000 4.5px);mask:radial-gradient(circle,transparent 4px,#000 4.5px)}
 .dragging{opacity:.3}
 .ghost{position:fixed;left:0;top:0;z-index:100;pointer-events:none;box-shadow:0 16px 40px rgba(0,0,0,.5),0 0 0 1px rgba(143,168,255,.5);transform-origin:20px 20px;opacity:.95}
-.ghost.item,.ghost.tr{background:var(--solid);border:1px solid var(--edge);border-radius:14px}
+.ghost.item,.ghost.tr,.ghost.dr-row{background:var(--solid);border:1px solid var(--edge);border-radius:14px}
 .pressing{transform:scale(.98);transition:transform .25s}
 body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .over{background:var(--accent-soft)!important}
@@ -230,8 +230,8 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);opacity:0;background:rgba(20,22,36,.85);border:1px solid var(--edge);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);color:var(--fg);padding:10px 16px;border-radius:999px;font-size:13px;z-index:200;transition:all .25s;pointer-events:none;max-width:calc(100% - 32px)}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 
-/* Phone strip of unscheduled tasks */
-.strip{display:none}
+/* Phone projects drawer, pulled up out of the tab bar */
+.drawer,.dr-back,.tab-grab{display:none}
 .tabs{display:none}
 
 @media (max-width:1180px){
@@ -252,14 +252,45 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
   .tabs button svg{width:22px;height:22px}
   .tabs button[aria-current="true"]{color:#fff}
   .tabs button[aria-current="true"] svg{filter:drop-shadow(0 0 6px rgba(143,168,255,.8))}
+  .tabs{position:relative;z-index:25;padding-top:10px}
+  /* The grab line sits on the bar's top edge, right above Projects (the middle tab) */
+  .tabs .tab-grab{display:block;position:absolute;top:0;left:50%;width:84px;height:16px;margin-left:-42px;padding:0;flex:none}
+  .tab-grab::before{content:"";position:absolute;top:4px;left:50%;width:24px;height:3px;margin-left:-12px;border-radius:2px;background:rgba(241,242,250,.24);transition:background .2s,width .25s,margin .25s}
+  .tab-grab:hover::before,body.dr-on .tab-grab::before{background:rgba(241,242,250,.5);width:32px;margin-left:-16px}
+  body.drag-sched .tabs::after{content:"Drop here to unschedule";position:absolute;inset:0;border-radius:inherit;display:grid;place-items:center;background:rgba(20,22,36,.94);color:var(--muted);font-weight:600;font-size:13px;pointer-events:none}
+  body.drag-sched .tabs.over::after{color:var(--fg);box-shadow:inset 0 0 0 1.5px var(--accent)}
+  .main{position:relative}
+  .dr-back{display:block;position:absolute;inset:0;z-index:19;background:rgba(3,4,10,.45);opacity:0;pointer-events:none;transition:opacity .25s}
+  .dr-back.on{opacity:1;pointer-events:auto}
+  .drawer{display:flex;flex-direction:column;position:absolute;left:0;right:0;bottom:-44px;z-index:20;max-height:calc(76% + 44px);padding-bottom:44px;
+    border-radius:26px 26px 0 0;border:1px solid var(--edge);border-bottom:0;background:rgba(16,18,30,.88);backdrop-filter:blur(26px) saturate(1.2);-webkit-backdrop-filter:blur(26px) saturate(1.2);
+    box-shadow:0 -18px 50px rgba(0,0,0,.5);transform:translateY(105%);visibility:hidden;transition:transform .34s cubic-bezier(.2,.8,.2,1),visibility 0s .34s}
+  .drawer.on{transform:none;visibility:visible;transition:transform .34s cubic-bezier(.2,.8,.2,1)}
+  /* While something from the drawer is being dragged, the drawer sinks back into the bar so the whole day is free */
+  body.dr-drag .drawer{transform:translateY(105%);opacity:0;transition:transform .25s ease-in,opacity .25s}
+  body.dr-drag .dr-back{opacity:0;pointer-events:none}
+  .dr-h{flex:none;padding:8px 16px 4px;touch-action:none}
+  .dr-grab{display:block;width:36px;height:4px;border-radius:2px;background:rgba(241,242,250,.22);margin:0 auto 10px}
+  .dr-top{display:flex;align-items:center;gap:10px;min-height:30px}
+  .dr-title{flex:1;min-width:0;font:500 16px/1.2 var(--f-display);letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dr-hint{flex:none;font-size:11.5px;color:var(--faint)}
+  .dr-up{flex:none;width:30px;height:30px;display:grid;place-items:center;border-radius:50%;background:var(--sunk);color:var(--fg)}
+  .dr-up svg{width:14px;height:14px}
+  .dr-b{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:6px;padding:4px 14px 18px}
+  .dr-area,.dr-sub{display:flex;align-items:center;gap:8px;font:600 10.5px/1 var(--f-body);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:14px 4px 4px}
+  .dr-row{display:flex;align-items:center;gap:12px;min-height:52px;padding:9px 14px;border-radius:16px;background:rgba(255,255,255,.045);border:1px solid var(--line);cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+  .dr-row .ring{width:20px;height:20px}
+  .dr-ck{width:18px;height:18px;flex:none;border-radius:6px;border:1.5px solid color-mix(in srgb,var(--pc) 70%,var(--fg))}
+  .dr-txt{flex:1;min-width:0}
+  .dr-txt b{display:block;font-weight:600;font-size:14px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dr-txt small{display:block;font-size:11.5px;color:var(--muted);margin-top:1px}
+  .dr-when{flex:none;font:500 10.5px var(--f-mono);color:var(--accent)}
+  .dr-sess{background:color-mix(in srgb,var(--pc) 13%,transparent);border-color:color-mix(in srgb,var(--pc) 38%,transparent)}
+  .dr-empty{font-size:13px;color:var(--faint);padding:6px 4px}
   .mh{padding:12px 16px 10px}
   .mh h1{font-size:19px}
   .mh-r{width:100%;justify-content:space-between}
   .tip{margin:10px 16px 0}
-  .strip{display:block;padding:10px 0 4px;border-bottom:1px solid var(--line)}
-  .strip-l{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:0 16px 6px}
-  .strip-row{display:flex;gap:6px;padding:0 16px 8px}
-  .strip-row .item{flex:none;max-width:200px}
   .wk{grid-template-columns:1fr}
   .wcol{border-right:0;border-bottom:1px solid var(--line);padding:10px 16px 14px}
   .list{min-height:44px}
@@ -337,7 +368,6 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .foot-acts{display:flex;gap:14px;flex-wrap:wrap;margin-top:2px}
 .tip.warn{background:color-mix(in srgb,var(--warn) 14%,transparent)}
 .wcol.past{opacity:.7}
-.strip-empty{font-size:13px;color:var(--faint);padding:4px 0}
 .ev-all{font-size:11px;padding:3px 6px;border-radius:8px;border:1px dashed var(--edge);background:var(--stripes) var(--ev);color:var(--ev-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pick-date{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
 .pick-date input{border:0;background:transparent;font:inherit;color:var(--fg);max-width:130px}
