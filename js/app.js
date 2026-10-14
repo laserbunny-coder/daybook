@@ -7,6 +7,8 @@ import { ancestors, children, colorOf, dayItems, hasKids, isDone, isProj, leaves
 
 const H0 = 6, H1 = 23;
 const HP = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hp')) || 48;
+// Positions in the time grid are written in hours of --hp, so zooming only has to change --hp
+const hpx = h => `calc(var(--hp) * ${+h.toFixed(4)})`;
 const phone = () => matchMedia('(max-width:860px)').matches;
 const ICON = {
   prev: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 3L5 8l5 5"/></svg>',
@@ -149,24 +151,23 @@ function layout(items) {
   return items;
 }
 function blocksHTML(d) {
-  const hp = HP();
   const items = [...timedOn(d).map(e => ({ ev: e, s: e.s, m: e.m })), ...store.all().filter(n => n.d === d && n.s != null).map(n => ({ n, s: n.s, m: n.m || 60 }))];
   return layout(items).map(it => {
     const s = Math.max(it.s, H0 * 60), e = Math.min(it.s + it.m, H1 * 60); if (e <= s) return '';
-    const pos = `top:${(s - H0 * 60) / 60 * hp}px;height:${Math.max((e - s) / 60 * hp - 2, 18)}px;left:${it.lane / it.lanes * 100}%;width:calc(${100 / it.lanes}% - 4px)`;
+    const pos = `top:${hpx((s - H0 * 60) / 60)};height:max(${hpx((e - s) / 60)} - 2px, 18px);left:${it.lane / it.lanes * 100}%;width:calc(${100 / it.lanes}% - 4px)`;
     const tm = `${fmtT(it.s)} – ${fmtT(it.s + it.m)}`;
     if (it.ev) return `<div class="ev" style="${pos}" title="${esc(it.ev.cal || '')}"><div class="b-t">${esc(it.ev.t)}</div><div class="b-time">${tm}</div></div>`;
     const n = it.n;
     return `<div class="block${isDone(n) ? ' done' : ''}" data-drag data-id="${n.id}" style="${pos};--pc:${colorOf(n)}">${ckHTML(n)}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${tm}</div></div><div class="rs"></div></div>`;
   }).join('');
 }
-function nowHTML(d) { if (d !== today()) return ''; const m = nowMin(); if (m < H0 * 60 || m > H1 * 60) return ''; return `<div class="now" style="top:${(m - H0 * 60) / 60 * HP()}px"></div>`; }
+function nowHTML(d) { if (d !== today()) return ''; const m = nowMin(); if (m < H0 * 60 || m > H1 * 60) return ''; return `<div class="now" style="top:${hpx((m - H0 * 60) / 60)}"></div>`; }
 function timed(days) {
   const hrs = []; for (let h = H0 + 1; h < H1; h++) hrs.push(h);
   return `<div class="tw hscroll"><div class="tg${days.length === 1 ? ' one' : ''}" style="--cols:${days.length};--hours:${H1 - H0}">
     <div class="trow thead"><div class="gut"></div>${days.map(d => `<button class="th${d === today() ? ' today' : ''}" data-act="goday" data-d="${d}">${DAYN[pd(d).getDay()]} <b>${pd(d).getDate()}</b></button>`).join('')}</div>
     <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray" data-drop="tray" data-date="${d}">${eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all">${esc(e.t)}</div>`).join('')}${dayItems(d).filter(n => n.s == null).map(n => chipHTML(n, { compact: days.length > 1 })).join('')}</div>`).join('')}</div>
-    <div class="trow tbody"><div class="gut hrs">${hrs.map(h => `<div class="hl" style="top:${(h - H0) * HP()}px">${h % 12 || 12}${h < 12 ? 'am' : 'pm'}</div>`).join('')}</div>
+    <div class="trow tbody"><div class="gut hrs">${hrs.map(h => `<div class="hl" style="top:${hpx(h - H0)}">${h % 12 || 12}${h < 12 ? 'am' : 'pm'}</div>`).join('')}</div>
     ${days.map(d => `<div class="col${d === today() ? ' today' : ''}" data-drop="col" data-date="${d}">${blocksHTML(d)}${nowHTML(d)}</div>`).join('')}</div>
   </div></div>`;
 }
@@ -464,6 +465,38 @@ const tend = e => { clearTimeout(lp); if (D) { e.preventDefault(); endDrag(); } 
 document.addEventListener('touchend', tend, { passive: false }); document.addEventListener('touchcancel', tend, { passive: false });
 document.addEventListener('contextmenu', e => { if (e.target.closest('[data-drag]')) e.preventDefault(); });
 
+/* Zoom the time-blocked view: pinch on a phone, Ctrl (or Cmd) + scroll wheel or trackpad pinch on a computer */
+const ZOOM_KEY = 'daybook-zoom', HP_MIN = 20, HP_MAX = 200;
+const setHP = v => { v = Math.max(HP_MIN, Math.min(HP_MAX, v)); document.documentElement.style.setProperty('--hp', v + 'px'); return v; };
+{ const z = lsGet(ZOOM_KEY, null); if (typeof z === 'number') setHP(z); }
+let zoomSave;
+function zoomTo(v, y) { // keep the time under y (screen position) in place while zooming
+  const mb = document.getElementById('mbody'), col = mb?.querySelector('.col'); if (!col) return;
+  const old = HP(), top = col.getBoundingClientRect().top, hrs = (y - top) / old;
+  const nv = setHP(v); if (nv === old) return;
+  mb.scrollTop += hrs * (nv - old);
+  clearTimeout(zoomSave); zoomSave = setTimeout(() => lsSet(ZOOM_KEY, HP()), 300);
+}
+const inGrid = t => S.tab === 'plan' && S.mode === 'timed' && t instanceof Element && !!t.closest('#mbody .tw');
+document.addEventListener('wheel', e => {
+  if (!(e.ctrlKey || e.metaKey) || !inGrid(e.target)) return;
+  e.preventDefault();
+  const dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
+  zoomTo(HP() * Math.exp(-Math.max(-50, Math.min(50, dy)) * 0.006), e.clientY);
+}, { passive: false });
+let Z = null;
+const span = ts => Math.hypot(ts[0].clientX - ts[1].clientX, ts[0].clientY - ts[1].clientY);
+document.addEventListener('touchstart', e => {
+  if (e.touches.length !== 2 || D || !inGrid(e.target)) { if (e.touches.length !== 2) Z = null; return; }
+  Z = { d: span(e.touches), hp: HP() };
+}, { passive: true });
+document.addEventListener('touchmove', e => {
+  if (!Z || e.touches.length !== 2 || D) return;
+  e.preventDefault();
+  zoomTo(Z.hp * span(e.touches) / Math.max(Z.d, 1), (e.touches[0].clientY + e.touches[1].clientY) / 2);
+}, { passive: false });
+document.addEventListener('touchend', e => { if (e.touches.length < 2) Z = null; });
+
 /* Start-up: sign-in, sample mode, and keeping "today" current */
 function showWelcome(show) { document.getElementById('welcome').hidden = !show; }
 function enterDemo() {
@@ -481,7 +514,7 @@ async function enterCloud(u) {
 store.onChange(kind => { if (kind === 'sync') { if (!D) later(); return; } if (!D) later(); });
 calendar.onCalendarChange(() => { if (!D) later(); });
 initAI({ anchor: () => S.anchor, showPlan, render: later });
-setInterval(() => { if (today() !== shown) { shown = today(); if (S.anchor === add(today(), -1)) S.anchor = today(); later(); } else if (S.mode === 'timed' && !D) { document.querySelectorAll('.now').forEach(n => n.style.top = ((nowMin() - H0 * 60) / 60 * HP()) + 'px'); } }, 60e3);
+setInterval(() => { if (today() !== shown) { shown = today(); if (S.anchor === add(today(), -1)) S.anchor = today(); later(); } else if (S.mode === 'timed' && !D) { document.querySelectorAll('.now').forEach(n => n.style.top = hpx((nowMin() - H0 * 60) / 60)); } }, 60e3);
 if (!matchMedia('(min-width:1500px)').matches) document.body.classList.add('ai-off');
 
 async function boot() {

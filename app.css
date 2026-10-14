@@ -161,6 +161,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .gut{font:500 10px/1.2 var(--f-mono);color:var(--faint);text-align:right;padding:8px 8px 0 0}
 .tray{display:flex;flex-direction:column;gap:4px;padding:6px 4px;min-height:44px;border-left:1px solid var(--line);min-width:0}
 .tbody .hrs{position:relative;padding:0}
+.tw{touch-action:pan-x pan-y} /* two-finger pinch zooms the hours (see app.js), not the whole page */
 .hl{position:absolute;right:8px;transform:translateY(-6px);font:500 10px var(--f-mono);color:var(--faint)}
 .col{position:relative;border-left:1px solid var(--line);height:calc(var(--hours,15) * var(--hp));background-image:repeating-linear-gradient(to bottom,var(--line) 0 1px,transparent 1px var(--hp));min-width:0}
 .col.today{background-color:color-mix(in srgb,var(--accent-soft) 40%,var(--surface))}
