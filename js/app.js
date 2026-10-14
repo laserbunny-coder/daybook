@@ -82,7 +82,7 @@ function treeRows(n, dep) {
 function projHTML(p) {
   const pr = progress(p.id), pct = pr.total ? Math.round(pr.done / pr.total * 100) : 0;
   let due = ''; if (p.due) { const left = daysBetween(today(), p.due); due = `<div class="due">Due ${fmtShort(p.due)} · ${left < 0 ? `${-left} days overdue` : left === 0 ? 'today' : `${left} days left`}</div>`; }
-  return `<div class="proj" style="--pc:${glow(p.c) || colorOf(p)}">
+  return `<div class="proj" style="--pc:${colorOf(p)}">
     <div class="proj-h" data-drag data-id="${p.id}"><button class="caret${S.col[p.id] ? ' shut' : ''}" data-act="fold" data-id="${p.id}" aria-label="Show or hide ${esc(p.t)}"></button><span class="pdot"></span><span class="proj-t">${esc(p.t || 'Untitled')}</span><span class="proj-n">${pr.total ? pct + '%' : ''}</span><button class="plus" data-act="add" data-id="${p.id}" aria-label="Add a task to ${esc(p.t)}" title="Add a task">+</button></div>
     <div class="bar"><i style="width:${pct}%"></i></div>${due}
     ${S.col[p.id] ? addRow(p.id, 1) : `<div class="tree">${children(p.id).map(c => treeRows(c, 1)).join('')}${addRow(p.id, 1)}</div>`}</div>`;
@@ -133,7 +133,7 @@ function areaGroups() {
 }
 function areaHTML({ a, projs }, board = false) {
   const id = a ? a.id : '', key = 'area:' + id, shut = !board && S.col[key], label = a ? esc(a.t || 'Untitled area') : 'No area';
-  const name = a ? `<button class="area-t" data-act="open" data-id="${id}" title="Rename or delete this area">${label}</button>` : `<span class="area-t">${label}</span>`;
+  const name = a ? `<span class="pdot" style="--pc:${a.c || '#B9BCD0'}"></span><button class="area-t" data-act="open" data-id="${id}" title="Rename or delete this area">${label}</button>` : `<span class="area-t">${label}</span>`;
   const list = (projs.length ? projs.map(projHTML).join('') : '<div class="empty-note">No projects here yet.</div>') + (board ? `<button class="bcol-add" data-act="new-project" data-area="${id}">+ New project</button>` : '');
   return `<section class="area${board ? ' bcol' : ''}" data-drop="area" data-area="${id}">
     <div class="area-h">${board ? '' : `<button class="caret${shut ? ' shut' : ''}" data-act="fold" data-id="${key}" aria-label="Show or hide ${label}"></button>`}${name}<span class="area-n">${projs.length}</span><button class="plus" data-act="new-project" data-area="${id}" aria-label="New project in ${label}" title="New project">+</button></div>
@@ -292,7 +292,7 @@ function renderDetail() {
         ${n.p == null && isProj(n) ? `<label class="chip"><span class="k">Area</span><select id="dt-area">${store.areas().map(a => `<option value="${a.id}"${areaOf(n) === a.id ? ' selected' : ''}>${esc(a.t || 'Untitled area')}</option>`).join('')}<option value=""${areaOf(n) ? '' : ' selected'}>No area</option></select></label>` : ''}
       </div>
       ${S.dtpick ? pickerHTML(n, 0) : ''}
-      ${n.p == null && isProj(n) ? `<div class="swatches" role="group" aria-label="Color">${PALETTE.map(c => `<button class="sw${glow(n.c) === c ? ' on' : ''}" style="--sw:${c}" data-act="color" data-c="${c}" aria-label="Color ${c}"></button>`).join('')}</div>` : ''}
+      ${n.p == null && isProj(n) ? swatchesHTML(n) : ''}
       <div class="dt-sec">Notes</div>
       <textarea id="dt-notes" class="dt-notes" placeholder="Thoughts, links, where to start. These will be here when you sit down to do it." aria-label="Notes">${esc(n.notes || '')}</textarea>
       <div class="dt-saved" id="dt-saved" aria-live="polite"></div>
@@ -306,6 +306,13 @@ function renderDetail() {
     </div></section>`;
   el.querySelectorAll('textarea').forEach(grow); el.querySelector('.dt-body').scrollTop = prevSc;
 }
+/* Colour choices. A project in an area can follow the area's colour (the ringed swatch) or have its own. */
+function swatchesHTML(n) {
+  const area = n.k !== 'area' && areaOf(n) && store.get(n.ar);
+  const follow = area ? `<button class="sw follow${n.c === 'area' ? ' on' : ''}" style="--sw:${area.c || '#B9BCD0'}" data-act="color" data-c="area" aria-label="Use the ${esc(area.t)} area's colour" title="Use the area's colour"></button><span class="sw-sep"></span>` : '';
+  const own = n.k === 'area' || n.c !== 'area' || !area ? glow(n.c) : null;
+  return `<div class="swatches${n.k === 'area' ? ' area-sw' : ''}" role="group" aria-label="Color">${follow}${PALETTE.map(c => `<button class="sw${own === c ? ' on' : ''}" style="--sw:${c}" data-act="color" data-c="${c}" aria-label="Color ${c}"></button>`).join('')}</div>`;
+}
 // An area opens like a project: rename it, see and add its projects, or delete it (its projects stay).
 function areaDetail(el, n, same) {
   const projs = areaGroups().groups.find(g => g.a?.id === n.id)?.projs || [];
@@ -315,6 +322,8 @@ function areaDetail(el, n, same) {
     <div class="dt-body vscroll" data-id="${n.id}">
       <div class="dt-kind">Area</div>
       <div class="dt-head"><textarea id="dt-title" class="dt-title" rows="1" aria-label="Area name" placeholder="Name this area" enterkeyhint="done">${esc(n.t)}</textarea></div>
+      <div class="dt-note">Projects in this area wear its colour, unless you give one its own.</div>
+      ${swatchesHTML(n)}
       <div class="dt-sec">Projects<small>${projs.length}</small></div>
       <div class="dt-steps">${projs.map(stepHTML).join('')}
         <form class="dt-add" data-form="area-project" data-area="${n.id}"><span class="plus-i" aria-hidden="true">+</span><input id="dt-add-in" placeholder="Add a project" autocomplete="off" aria-label="Add a project" enterkeyhint="done"></form></div>
@@ -370,12 +379,13 @@ function reorder(date, id, idx, patch) {
 }
 function setDay(id, d) { const n = node(id); const patch = { d: d || null, o: Date.now() / 1000 }; if (n.d !== d) { patch.s = null; patch.a = null; } S.pick = null; S.dtpick = false; store.update(id, patch); if (d) toast(`${n.t} → ${d === today() ? 'today' : DAYL[pd(d).getDay()] + ' ' + fmtShort(d)}`); }
 function makeProject(t, ar) {
-  const used = new Set(store.all().filter(n => n.p == null && n.c).map(n => glow(n.c)));
-  const c = PALETTE.find(x => !used.has(x)) || PALETTE[store.all().length % PALETTE.length];
+  // In an area a new project wears the area's colour; with no area it gets a colour of its own
+  const used = new Set(store.all().filter(n => n.p == null && n.c && n.c !== 'area').map(n => glow(n.c)));
+  const c = ar ? 'area' : PALETTE.find(x => !used.has(x)) || PALETTE[store.all().length % PALETTE.length];
   return store.create({ t, c, ar: ar || null, o: Date.now() / 1000 });
 }
 function newProject(ar) { const n = makeProject('', ar); if (ar) S.col['area:' + ar] = false; openItem(n.id, true); }
-function newArea() { const n = store.create({ k: 'area', t: '', o: Math.max(0, ...store.areas().map(a => a.o)) + 1 }); openItem(n.id, true); }
+function newArea() { const n = store.create({ k: 'area', t: '', c: store.nextAreaColor(), o: Math.max(0, ...store.areas().map(a => a.o)) + 1 }); openItem(n.id, true); }
 function showPlan(view, mode) { S.view = view; S.mode = mode; S.page = 'plan'; render(); }
 function signIn() {
   if (!client) return;

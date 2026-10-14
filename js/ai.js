@@ -88,8 +88,8 @@ function applyActions(actions) {
     else if (a.type === 'add_task' && a.title) { store.create({ t: a.title, p: valid(a.parent_id) ? a.parent_id : null, d: day, s: day ? s : null, m: m || 60, notes: a.notes || null }); count++; }
     else if (a.type === 'add_steps' && valid(a.id)) { (a.steps || []).forEach((st, i) => { if (st.title) store.create({ t: st.title, p: a.id, m: Math.max(5, st.duration_min || 30), o: Date.now() / 1000 + i }); count++; }); store.update(a.id, { done: false }, true); }
     else if (a.type === 'add_project' && a.title) {
-      const used = new Set(store.all().filter(n => n.p == null && n.c).map(n => n.c));
-      const p = store.create({ t: a.title, ar: area(a.parent_id), c: PALETTE.find(c => !used.has(c)) || PALETTE[store.all().length % PALETTE.length], notes: a.notes || null, due: day });
+      const used = new Set(store.all().filter(n => n.p == null && n.c).map(n => n.c)), ar = area(a.parent_id);
+      const p = store.create({ t: a.title, ar, c: ar ? 'area' : PALETTE.find(c => !used.has(c)) || PALETTE[store.all().length % PALETTE.length], notes: a.notes || null, due: day });
       (a.steps || []).forEach((st, i) => { if (st.title) store.create({ t: st.title, p: p.id, m: Math.max(5, st.duration_min || 30), o: Date.now() / 1000 + i }); });
       count++;
     }

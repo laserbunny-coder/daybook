@@ -17,7 +17,9 @@ export const rootOf = n => ancestors(n)[0] || n;
 /* Aurora look: project colours glow on the dark glass. Older saved colours map to their glowing twin. */
 const GLOW = { '#4B6CB7': '#7FA8FF', '#2E8B6E': '#4FE3C1', '#B7791F': '#FFC56B', '#9B5BA5': '#D58CFF', '#C0564B': '#FF8A8A', '#3E8E9E': '#5FD4F0', '#7A7F2E': '#C9D66B', '#B0567F': '#FF8FC8', '#8A918C': '#B9BCD0' };
 export const glow = c => (c && GLOW[c.toUpperCase()]) || c;
-export const colorOf = n => glow(rootOf(n).c) || '#B9BCD0';
+/* A project's colour is its own, or 'area' to wear its area's colour. Tasks wear their project's. */
+export const projColor = p => (p.c === 'area' ? store.get(p.ar)?.c : glow(p.c)) || '#B9BCD0';
+export const colorOf = n => projColor(rootOf(n));
 export const dayItems = d => store.all().filter(n => n.d === d).sort((a, b) => a.o - b.o);
 /* A step with no day of its own rides along with the nearest scheduled project above it. */
 export const heldBy = n => { let p = n.p && node(n.p); while (p) { if (p.d) return p; p = p.p && node(p.p); } return null; };
