@@ -55,7 +55,7 @@ function chipHTML(n, o = {}) {
     if (n.m && !kids) meta.push(fmtDur(n.m));
     if (kids) { const p = progress(n.id); meta.push(`${p.done}/${p.total} done`); }
   }
-  return `<div class="item${isDone(n) ? ' done' : ''}${o.compact ? ' compact' : ''}" data-drag data-id="${n.id}" style="--pc:${colorOf(n)}">${ckHTML(n)}<div class="it-body"><div class="it-t">${esc(n.t || 'Untitled')}</div>${meta.length ? `<div class="it-m">${meta.join('<span>·</span>')}</div>` : ''}${subsHTML(n)}</div></div>`;
+  return `<div class="item${isDone(n) ? ' done' : ''}${o.compact ? ' compact' : ''}" data-drag data-id="${n.id}" style="--pc:${colorOf(n)}">${ckHTML(n)}<div class="it-body"><div class="it-t">${esc(n.t || 'Untitled')}</div>${meta.length ? `<div class="it-m">${meta.join('<span>·</span>')}</div>` : ''}${o.subs === false ? '' : subsHTML(n)}</div></div>`;
 }
 // Steps with no day of their own show inside their scheduled parent; drag one out to give it its own day or time.
 function subsHTML(n) {
@@ -199,7 +199,7 @@ function blocksHTML(d) {
     const tm = `${fmtT(it.s)} – ${fmtT(it.s + it.m)}`;
     if (it.ev) return `<div class="ev" style="${pos}" title="${esc(it.ev.cal || '')}"><div class="b-t">${esc(it.ev.t)}</div><div class="b-time">${tm}</div></div>`;
     const n = it.n;
-    return `<div class="block${isDone(n) ? ' done' : ''}" data-drag data-id="${n.id}" style="${pos};--pc:${colorOf(n)}">${ckHTML(n)}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${tm}</div>${subsHTML(n)}</div><div class="rs"></div></div>`;
+    return `<div class="block${isDone(n) ? ' done' : ''}" data-drag data-id="${n.id}" style="${pos};--pc:${colorOf(n)}">${ckHTML(n)}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${tm}</div></div><div class="rs"></div></div>`;
   }).join('');
 }
 function nowHTML(d) { if (d !== today()) return ''; const m = nowMin(); if (m < H0 * 60 || m > H1 * 60) return ''; return `<div class="now" style="top:${hpx((m - H0 * 60) / 60)}"></div>`; }
@@ -207,7 +207,7 @@ function timed(days) {
   const hrs = []; for (let h = H0 + 1; h < H1; h++) hrs.push(h);
   return `<div class="tw hscroll"><div class="tg${days.length === 1 ? ' one' : ''}" style="--cols:${days.length};--hours:${H1 - H0}">
     <div class="trow thead"><div class="gut"></div>${days.map(d => `<button class="th${d === today() ? ' today' : ''}" data-act="goday" data-d="${d}">${DAYN[pd(d).getDay()]} <b>${pd(d).getDate()}</b></button>`).join('')}</div>
-    <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray" data-drop="tray" data-date="${d}">${eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all">${esc(e.t)}</div>`).join('')}${dayItems(d).filter(n => n.s == null).map(n => chipHTML(n, { compact: days.length > 1 })).join('')}</div>`).join('')}</div>
+    <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray" data-drop="tray" data-date="${d}">${eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all">${esc(e.t)}</div>`).join('')}${dayItems(d).filter(n => n.s == null).map(n => chipHTML(n, { compact: days.length > 1, subs: false })).join('')}</div>`).join('')}</div>
     <div class="trow tbody"><div class="gut hrs">${hrs.map(h => `<div class="hl" style="top:${hpx(h - H0)}">${h % 12 || 12}${h < 12 ? 'am' : 'pm'}</div>`).join('')}</div>
     ${days.map(d => `<div class="col${d === today() ? ' today' : ''}" data-drop="col" data-date="${d}">${blocksHTML(d)}${nowHTML(d)}</div>`).join('')}</div>
   </div></div>`;
