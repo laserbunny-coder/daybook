@@ -1,4 +1,6 @@
-// The planner's data: every project, sub-project and task.
+// The planner's data: every area, project, sub-project and task.
+// Areas (Business, Personal…) are rows too, marked kind 'area'; a top-level
+// project names its area in area_id. all() leaves areas out, areas() lists them.
 // Changes are applied locally at once, cached on the device, and synced to
 // Supabase in the background so the phone and computer stay in step.
 import { add, lsGet, lsSet, today, uid } from './util.js';
@@ -12,7 +14,7 @@ let cursor = null;                // newest server updated_at we have seen
 let flushTimer = null, retryTimer = null;
 export const sync = { state: 'local', pending: 0 }; // local | syncing | saved | offline | error
 
-const ROW = { p: 'parent_id', t: 'title', notes: 'notes', done: 'done', d: 'day', s: 'start_min', m: 'duration_min', o: 'sort', c: 'color', due: 'due', link: 'link', a: 'after_min', x: 'deleted' };
+const ROW = { p: 'parent_id', t: 'title', notes: 'notes', done: 'done', d: 'day', s: 'start_min', m: 'duration_min', o: 'sort', c: 'color', due: 'due', link: 'link', a: 'after_min', k: 'kind', ar: 'area_id', x: 'deleted' };
 const toRow = n => { const r = { id: n.id }; for (const [k, col] of Object.entries(ROW)) r[col] = n[k] ?? (k === 'done' || k === 'x' ? false : k === 'm' ? 60 : k === 'o' ? 0 : null); return r; };
 const fromRow = r => { const n = { id: r.id }; for (const [k, col] of Object.entries(ROW)) n[k] = r[col]; return n; };
 
@@ -21,13 +23,14 @@ function saveCache() { if (cacheKey) lsSet(cacheKey, { nodes: [...nodes.values()
 function setSync(state) { sync.state = state; sync.pending = dirty.size; for (const f of listeners) f('sync'); }
 
 export function onChange(f) { listeners.add(f); return () => listeners.delete(f); }
-export const all = () => [...nodes.values()].filter(n => !n.x);
+export const all = () => [...nodes.values()].filter(n => !n.x && n.k !== 'area');
+export const areas = () => [...nodes.values()].filter(n => !n.x && n.k === 'area').sort((a, b) => a.o - b.o);
 export const get = id => { const n = nodes.get(id); return n && !n.x ? n : null; };
 
 function touch(n) { nodes.set(n.id, n); if (sb) { dirty.add(n.id); scheduleFlush(); } }
 
 export function create(fields) {
-  const n = { id: uid(), p: null, t: '', notes: null, done: false, d: null, s: null, m: 60, o: Date.now() / 1000, c: null, due: null, link: null, a: null, x: false, ...fields };
+  const n = { id: uid(), p: null, t: '', notes: null, done: false, d: null, s: null, m: 60, o: Date.now() / 1000, c: null, due: null, link: null, a: null, k: null, ar: null, x: false, ...fields };
   touch(n); emit(); return n;
 }
 export function update(id, patch, quiet = false) {
@@ -37,8 +40,11 @@ export function update(id, patch, quiet = false) {
 export function updateMany(changes) { for (const [id, patch] of changes) { const n = nodes.get(id); if (n) { Object.assign(n, patch); touch(n); } } emit(); }
 /** Deletes an item and everything under it. */
 export function remove(id) {
+  const n0 = nodes.get(id);
   const kill = i => { const n = nodes.get(i); if (!n) return; n.x = true; touch(n); for (const c of [...nodes.values()]) if (c.p === i && !c.x) kill(c.id); };
-  kill(id); emit();
+  kill(id);
+  if (n0?.k === 'area') for (const c of nodes.values()) if (c.ar === id && !c.x) { c.ar = null; touch(c); } // its projects stay, with no area
+  emit();
 }
 export const snapshot = () => JSON.stringify([...nodes.values()]);
 /** Puts everything back the way a snapshot had it (used by Undo). */
@@ -57,9 +63,9 @@ export function useLocal(key, seedFn) {
   stopCloud(); cacheKey = key; nodes.clear(); dirty = new Set();
   const c = lsGet(key);
   (c?.nodes?.length ? c.nodes : seedFn()).forEach(n => nodes.set(n.id, n));
-  setSync('local'); emit();
+  ensureAreas('local'); setSync('local'); emit();
 }
-export function resetLocal(seedFn) { nodes.clear(); seedFn().forEach(n => nodes.set(n.id, n)); emit(); }
+export function resetLocal(seedFn) { nodes.clear(); seedFn().forEach(n => nodes.set(n.id, n)); ensureAreas('local'); emit(); }
 
 /* Cloud mode: this person's items in Supabase. */
 export async function useCloud(client, user) {
@@ -71,7 +77,7 @@ export async function useCloud(client, user) {
   channel = sb.channel('items-' + userId)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'items', filter: 'user_id=eq.' + userId }, p => { if (p.new && p.new.id) { merge(p.new); emit(); } })
     .subscribe(status => { if (status === 'SUBSCRIBED') pull(); });
-  await pull();
+  if (await pull()) { ensureAreas(userId); emit(); }
   flush();
 }
 export function stopCloud() { if (channel && sb) sb.removeChannel(channel); channel = null; sb = null; userId = null; clearTimeout(flushTimer); clearTimeout(retryTimer); }
@@ -94,8 +100,8 @@ export async function pull() {
       data.forEach(merge);
       if (data.length < 1000) break;
     }
-    emit(); setSync(dirty.size ? 'syncing' : 'saved');
-  } catch (e) { console.warn('pull failed', e); setSync(navigator.onLine ? 'error' : 'offline'); }
+    emit(); setSync(dirty.size ? 'syncing' : 'saved'); return true;
+  } catch (e) { console.warn('pull failed', e); setSync(navigator.onLine ? 'error' : 'offline'); return false; }
 }
 function scheduleFlush() { clearTimeout(flushTimer); flushTimer = setTimeout(flush, 400); sync.pending = dirty.size; }
 export async function flush() {
@@ -118,11 +124,23 @@ export async function flush() {
 addEventListener('online', () => { flush(); pull(); });
 addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') pull(); else flush(); });
 
+/* Everyone starts with three areas, and projects from before areas existed
+   go under Personal. Runs only when no area has ever existed here (deleted ones
+   count), and the ids are fixed so two devices doing it at once agree. */
+const START_AREAS = [['business', 'Business'], ['filmmaking', 'Filmmaking'], ['personal', 'Personal']];
+function ensureAreas(who) {
+  if ([...nodes.values()].some(n => n.k === 'area')) return;
+  START_AREAS.forEach(([slug, t], i) => touch({ id: `area-${slug}-${who}`, p: null, t, notes: null, done: false, d: null, s: null, m: 60, o: i + 1, c: null, due: null, link: null, a: null, k: 'area', ar: null, x: false }));
+  const home = `area-personal-${who}`;
+  for (const n of nodes.values()) if (!n.x && n.k !== 'area' && n.p == null && !n.ar && (n.c || [...nodes.values()].some(c => c.p === n.id && !c.x))) { n.ar = home; touch(n); }
+}
+
 /* Sample projects for trying the app without signing in. */
 export function sampleData() {
   let i = 0; const N = []; const T = today(); const D = n => add(T, n);
-  const mk = (t, p, o = {}) => { const n = { id: 's' + (++i), t, p, notes: null, done: false, d: null, s: null, m: 60, o: i, c: null, due: null, x: false, ...o }; N.push(n); return n.id; };
-  const w = mk('Website relaunch', null, { c: '#4B6CB7', due: D(18), notes: 'Goal: the new site is live before the end of the month.\nSimpler than the old one, fast on phones, and it should say clearly who we help.' });
+  const mk = (t, p, o = {}) => { const n = { id: 's' + (++i), t, p, notes: null, done: false, d: null, s: null, m: 60, o: i, c: null, due: null, k: null, ar: null, x: false, ...o }; N.push(n); return n.id; };
+  const [biz, film, life] = START_AREAS.map(([slug, t], j) => { N.push({ id: `area-${slug}-local`, t, p: null, notes: null, done: false, d: null, s: null, m: 60, o: j + 1, c: null, due: null, k: 'area', ar: null, x: false }); return `area-${slug}-local`; });
+  const w = mk('Website relaunch', null, { ar: biz, c: '#4B6CB7', due: D(18), notes: 'Goal: the new site is live before the end of the month.\nSimpler than the old one, fast on phones, and it should say clearly who we help.' });
   const wc = mk('Content', w);
   mk('Write About page', wc, { d: D(0), m: 90, notes: 'Start from the old About text and cut it in half.\nLead with who we help, then the short story of how we started.\nEnd with one clear next step: book a call.' });
   mk('Rewrite services copy', wc, { d: D(1), s: 540, m: 120 });
@@ -132,20 +150,24 @@ export function sampleData() {
   mk('Homepage mockup', wd, { d: D(2), m: 180 });
   mk('Review mobile navigation', wd, { d: D(3), m: 45 });
   mk('Choose hosting', w, { d: D(4), m: 45 });
-  const t = mk('Family trip to Maine', null, { c: '#2E8B6E', due: D(25) });
+  const t = mk('Family trip to Maine', null, { ar: life, c: '#2E8B6E', due: D(25) });
   mk('Book cabin', t, { done: true });
   mk('Plan driving route', t, { d: D(1), m: 30 });
   mk('Packing list', t, { notes: 'The cabin has linens and a full kitchen.\nCheck the weather two days before we leave.' });
   mk('Reserve kayak rental', t, { m: 20 });
-  const h = mk('Home office refresh', null, { c: '#B7791F' });
+  const h = mk('Home office refresh', null, { ar: biz, c: '#B7791F' });
   mk('Measure desk wall', h, { d: D(0), s: 960, m: 30 });
   mk('Order shelving', h, { d: D(2), m: 30 });
   mk('Cable cleanup', h, { m: 45 });
-  const r = mk('Half marathon training', null, { c: '#9B5BA5', due: D(40) });
+  const r = mk('Half marathon training', null, { ar: life, c: '#9B5BA5', due: D(40) });
   mk('Easy run, 4 miles', r, { d: D(0), s: 420, m: 45 });
   mk('Tempo run', r, { d: D(2), s: 420, m: 45 });
   mk('Long run, 8 miles', r, { d: D(5), s: 480, m: 90 });
   mk('Register for race', r, { m: 15 });
+  const f = mk('Short film: Low Tide', null, { ar: film, c: '#5FD4F0', due: D(60), notes: 'A five-minute short about a lighthouse keeper on her last night.' });
+  mk('Finish script draft', f, { d: D(1), m: 120 });
+  mk('Scout the harbor at golden hour', f, { d: D(4), s: 1080, m: 90 });
+  mk('Make a shot list', f, { m: 60 });
   mk('Call insurance about claim', null, { d: D(0), m: 30 });
   mk('Renew passport', null, { m: 30 });
   mk('Return library books', null, { d: D(3), m: 20 });

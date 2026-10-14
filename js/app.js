@@ -2,7 +2,7 @@ import * as store from './store.js';
 import * as calendar from './calendar.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { initAI, ask, undo, renderMsgs, clearChat, breakDownLocal } from './ai.js';
-import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fmtDur, fmtShort, fmtT, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
+import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
 import { ancestors, children, colorOf, dayItems, glow, hasKids, isDone, isProj, leaves, node, PALETTE, progress, riders, rootOf, unscheduled } from './tree.js';
 
 const H0 = 6, H1 = 23;
@@ -10,6 +10,8 @@ const HP = () => parseFloat(getComputedStyle(document.documentElement).getProper
 // Positions in the time grid are written in hours of --hp, so zooming only has to change --hp
 const hpx = h => `calc(var(--hp) * ${+h.toFixed(4)})`;
 const phone = () => matchMedia('(max-width:860px)').matches;
+// On a computer the main pane shows either the plan or a full Projects board; a phone uses its tab bar instead.
+const boardShown = () => !phone() && S.page === 'projects';
 const ICON = {
   prev: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 3L5 8l5 5"/></svg>',
   next: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3l5 5-5 5"/></svg>',
@@ -26,9 +28,9 @@ const ICON = {
 
 /* View state (per device) */
 const UI_KEY = 'daybook-ui';
-const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), pick: null, adding: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, mcp: null };
+const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), pick: null, adding: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, mcp: null };
 S.anchor = today();
-const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, tip: S.tip, demo: S.demo, min: S.min });
+const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min });
 let client = null, user = null, configured = false, shown = today(), supaUrl = '';
 
 /* Links on items, such as the Thymer page a task came from */
@@ -119,14 +121,34 @@ function footHTML() {
   return `<div class="side-f">Sample data, stored only on this device. Drag anything onto the plan, or back here to unschedule it.
     <div class="foot-acts">${configured ? '<button class="link" data-act="signin">Sign in with Google</button>' : ''}<button class="link" data-act="reset">Reset sample data</button></div></div>`;
 }
-function renderSide() {
+/* Areas group the top-level projects. A project whose area is gone shows under "No area". */
+const areaOf = p => (p.ar && store.areas().some(a => a.id === p.ar) ? p.ar : '');
+function areaGroups() {
   const roots = store.all().filter(n => n.p == null).sort((a, b) => a.o - b.o);
-  const projs = roots.filter(isProj), loose = roots.filter(n => !isProj(n));
-  const el = document.getElementById('side'); const sc = el.querySelector('.side-b')?.scrollTop || 0;
+  const projs = roots.filter(isProj);
+  const groups = store.areas().map(a => ({ a, projs: projs.filter(p => areaOf(p) === a.id) }));
+  const none = projs.filter(p => !areaOf(p));
+  if (none.length || !groups.length) groups.push({ a: null, projs: none });
+  return { groups, loose: roots.filter(n => !isProj(n)) };
+}
+function areaHTML({ a, projs }, board = false) {
+  const id = a ? a.id : '', key = 'area:' + id, shut = !board && S.col[key], label = a ? esc(a.t || 'Untitled area') : 'No area';
+  const name = a ? `<button class="area-t" data-act="open" data-id="${id}" title="Rename or delete this area">${label}</button>` : `<span class="area-t">${label}</span>`;
+  const list = (projs.length ? projs.map(projHTML).join('') : '<div class="empty-note">No projects here yet.</div>') + (board ? `<button class="bcol-add" data-act="new-project" data-area="${id}">+ New project</button>` : '');
+  return `<section class="area${board ? ' bcol' : ''}" data-drop="area" data-area="${id}">
+    <div class="area-h">${board ? '' : `<button class="caret${shut ? ' shut' : ''}" data-act="fold" data-id="${key}" aria-label="Show or hide ${label}"></button>`}${name}<span class="area-n">${projs.length}</span><button class="plus" data-act="new-project" data-area="${id}" aria-label="New project in ${label}" title="New project">+</button></div>
+    ${shut ? '' : board ? `<div class="bcol-b vscroll">${list}</div>` : list}</section>`;
+}
+function renderSide() {
+  const el = document.getElementById('side');
+  if (boardShown()) { el.innerHTML = ''; return; } // the board has it all, and the sidebar steps aside
+  const { groups, loose } = areaGroups();
+  const sc = el.querySelector('.side-b')?.scrollTop || 0;
   el.innerHTML = `<div class="side-h"><div class="brand">Daybook</div>${user ? '' : '<span class="tag">Sample</span>'}</div>
+  <div class="side-rs" title="Drag to make the sidebar wider or narrower. Double-click to reset." aria-hidden="true"></div>
   <div class="side-b vscroll" data-drop="inbox">
-    <div class="sec">Projects <button class="sec-add" data-act="new-project">+ New</button></div>
-    ${projs.length ? projs.map(projHTML).join('') : '<div class="empty-note">No projects yet. Tap <b>+ New</b> to start one.</div>'}
+    <div class="sec">Projects <span class="sec-acts"><button class="sec-add desk-only" data-act="page" data-v="projects" title="See all projects on one big board">Full view</button><button class="sec-add" data-act="new-area">+ Area</button></span></div>
+    ${groups.map(g => areaHTML(g)).join('')}
     <div class="sec">Inbox <small>loose tasks</small></div>
     <div class="tree">${loose.map(n => treeRows(n, 0)).join('')}</div>
     <form class="qa" data-form="inbox"><input id="qa-in" placeholder="+ Add a task" autocomplete="off" aria-label="Add a task to the inbox" enterkeyhint="done"></form>
@@ -190,8 +212,21 @@ function timed(days) {
     ${days.map(d => `<div class="col${d === today() ? ' today' : ''}" data-drop="col" data-date="${d}">${blocksHTML(d)}${nowHTML(d)}</div>`).join('')}</div>
   </div></div>`;
 }
+const pageSeg = () => `<div class="seg page-seg" role="group" aria-label="Page"><button data-act="page" data-v="plan" aria-pressed="${!boardShown()}">Plan</button><button data-act="page" data-v="projects" aria-pressed="${boardShown()}">Projects</button></div>`;
+function renderBoard(el) {
+  const old = document.getElementById('board'); const hs = old?.scrollLeft || 0, vs = old ? [...old.querySelectorAll('.bcol-b')].map(c => c.scrollTop) : [];
+  const { groups, loose } = areaGroups();
+  el.innerHTML = `<header class="mh"><div class="mh-l">${pageSeg()}<h1>Projects</h1></div>
+    <div class="mh-r"><button class="tb" data-act="new-area">+ New area</button><button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
+  <div class="board hscroll" id="board">${groups.map(g => areaHTML(g, true)).join('')}
+    <section class="area bcol inbox" data-drop="inbox"><div class="area-h"><span class="area-t">Inbox</span><small>loose tasks</small></div>
+      <div class="bcol-b vscroll"><div class="tree">${loose.map(n => treeRows(n, 0)).join('')}</div>
+      <form class="qa" data-form="inbox"><input id="qa-in" placeholder="+ Add a task" autocomplete="off" aria-label="Add a task to the inbox" enterkeyhint="done"></form></div></section></div>`;
+  const b = document.getElementById('board'); b.scrollLeft = hs; b.querySelectorAll('.bcol-b').forEach((c, i) => c.scrollTop = vs[i] || 0);
+}
 function renderMain() {
   const el = document.getElementById('main');
+  if (boardShown()) return renderBoard(el);
   const prev = document.getElementById('mbody'); const key = S.view + S.mode + S.anchor;
   const same = prev && prev.dataset.k === key; const sc = same ? prev.scrollTop : null; const hsc = same ? prev.querySelector('.tw')?.scrollLeft : null;
   const ws = weekStart(S.anchor); const days = S.view === 'week' ? [...Array(7)].map((_, i) => add(ws, i)) : [S.anchor];
@@ -201,7 +236,7 @@ function renderMain() {
   const P = (k, v) => `aria-pressed="${S[k] === v}"`; const un = unscheduled();
   const warn = store.sync.state === 'offline' || store.sync.state === 'error' ? `<div class="tip warn"><span>${SYNC_TEXT[store.sync.state]}</span></div>` : '';
   el.innerHTML = `<header class="mh">
-    <div class="mh-l"><h1>${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div></div>
+    <div class="mh-l">${pageSeg()}<h1>${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div></div>
     <div class="mh-r"><div class="seg" role="group" aria-label="Range"><button data-act="view" data-v="day" ${P('view', 'day')}>Day</button><button data-act="view" data-v="week" ${P('view', 'week')}>Week</button></div>
     <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button></div>
     ${S.mode === 'list' ? `<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Minimal list" title="Minimal list: just task titles">${ICON.min}</button>` : ''}
@@ -221,7 +256,7 @@ function renderMain() {
 function renderTabs() {
   const t = [['plan', 'Plan', ICON.plan], ['projects', 'Projects', ICON.proj], ['ask', 'Ask Claude', ICON.ask]];
   document.getElementById('tabs').innerHTML = t.map(([k, l, i]) => `<button data-act="tab" data-v="${k}" aria-current="${S.tab === k}">${i}<span>${l}</span></button>`).join('');
-  document.body.dataset.tab = S.tab;
+  document.body.dataset.tab = S.tab; document.body.dataset.page = boardShown() ? 'projects' : 'plan';
 }
 
 /* Zoomed-in view of one item */
@@ -236,7 +271,9 @@ function renderDetail() {
   const ae = document.activeElement;
   if (!el.hidden && el.contains(ae) && ae.matches('textarea,input') && el.querySelector('.dt-body')?.dataset.id === n.id && ae.id !== 'dt-add-in') return; // don't interrupt typing
   const body = el.querySelector('.dt-body'); const same = !el.hidden && body?.dataset.id === n.id; const prevSc = same ? body.scrollTop : 0;
-  el.hidden = false; const anc = ancestors(n), kids = children(n.id), pr = progress(n.id), pct = pr.total ? Math.round(pr.done / pr.total * 100) : 0;
+  el.hidden = false;
+  if (n.k === 'area') { areaDetail(el, n, same); el.querySelectorAll('textarea').forEach(grow); el.querySelector('.dt-body').scrollTop = prevSc; return; }
+  const anc = ancestors(n), kids = children(n.id), pr = progress(n.id), pct = pr.total ? Math.round(pr.done / pr.total * 100) : 0;
   const up = anc[anc.length - 1]; const durs = [5, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 480];
   if (!durs.includes(n.m || 60)) durs.push(n.m || 60);
   const count = leaves(n.id).length - (kids.length ? 0 : 1);
@@ -252,6 +289,7 @@ function renderDetail() {
         ${kids.length || n.c ? '' : `<label class="chip"><span class="k">Takes about</span><select id="dt-dur">${durs.sort((a, b) => a - b).map(m => `<option value="${m}"${(n.m || 60) === m ? ' selected' : ''}>${fmtDur(m)}</option>`).join('')}</select></label>`}
         ${kids.length || n.c || n.due ? `<label class="chip${n.due ? ' set' : ''}"><span class="k">Due</span><input type="date" id="dt-due" value="${n.due || ''}"></label>` : ''}
         ${linkHTML(n)}
+        ${n.p == null && isProj(n) ? `<label class="chip"><span class="k">Area</span><select id="dt-area">${store.areas().map(a => `<option value="${a.id}"${areaOf(n) === a.id ? ' selected' : ''}>${esc(a.t || 'Untitled area')}</option>`).join('')}<option value=""${areaOf(n) ? '' : ' selected'}>No area</option></select></label>` : ''}
       </div>
       ${S.dtpick ? pickerHTML(n, 0) : ''}
       ${n.p == null && isProj(n) ? `<div class="swatches" role="group" aria-label="Color">${PALETTE.map(c => `<button class="sw${glow(n.c) === c ? ' on' : ''}" style="--sw:${c}" data-act="color" data-c="${c}" aria-label="Color ${c}"></button>`).join('')}</div>` : ''}
@@ -267,6 +305,23 @@ function renderDetail() {
       </div>
     </div></section>`;
   el.querySelectorAll('textarea').forEach(grow); el.querySelector('.dt-body').scrollTop = prevSc;
+}
+// An area opens like a project: rename it, see and add its projects, or delete it (its projects stay).
+function areaDetail(el, n, same) {
+  const projs = areaGroups().groups.find(g => g.a?.id === n.id)?.projs || [];
+  el.innerHTML = `<div class="dt-back" data-act="close"></div>
+  <section class="dt${same ? ' still' : ''}" role="dialog" aria-modal="true" aria-label="${esc(n.t)}">
+    <div class="dt-top"><button class="dt-up" data-act="close">${ICON.prev}<span>Back</span></button><button class="ib" data-act="close" aria-label="Close">${ICON.close}</button></div>
+    <div class="dt-body vscroll" data-id="${n.id}">
+      <div class="dt-kind">Area</div>
+      <div class="dt-head"><textarea id="dt-title" class="dt-title" rows="1" aria-label="Area name" placeholder="Name this area" enterkeyhint="done">${esc(n.t)}</textarea></div>
+      <div class="dt-sec">Projects<small>${projs.length}</small></div>
+      <div class="dt-steps">${projs.map(stepHTML).join('')}
+        <form class="dt-add" data-form="area-project" data-area="${n.id}"><span class="plus-i" aria-hidden="true">+</span><input id="dt-add-in" placeholder="Add a project" autocomplete="off" aria-label="Add a project" enterkeyhint="done"></form></div>
+      <div class="dt-foot"><span></span>
+        ${S.confirmDel ? `<div class="confirm"><span>Delete the ${esc(n.t || 'untitled')} area?${projs.length ? ` Its ${projs.length} project${projs.length > 1 ? 's' : ''} will stay, under No area.` : ''}</span><button class="danger" data-act="delete">Delete</button><button data-act="nodelete">Cancel</button></div>` : `<button class="dt-del" data-act="askdelete">Delete area</button>`}
+      </div>
+    </div></section>`;
 }
 function linkHTML(n) {
   if (S.linkEdit) return `<form class="chip link-edit" data-form="link" novalidate>${ICON.link}<input id="dt-link" type="url" inputmode="url" placeholder="Paste a Thymer page or any link" value="${esc(n.link || '')}" autocomplete="off" enterkeyhint="done" aria-label="Link"></form>`;
@@ -314,13 +369,14 @@ function reorder(date, id, idx, patch) {
   store.updateMany(list.map((n, i) => [n.id, n.id === id ? { ...patch, o: i } : { o: i }]));
 }
 function setDay(id, d) { const n = node(id); const patch = { d: d || null, o: Date.now() / 1000 }; if (n.d !== d) { patch.s = null; patch.a = null; } S.pick = null; S.dtpick = false; store.update(id, patch); if (d) toast(`${n.t} → ${d === today() ? 'today' : DAYL[pd(d).getDay()] + ' ' + fmtShort(d)}`); }
-function newProject() {
+function makeProject(t, ar) {
   const used = new Set(store.all().filter(n => n.p == null && n.c).map(n => glow(n.c)));
   const c = PALETTE.find(x => !used.has(x)) || PALETTE[store.all().length % PALETTE.length];
-  const n = store.create({ t: '', c, o: Date.now() / 1000 });
-  openItem(n.id, true);
+  return store.create({ t, c, ar: ar || null, o: Date.now() / 1000 });
 }
-function showPlan(view, mode) { S.view = view; S.mode = mode; render(); }
+function newProject(ar) { const n = makeProject('', ar); if (ar) S.col['area:' + ar] = false; openItem(n.id, true); }
+function newArea() { const n = store.create({ k: 'area', t: '', o: Math.max(0, ...store.areas().map(a => a.o)) + 1 }); openItem(n.id, true); }
+function showPlan(view, mode) { S.view = view; S.mode = mode; S.page = 'plan'; render(); }
 function signIn() {
   if (!client) return;
   client.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname, scopes: 'https://www.googleapis.com/auth/calendar.readonly', queryParams: { access_type: 'offline', prompt: 'consent' } } });
@@ -351,7 +407,9 @@ document.addEventListener('click', e => {
     case 'pick': S.pick = S.pick === id ? null : id; render(); break;
     case 'setday': setDay(id, b.dataset.d || null); break;
     case 'add': S.adding = id; S.col[id] = false; render(); break;
-    case 'new-project': newProject(); break;
+    case 'new-project': newProject(b.dataset.area); break;
+    case 'new-area': newArea(); break;
+    case 'page': S.page = b.dataset.v; S.pick = null; S.adding = null; render(); break;
     case 'view': S.view = b.dataset.v; render(); break;
     case 'mode': S.mode = b.dataset.v; render(); break;
     case 'min': S.min = !S.min; render(); break;
@@ -385,6 +443,7 @@ document.addEventListener('submit', e => {
   if (f.id === 'askf') { const q = document.getElementById('askq'); if (q.value.trim()) { ask(q.value.trim()); q.value = ''; } return; }
   const inp = f.querySelector('input'); const v = inp.value.trim();
   if (f.dataset.form === 'link') { saveLink(); return; }
+  if (f.dataset.form === 'area-project') { if (v) { makeProject(v, f.dataset.area); inp.value = ''; renderDetail(); document.getElementById('dt-add-in')?.focus(); } return; }
   if (f.dataset.form === 'step') { if (v) { store.create({ t: v, p: f.dataset.p, m: 30 }); S.col[f.dataset.p] = false; inp.value = ''; renderDetail(); document.getElementById('dt-add-in')?.focus(); } return; }
   if (f.dataset.form === 'add') { if (!v) { S.adding = null; render(); return; } inp.value = ''; store.create({ t: v, p: f.dataset.p }); return; }
   if (f.dataset.form === 'inbox' && v) { inp.value = ''; store.create({ t: v }); }
@@ -406,7 +465,8 @@ document.addEventListener('change', e => {
   const t = e.target;
   if (t.dataset.pickdate) { if (t.value) setDay(t.dataset.pickdate, t.value); return; }
   const n = S.open && node(S.open); if (!n) return;
-  if (t.id === 'dt-title') { if (!n.t.trim()) store.update(n.id, { t: n.c ? 'New project' : 'Untitled' }); else store.updateMany([]); }
+  if (t.id === 'dt-title') { if (!n.t.trim()) store.update(n.id, { t: n.k === 'area' ? 'New area' : n.c ? 'New project' : 'Untitled' }); else store.updateMany([]); }
+  if (t.id === 'dt-area') store.update(n.id, { ar: t.value || null });
   if (t.id === 'dt-notes') store.updateMany([]);
   if (t.id === 'dt-dur') store.update(n.id, { m: +t.value });
   if (t.id === 'dt-due') store.update(n.id, { due: t.value || null });
@@ -461,6 +521,12 @@ function endDrag() {
     reorder(date, n.id, d.idx, patch);
   }
   else if (type === 'inbox') store.update(n.id, { d: null, s: null, a: null });
+  else if (type === 'area') {
+    // A top-level project moves to that area (and, dragged in from the plan, comes off it); anything else just comes off the plan.
+    const fromPlan = !d.el.closest('.side, .board'), off = { d: null, s: null, a: null };
+    if (n.p == null && isProj(n)) store.update(n.id, { ar: d.t.dataset.area || null, ...(fromPlan ? off : {}) });
+    else store.update(n.id, off);
+  }
   else render();
 }
 function autoScroll() {
@@ -525,6 +591,20 @@ document.addEventListener('touchmove', e => {
   zoomTo(Z.hp * span(e.touches) / Math.max(Z.d, 1), (e.touches[0].clientY + e.touches[1].clientY) / 2);
 }, { passive: false });
 document.addEventListener('touchend', e => { if (e.touches.length < 2) Z = null; });
+
+/* Sidebar width: drag its right edge on a computer; double-click the edge to reset */
+const SIDE_KEY = 'daybook-side-w';
+const setSideW = w => { w = Math.round(Math.max(220, Math.min(w, 720, innerWidth - 420))); document.documentElement.style.setProperty('--side-w', w + 'px'); return w; };
+{ const w = lsGet(SIDE_KEY, null); if (typeof w === 'number') setSideW(w); }
+let SR = null;
+document.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || !e.target.closest?.('.side-rs')) return;
+  e.preventDefault(); SR = { x: e.clientX, w: document.getElementById('side').getBoundingClientRect().width }; document.body.classList.add('resizing');
+});
+document.addEventListener('pointermove', e => { if (SR) SR.now = setSideW(SR.w + e.clientX - SR.x); });
+document.addEventListener('pointerup', () => { if (!SR) return; if (SR.now) lsSet(SIDE_KEY, SR.now); SR = null; document.body.classList.remove('resizing'); });
+document.addEventListener('dblclick', e => { if (e.target.closest?.('.side-rs')) { document.documentElement.style.removeProperty('--side-w'); lsDel(SIDE_KEY); } });
+matchMedia('(max-width:860px)').addEventListener('change', () => later());
 
 /* Start-up: sign-in, sample mode, and keeping "today" current */
 function showWelcome(show) { document.getElementById('welcome').hidden = !show; }
