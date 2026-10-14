@@ -16,6 +16,8 @@ export type Row = {
   color: string | null;
   due: string | null;
   link: string | null;
+  kind: string | null;
+  area_id: string | null;
   deleted: boolean;
 };
 
@@ -31,6 +33,7 @@ const VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 export const INSTRUCTIONS = `Daybook is this person's own task and calendar app.
 - Everything is an item in a tree. An item with steps under it is a project; steps can be sub-projects or tasks. Checking off tasks moves the parent project's progress.
+- Top-level projects are grouped into areas, such as Business, Filmmaking and Personal; list_projects shows them. When you add a project, put it in the area it clearly belongs to, or ask.
 - A task can sit on a day without a time ("sometime that day"), or in a time block on that day (start_time plus duration). Leave the time empty unless the person asks for a specific time.
 - Any item can carry a link back to where its notes live, often a Thymer page. When you make a task from something in Thymer, set its link to that page and put a short summary in notes, so the person can glance at it and tap through for the rest. A Thymer page link looks like https://NAME.thymer.com/?open=WORKSPACE.PAGEID; if you can't tell the address, look at the links on existing tasks for the pattern, or ask.
 - Dates are the person's local dates as YYYY-MM-DD, and times are 24-hour HH:MM.
@@ -60,7 +63,7 @@ export const TOOLS = [
   {
     name: "list_projects",
     title: "List projects",
-    description: "Lists projects and sub-projects with their progress, due date and link.",
+    description: "Lists the person's areas, and their projects and sub-projects with area, progress, due date and link.",
     inputSchema: { type: "object", properties: { include_done: { type: "boolean", description: "Include finished projects." } } },
     annotations: { readOnlyHint: true },
   },
@@ -97,7 +100,7 @@ export const TOOLS = [
     inputSchema: {
       type: "object",
       required: ["title"],
-      properties: { title: str("The project's name."), notes: str("Goal or notes."), link: str("Web address with more notes."), due: str("Due date, YYYY-MM-DD.") },
+      properties: { title: str("The project's name."), area: str("The area it belongs in, by name, such as Business (see list_projects)."), notes: str("Goal or notes."), link: str("Web address with more notes."), due: str("Due date, YYYY-MM-DD.") },
     },
   },
   {
@@ -138,6 +141,7 @@ export const TOOLS = [
         link: orNull("string", "Replaces the link. null removes it."),
         due: orNull("string", "Due date, YYYY-MM-DD, or null."),
         project_id: orNull("string", "Move under this project, or null to move to the inbox."),
+        area: orNull("string", "For a top-level project: move it to this area, by name, or null for no area."),
       },
     },
   },
@@ -179,7 +183,11 @@ const now = () => Date.now() / 1000;
 class Tree {
   byId = new Map<string, Row>();
   kids = new Map<string, Row[]>();
-  constructor(rows: Row[]) {
+  /** Areas (Business, Personal…) are rows too, kept apart from the items. */
+  areas: Row[];
+  constructor(all: Row[]) {
+    this.areas = all.filter((r) => r.kind === "area").sort((a, b) => a.sort - b.sort);
+    const rows = all.filter((r) => r.kind !== "area");
     for (const r of rows) this.byId.set(r.id, r);
     for (const r of rows) if (r.parent_id && this.byId.has(r.parent_id)) {
       const k = this.kids.get(r.parent_id) ?? [];
@@ -194,6 +202,13 @@ class Tree {
     return r;
   }
   children = (id: string) => this.kids.get(id) ?? [];
+  areaOf = (r: Row) => (r.parent_id == null && r.area_id ? this.areas.find((a) => a.id === r.area_id) : undefined);
+  area(v: unknown): Row {
+    const name = typeof v === "string" ? v.trim().toLowerCase() : "";
+    const a = this.areas.find((x) => x.id === v || x.title.trim().toLowerCase() === name);
+    if (!a) throw new Bad(`No area called ${JSON.stringify(v)}. The areas are: ${this.areas.map((x) => x.title).join(", ") || "none yet"}.`);
+    return a;
+  }
   isProject = (r: Row) => this.children(r.id).length > 0 || (r.parent_id == null && !!r.color);
   leaves(r: Row): Row[] {
     const k = this.children(r.id);
@@ -218,6 +233,8 @@ class Tree {
     const o: Record<string, unknown> = { id: r.id, title: r.title };
     const path = this.ancestors(r).map((a) => a.title).join(" › ");
     if (path) o.project = path;
+    const area = this.areaOf(this.ancestors(r)[0] ?? r);
+    if (area) o.area = area.title;
     if (this.children(r.id).length) { const p = this.progress(r); o.progress = `${p.done}/${p.total} done`; }
     else o.done = r.done;
     if (r.day) o.day = r.day;
@@ -231,7 +248,7 @@ class Tree {
 }
 
 function newRow(fields: Partial<Row>): Row {
-  return { id: crypto.randomUUID(), parent_id: null, title: "", notes: null, done: false, day: null, start_min: null, after_min: null, duration_min: 60, sort: now(), color: null, due: null, link: null, deleted: false, ...fields };
+  return { id: crypto.randomUUID(), parent_id: null, title: "", notes: null, done: false, day: null, start_min: null, after_min: null, duration_min: 60, sort: now(), color: null, due: null, link: null, kind: null, area_id: null, deleted: false, ...fields };
 }
 
 const has = (o: Record<string, unknown>, k: string) => Object.prototype.hasOwnProperty.call(o, k) && o[k] !== undefined;
@@ -258,7 +275,7 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
     case "list_projects": {
       const rows = [...t.byId.values()].filter((r) => t.isProject(r) && (args.include_done || !t.isDone(r)));
       rows.sort((a, b) => t.ancestors(a).length - t.ancestors(b).length || a.sort - b.sort);
-      return { projects: rows.map((r) => t.describe(r)) };
+      return { areas: t.areas.map((a) => a.title), projects: rows.map((r) => t.describe(r)) };
     }
     case "get_item": {
       const r = t.get(args.id);
@@ -276,18 +293,19 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       if (has(args, "due")) f.due = dayArg(args.due, "due");
       const r = newRow(f);
       await db.save([r]);
-      return { added: { ...new Tree([...t.byId.values(), r]).describe(r) } };
+      return { added: { ...new Tree([...t.areas, ...t.byId.values(), r]).describe(r) } };
     }
     case "add_project": {
       const used = new Set([...t.byId.values()].filter((r) => r.parent_id == null && r.color).map((r) => r.color));
       const f: Partial<Row> = { title: textArg(args.title, "title", 500).trim(), color: PALETTE.find((c) => !used.has(c)) ?? PALETTE[t.byId.size % PALETTE.length] };
       if (!f.title) throw new Bad("title can't be empty.");
+      if (has(args, "area")) f.area_id = t.area(args.area).id;
       if (has(args, "notes")) f.notes = textArg(args.notes, "notes", 20000) || null;
       if (has(args, "link")) f.link = linkArg(args.link);
       if (has(args, "due")) f.due = dayArg(args.due, "due");
       const r = newRow(f);
       await db.save([r]);
-      return { added: { id: r.id, title: r.title } };
+      return { added: { id: r.id, title: r.title, ...(f.area_id ? { area: t.area(f.area_id).title } : {}) } };
     }
     case "add_steps": {
       const p = t.get(args.parent_id);
@@ -327,6 +345,10 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
         }
         r.sort = now();
       }
+      if (has(args, "area")) {
+        if (r.parent_id != null) throw new Bad("Only top-level projects sit in an area; this item is inside another project.");
+        r.area_id = args.area === null ? null : t.area(args.area).id;
+      }
       if (has(args, "done")) {
         if (typeof args.done !== "boolean") throw new Bad("done must be true or false.");
         const k = t.children(r.id);
@@ -336,7 +358,7 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       }
       changed.unshift(r);
       await db.save(changed);
-      const after = new Tree([...t.byId.values()].map((x) => changed.find((c) => c.id === x.id) ?? x));
+      const after = new Tree([...t.areas, ...[...t.byId.values()].map((x) => changed.find((c) => c.id === x.id) ?? x)]);
       return { updated: after.describe(after.get(r.id)), ...(changed.length > 1 ? { steps_changed: changed.length - 1 } : {}) };
     }
   }

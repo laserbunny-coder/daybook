@@ -3,7 +3,7 @@
 import * as store from './store.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { add, DAYL, dayShort, esc, fmtDur, fmtT, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
-import { children, dayItems, hasKids, heldBy, isDone, leaves, node, progress, rootOf, unscheduled } from './tree.js';
+import { children, dayItems, hasKids, heldBy, isDone, leaves, node, PALETTE, progress, rootOf, unscheduled } from './tree.js';
 
 let ctx = { cloud: false, client: null, anchor: () => today(), showPlan: () => {}, render: () => {} };
 const MSGS = lsGet('daybook-chat', []).filter(m => !m.typing).map(m => ({ ...m, u: null }));
@@ -25,7 +25,7 @@ export async function ask(q) {
 
 /* Real Claude */
 function plannerState() {
-  const T = today();
+  const T = today(); const areas = store.areas(), areaIds = new Set(areas.map(a => a.id));
   const items = store.all().map(n => {
     const o = { id: n.id, title: n.t, parent_id: n.p, done: !!n.done };
     if (hasKids(n.id) || n.c) { const p = progress(n.id); o.progress = `${p.done}/${p.total}`; }
@@ -36,6 +36,7 @@ function plannerState() {
     if (n.due) o.due = n.due;
     if (n.notes) o.notes = n.notes.slice(0, 500);
     if (n.link) o.link = n.link;
+    if (n.p == null && n.ar && areaIds.has(n.ar)) o.area_id = n.ar;
     return o;
   }).filter(o => !o.done || o.progress);
   const calendar_events = [];
@@ -43,7 +44,7 @@ function plannerState() {
     const d = add(T, i);
     for (const e of eventsOn(d)) calendar_events.push(e.allDay ? { title: e.t, day: d, all_day: true } : { title: e.t, day: d, start_min: e.s, duration_min: e.m });
   }
-  return { today: T, weekday: DAYL[pd(T).getDay()], now_min: nowMin(), viewing_week_of: weekStart(ctx.anchor()), items, calendar_events };
+  return { today: T, weekday: DAYL[pd(T).getDay()], now_min: nowMin(), viewing_week_of: weekStart(ctx.anchor()), areas: areas.map(a => ({ id: a.id, title: a.t })), items, calendar_events };
 }
 function history() {
   const h = [];
@@ -76,7 +77,9 @@ function fmtReply(t) {
 }
 const bold = s => s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
 function applyActions(actions) {
-  let count = 0; const valid = id => id && node(id);
+  let count = 0; const valid = id => id && node(id) && node(id).k !== 'area';
+  const area = id => (id && store.areas().some(a => a.id === id) ? id : null);
+  const isTop = id => valid(id) && node(id).p == null;
   for (const a of actions) {
     const m = a.duration_min && a.duration_min >= 5 ? Math.min(a.duration_min, 1440) : null;
     const s = Number.isInteger(a.start_min) && a.start_min >= 0 && a.start_min < 1440 ? a.start_min : null;
@@ -84,6 +87,13 @@ function applyActions(actions) {
     if (a.type === 'schedule' && valid(a.id)) { store.update(a.id, { d: day, s: day ? s : null, ...(node(a.id).d !== day ? { a: null } : {}), ...(m ? { m } : {}) }, true); count++; }
     else if (a.type === 'add_task' && a.title) { store.create({ t: a.title, p: valid(a.parent_id) ? a.parent_id : null, d: day, s: day ? s : null, m: m || 60, notes: a.notes || null }); count++; }
     else if (a.type === 'add_steps' && valid(a.id)) { (a.steps || []).forEach((st, i) => { if (st.title) store.create({ t: st.title, p: a.id, m: Math.max(5, st.duration_min || 30), o: Date.now() / 1000 + i }); count++; }); store.update(a.id, { done: false }, true); }
+    else if (a.type === 'add_project' && a.title) {
+      const used = new Set(store.all().filter(n => n.p == null && n.c).map(n => n.c));
+      const p = store.create({ t: a.title, ar: area(a.parent_id), c: PALETTE.find(c => !used.has(c)) || PALETTE[store.all().length % PALETTE.length], notes: a.notes || null, due: day });
+      (a.steps || []).forEach((st, i) => { if (st.title) store.create({ t: st.title, p: p.id, m: Math.max(5, st.duration_min || 30), o: Date.now() / 1000 + i }); });
+      count++;
+    }
+    else if (a.type === 'move_to_area' && isTop(a.id)) { store.update(a.id, { ar: area(a.parent_id) }, true); count++; }
     else if (a.type === 'rename' && valid(a.id) && a.title) { store.update(a.id, { t: a.title }, true); count++; }
     else if (a.type === 'set_notes' && valid(a.id)) { store.update(a.id, { notes: a.notes || null }, true); count++; }
     else if (a.type === 'set_due' && valid(a.id)) { store.update(a.id, { due: day }, true); count++; }

@@ -9,6 +9,7 @@ const SYSTEM = `You are the planning assistant inside Daybook, a personal task a
 
 How Daybook works:
 - Everything is an item in a tree. An item with children is a project; children can be sub-projects or tasks. Checking off tasks moves the parent project's progress.
+- Top-level projects are grouped into areas of life, such as Business, Filmmaking and Personal ("areas" in the state; a project's "area_id" says which). When you add a project, put it in the area it clearly belongs to; if none fits or you can't tell, ask.
 - An item can be assigned to a day ("day", YYYY-MM-DD) without a time, or to a time block on that day ("start_min", minutes after midnight, plus "duration_min").
 - A step with no day of its own is worked on inside its scheduled parent (its "scheduled_with" names that parent). It is not unscheduled; only give it its own day or time if the person asks or it clearly needs one.
 - Calendar events come from the person's Google Calendar. They are read-only: never move, change or delete them. Plan around them.
@@ -41,10 +42,11 @@ const OUTPUT_SCHEMA = {
         properties: {
           type: {
             type: "string",
-            enum: ["schedule", "add_task", "add_steps", "rename", "set_notes", "set_due"],
+            enum: ["schedule", "add_task", "add_steps", "add_project", "move_to_area", "rename", "set_notes", "set_due"],
             description:
               "schedule: set day/start_min/duration_min on item id. add_task: new item under parent_id (null for inbox). " +
-              "add_steps: add steps under item id. rename: change title of id. set_notes: replace notes of id. set_due: set due date (day) on id.",
+              "add_steps: add steps under item id. add_project: new top-level project titled title in the area parent_id (an area id), with optional notes, due date (day) and steps. " +
+              "move_to_area: move top-level project id into the area parent_id. rename: change title of id. set_notes: replace notes of id. set_due: set due date (day) on id.",
           },
           id: nullable("string"),
           parent_id: nullable("string"),
