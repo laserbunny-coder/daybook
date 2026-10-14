@@ -10,6 +10,7 @@ export type Row = {
   done: boolean;
   day: string | null;
   start_min: number | null;
+  after_min: number | null;
   duration_min: number;
   sort: number;
   color: string | null;
@@ -230,7 +231,7 @@ class Tree {
 }
 
 function newRow(fields: Partial<Row>): Row {
-  return { id: crypto.randomUUID(), parent_id: null, title: "", notes: null, done: false, day: null, start_min: null, duration_min: 60, sort: now(), color: null, due: null, link: null, deleted: false, ...fields };
+  return { id: crypto.randomUUID(), parent_id: null, title: "", notes: null, done: false, day: null, start_min: null, after_min: null, duration_min: 60, sort: now(), color: null, due: null, link: null, deleted: false, ...fields };
 }
 
 const has = (o: Record<string, unknown>, k: string) => Object.prototype.hasOwnProperty.call(o, k) && o[k] !== undefined;
@@ -306,7 +307,7 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       if (has(args, "title")) { r.title = textArg(args.title, "title", 500).trim(); if (!r.title) throw new Bad("title can't be empty."); }
       if (has(args, "day")) {
         const d = args.day === null ? null : dayArg(args.day, "day");
-        if (d !== r.day) { r.day = d; r.start_min = null; r.sort = now(); }
+        if (d !== r.day) { r.day = d; r.start_min = null; r.after_min = null; r.sort = now(); }
       }
       if (has(args, "start_time")) {
         if (args.start_time === null) r.start_min = null;
