@@ -188,12 +188,12 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .ai-h b{font:650 18px/1.1 var(--f-display)}
 .ai-h small{display:block;color:var(--muted);font-size:12px;margin-top:3px}
 .msgs{flex:1;min-height:0;padding:16px 16px 8px;display:flex;flex-direction:column;gap:12px}
-.msg{max-width:92%;font-size:13.5px;line-height:1.5}
+.msg{flex-shrink:0;max-width:92%;font-size:13.5px;line-height:1.5}
 .msg.me{align-self:flex-end;background:var(--accent);color:var(--accent-fg);padding:8px 12px;border-radius:14px 14px 4px 14px}
-.msg.ai{align-self:flex-start}
-.msg.ai p{margin:0 0 6px}
-.msg.ai ul{margin:4px 0 8px;padding-left:18px}
-.msg.ai li{margin:2px 0}
+.msg.bot{align-self:flex-start}
+.msg.bot p{margin:0 0 6px}
+.msg.bot ul{margin:4px 0 8px;padding-left:18px}
+.msg.bot li{margin:2px 0}
 .msg .acts{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
 .msg .acts button{font-size:12px;font-weight:500;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface)}
 .msg .acts button:disabled{opacity:.5;cursor:default}

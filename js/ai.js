@@ -143,8 +143,8 @@ export function renderMsgs() {
   const m = document.getElementById('msgs'); if (!m) return;
   if (!MSGS.length) {
     const open = store.all().filter(n => !hasKids(n.id) && !n.done && !n.c).length;
-    m.innerHTML = `<div class="msg ai"><p>${open ? `You have ${open} open tasks, and ${unscheduled().length} of them don't have a day yet.` : 'Add a few projects and tasks, then ask me to plan them out.'}</p><p>Ask me to plan your week, break a task into steps, or check what's at risk.</p></div>`;
-  } else m.innerHTML = MSGS.map(x => x.me ? `<div class="msg me">${esc(x.me)}</div>` : x.typing ? `<div class="msg ai typing">Thinking…</div>` : `<div class="msg ai${x.error ? ' err' : ''}">${x.h}${x.u || x.see || x.follow ? `<div class="acts">${x.follow ? `<button data-act="ask" data-q="Plan my week">Plan my week</button>` : ''}${x.see ? `<button data-act="tab" data-v="plan" class="phone-only">See the plan</button>` : ''}${x.u ? `<button data-act="undo" data-u="${x.u}">Undo</button>` : ''}</div>` : ''}</div>`).join('');
+    m.innerHTML = `<div class="msg bot"><p>${open ? `You have ${open} open tasks, and ${unscheduled().length} of them don't have a day yet.` : 'Add a few projects and tasks, then ask me to plan them out.'}</p><p>Ask me to plan your week, break a task into steps, or check what's at risk.</p></div>`;
+  } else m.innerHTML = MSGS.map(x => x.me ? `<div class="msg me">${esc(x.me)}</div>` : x.typing ? `<div class="msg bot typing">Thinking…</div>` : `<div class="msg bot${x.error ? ' err' : ''}">${x.h}${x.u || x.see || x.follow ? `<div class="acts">${x.follow ? `<button data-act="ask" data-q="Plan my week">Plan my week</button>` : ''}${x.see ? `<button data-act="tab" data-v="plan" class="phone-only">See the plan</button>` : ''}${x.u ? `<button data-act="undo" data-u="${x.u}">Undo</button>` : ''}</div>` : ''}</div>`).join('');
   m.scrollTop = m.scrollHeight;
   document.getElementById('sugs').innerHTML = ['Plan my week', "What's at risk this week?", ...(MSGS.length ? ['Start over'] : [])].map(s => `<button data-act="${s === 'Start over' ? 'clear-chat' : 'ask'}" data-q="${esc(s)}">${esc(s)}</button>`).join('');
 }
