@@ -215,8 +215,10 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .block .ck,.block .ring{width:14px;height:14px;margin-top:5px;border-color:color-mix(in srgb,var(--pc) 70%,var(--fg))}
 .block .ring{-webkit-mask:radial-gradient(circle,transparent 3.5px,#000 4px);mask:radial-gradient(circle,transparent 3.5px,#000 4px)}
 .block.done .b-t{text-decoration:line-through;opacity:.6}
-.b-in{min-width:0;flex:1;padding:4px 0} /* vertical padding lives here, so the short-block sizes below measure the whole block */
+.b-in{min-width:0;flex:1;padding:4px 0;height:100%;display:flex;flex-direction:column;flex-wrap:wrap;overflow:hidden} /* vertical padding lives here, so the short-block sizes below measure the whole block */
+.b-in>*{width:100%;flex:none} /* a time that doesn't fit below the title wraps into a hidden second column instead of showing cut off */
 .b-t{font-weight:600;overflow-wrap:break-word}
+.b-t.clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--l);overflow:hidden}
 .b-time{font:500 10px var(--f-mono);color:var(--muted);margin-top:1px}
 .ev{background:var(--stripes) var(--ev);color:var(--ev-fg);z-index:1;border:1px dashed rgba(255,255,255,.22)}
 .ev .b-t{font-weight:500}
@@ -227,7 +229,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 /* Short blocks (zoomed out, or a quick task) become one clean line: title centered, no time, no resize mark over the text */
 @container blk (max-height:37px){
   .b-in,.block>.ck,.block>.ring{align-self:center}
-  .b-in{padding:0}
+  .b-in{padding:0;height:auto}
   .block>.ck,.block>.ring{margin-top:0}
   .b-t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2}
   .b-time{display:none}

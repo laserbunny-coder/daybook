@@ -311,6 +311,7 @@ function renderMain() {
   </div>${drawerHTML()}`;
   const dr = document.getElementById('dr-b'); if (dr) dr.scrollTop = drSc;
   const mb = document.getElementById('mbody');
+  fitObs.disconnect(); mb.querySelectorAll('.block,.ev').forEach(b => fitObs.observe(b));
   if (sc != null) vScroller(mb).scrollTop = sc;
   else if (S.mode === 'timed') {
     const target = Math.max(H0, (days.includes(today()) ? Math.floor(nowMin() / 60) - 1 : 8)); vScroller(mb).scrollTop = Math.max(0, (Math.min(target, 17) - H0) * HP());
@@ -322,6 +323,17 @@ function renderMain() {
     stripTitle();
   }
 }
+// A title too long for its block ends on the last line that fits, with an ellipsis, instead of being sliced through.
+// Rechecked whenever a block changes size, so it follows pinch-zoom and resizing.
+const fitObs = new ResizeObserver(es => {
+  for (const { target: b } of es) {
+    const t = b.querySelector('.b-t'), box = b.querySelector('.b-in'); if (!t || !box) continue;
+    t.classList.remove('clamp');
+    const cs = getComputedStyle(t); if (cs.whiteSpace === 'nowrap') continue; // short blocks already use one line
+    const avail = box.clientHeight - parseFloat(getComputedStyle(box).paddingTop) * 2, lh = parseFloat(cs.lineHeight);
+    if (t.offsetHeight > avail + 1) { t.style.setProperty('--l', Math.max(1, Math.floor(avail / lh))); t.classList.add('clamp'); }
+  }
+});
 /* The strip of days in Week view. W is the range of days drawn; scrolling near either end draws more,
    and re-drawing keeps the same day under the same spot on screen. */
 let W = null, stripRaf = 0;
