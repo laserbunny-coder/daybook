@@ -24,6 +24,7 @@ const ICON = {
   note: '<svg class="ni" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" aria-label="Has notes"><path d="M2.5 3h7M2.5 6h7M2.5 9h4"/></svg>',
   link: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6.5 9.5l3-3M7.3 4.2l.9-.9a2.8 2.8 0 0 1 4 4l-.9.9M8.7 11.8l-.9.9a2.8 2.8 0 0 1-4-4l.9-.9"/></svg>',
   linkS: '<svg class="ni" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-label="Has a link"><path d="M6.5 9.5l3-3M7.3 4.2l.9-.9a2.8 2.8 0 0 1 4 4l-.9.9M8.7 11.8l-.9.9a2.8 2.8 0 0 1-4-4l.9-.9"/></svg>',
+  board: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1.3"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1.3"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1.3"/><rect x="9" y="9" width="4.5" height="4.5" rx="1.3"/></svg>',
   min: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4.5h10M3 8h10M3 11.5h6"/></svg>',
   close: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
   focus: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="1.8" fill="currentColor" stroke="none"/></svg>',
@@ -279,10 +280,14 @@ function setFocus(on, fromBack = false) {
   }
   render();
 }
-addEventListener('popstate', () => { if (S.focus) setFocus(false, true); });
+addEventListener('popstate', () => { if (S.focus) setFocus(false, true); else if (qVisit) { qVisit = false; if (S.tab !== 'plan') { S.tab = 'plan'; render(); } } });
 /* Quiet: the whole app rests in the focus look (titles only, events as thin lines, no bars) and the rest waits past the edges.
    Tap the day's name for the controls. Projects come in from the left edge (from the bottom on a phone), Ask Claude from the right. */
 const quiet = () => !!S.min && !S.focus;
+// On a phone the full Projects tab is a visit out of the quiet plan: the tab bar comes back until you return to Plan (or press Back)
+const quietLook = () => quiet() && !(phone() && S.tab !== 'plan');
+let qVisit = false;
+function quietProjects() { setStrip(false); S.tab = 'projects'; S.drOpen = false; document.body.classList.remove('dr-on'); if (!qVisit) { qVisit = true; history.pushState({ qVisit: 1 }, ''); } render(); }
 let qSide = false, qT = 0;
 function setStrip(on) { S.qstrip = on; document.body.classList.toggle('q-strip', quiet() && on); document.querySelector('.qh')?.setAttribute('aria-expanded', on); }
 function setQSide(on) { qSide = on && quiet() && !phone(); document.body.classList.toggle('q-side', qSide); if (qSide) setStrip(false); }
@@ -426,7 +431,7 @@ const vScroller = mb => (mb?.classList.contains('timed') && mb.querySelector('.t
 function renderMain() {
   const el = document.getElementById('main');
   document.body.classList.toggle('focus', !!S.focus);
-  document.body.classList.toggle('quiet', quiet()); document.body.classList.toggle('q-strip', quiet() && !!S.qstrip);
+  document.body.classList.toggle('quiet', quietLook()); document.body.classList.toggle('q-strip', quiet() && !!S.qstrip);
   if (boardShown()) return renderBoard(el);
   const strip = S.view === 'week';
   const prev = document.getElementById('mbody'); const key = S.view + S.mode + (strip ? '' : S.anchor);
@@ -446,13 +451,13 @@ function renderMain() {
     <div class="mh-r"><div class="seg" role="group" aria-label="Range"><button data-act="view" data-v="day" ${P('view', 'day')}>Day</button><button data-act="view" data-v="week" ${P('view', 'week')}>Week</button></div>
     <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button></div>
     <button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet: titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
-    <button class="ib q-only" data-act="qproj" aria-label="Projects" title="Projects (P)">${ICON.proj}</button>
+    <button class="ib q-only" data-act="qproj" aria-label="Projects" title="Projects (P)">${ICON.board}</button>
     <button class="ib fx-btn" data-act="focus" aria-label="Focus" title="Focus: just today (F)">${ICON.focus}</button>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
   <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
     ${S.tip ? `<div class="tip"><span>Tap a task to open it and add notes. Tap an empty time, or the + under a day, to add one. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
     ${S.mode === 'list' ? (S.view === 'week' ? weekList(days) : dayList(days[0])) : timed(days)}
-  </div>${drawerHTML()}${quiet() ? `<button class="qgrab" data-act="qproj" aria-label="Show projects"></button>` : ''}`;
+  </div>${drawerHTML()}${quiet() ? `<button class="qgrab" data-act="drawer" aria-label="Show projects to schedule"></button>` : ''}`;
   const dr = document.getElementById('dr-b'); if (dr) dr.scrollTop = drSc;
   const mb = document.getElementById('mbody');
   fitObs.disconnect(); mb.querySelectorAll('.block,.ev').forEach(b => fitObs.observe(b));
@@ -780,7 +785,7 @@ document.addEventListener('click', e => {
     case 'mode': S.mode = b.dataset.v; W = null; render(); break;
     case 'min': setQuiet(!S.min); break;
     case 'qstrip': setStrip(!S.qstrip); break;
-    case 'qproj': if (phone()) { setStrip(false); setDrawer(true); renderTabs(); } else setQSide(!qSide); break;
+    case 'qproj': if (phone()) quietProjects(); else setQSide(!qSide); break;
     case 'focus': setFocus(!S.focus); break;
     case 'prev': case 'next': {
       const dir = a === 'prev' ? -1 : 1;
@@ -795,7 +800,7 @@ document.addEventListener('click', e => {
     case 'today': if (S.view === 'week' && W) { stripGo(phone() ? today() : weekStart(today()), true); break; } S.anchor = today(); render(); break;
     case 'goday': S.anchor = b.dataset.d; S.view = 'day'; W = null; render(); break;
     case 'tip': S.tip = false; render(); break;
-    case 'tab': S.tab = b.dataset.v; S.drOpen = false; document.body.classList.remove('dr-on'); render(); break;
+    case 'tab': if (qVisit && b.dataset.v === 'plan') { history.back(); break; } S.tab = b.dataset.v; S.drOpen = false; document.body.classList.remove('dr-on'); render(); break;
     case 'drawer': setDrawer(!S.drOpen); renderTabs(); break;
     case 'dr-close': setDrawer(false); renderTabs(); break;
     case 'dr-in': S.drAt = id || null; renderMain(); break;
@@ -820,7 +825,7 @@ document.addEventListener('click', e => {
     }
   }
 }, true);
-function openAI() { if (quiet()) { setStrip(false); document.body.classList.remove('ai-off'); return; } if (phone()) { if (S.tab !== 'ask') { S.tab = 'ask'; renderTabs(); } } else document.body.classList.remove('ai-off'); }
+function openAI() { if (quietLook()) { setStrip(false); document.body.classList.remove('ai-off'); return; } if (phone()) { if (S.tab !== 'ask') { S.tab = 'ask'; renderTabs(); } } else document.body.classList.remove('ai-off'); }
 document.addEventListener('submit', e => {
   const f = e.target; e.preventDefault();
   if (f.id === 'askf') { const q = document.getElementById('askq'); if (q.value.trim()) { ask(q.value.trim()); q.value = ''; } return; }
