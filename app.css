@@ -277,6 +277,17 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);opacity:0;background:rgba(20,22,36,.85);border:1px solid var(--edge);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);color:var(--fg);padding:10px 16px;border-radius:999px;font-size:13px;z-index:200;transition:all .25s;pointer-events:none;max-width:calc(100% - 32px)}
 .toast.show{opacity:1;transform:translate(-50%,0)}
+.toast{display:flex;align-items:center;gap:4px}
+.toast span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.toast.act{pointer-events:auto;padding:4px 4px 4px 16px}
+.toast button{display:inline-flex;align-items:center;gap:5px;flex:none;padding:7px 12px;border-radius:999px;color:var(--accent);font-weight:600;font-size:13px}
+.toast button:first-of-type{margin-left:6px}
+.toast button svg{width:14px;height:14px}
+@media (hover:hover){.toast button:hover{background:rgba(255,255,255,.07)}}
+.toast button:active{background:rgba(255,255,255,.1)}
+.ur{margin-left:auto;gap:2px;opacity:.7}
+.ur.phone-only{display:none}
+@media (max-width:860px){.ur.phone-only{display:flex}.toast{bottom:calc(104px + env(safe-area-inset-bottom,0px))}}
 
 /* Phone projects drawer, pulled up out of the tab bar */
 .drawer,.dr-back,.tab-grab{display:none}

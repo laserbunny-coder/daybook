@@ -15,6 +15,8 @@ const boardShown = () => !phone() && S.page === 'projects';
 const ICON = {
   prev: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 3L5 8l5 5"/></svg>',
   next: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3l5 5-5 5"/></svg>',
+  undo: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 3.5l-3 3 3 3"/><path d="M2.5 6.5h7a3.5 3.5 0 0 1 0 7H7"/></svg>',
+  redo: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 3.5l3 3-3 3"/><path d="M13.5 6.5h-7a3.5 3.5 0 0 0 0 7H9"/></svg>',
   cal: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/></svg>',
   plan: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 9.5h17M8 3v4M16 3v4M8 13.5h3M8 16.5h6"/></svg>',
   proj: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 6h14M8 11h11M11 16h8"/><circle cx="5" cy="11" r="1"/><circle cx="8" cy="16" r="1"/></svg>',
@@ -300,7 +302,7 @@ function renderMain() {
   const prevDr = document.getElementById('dr-b'); const drSc = prevDr && prevDr.dataset.k === (S.drAt || '') ? prevDr.scrollTop : 0;
   const warn = store.sync.state === 'offline' || store.sync.state === 'error' ? `<div class="tip warn"><span>${SYNC_TEXT[store.sync.state]}</span></div>` : '';
   el.innerHTML = `<header class="mh">
-    <div class="mh-l">${pageSeg()}<h1 id="mtitle">${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div></div>
+    <div class="mh-l">${pageSeg()}<h1 id="mtitle">${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg" role="group" aria-label="Range"><button data-act="view" data-v="day" ${P('view', 'day')}>Day</button><button data-act="view" data-v="week" ${P('view', 'week')}>Week</button></div>
     <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button></div>
     ${S.mode === 'list' ? `<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Minimal list" title="Minimal list: just task titles">${ICON.min}</button>` : ''}
@@ -500,7 +502,54 @@ function render() {
 const later = () => { if (!raf) raf = requestAnimationFrame(render); };
 
 /* Actions */
-let toastT; function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2600); }
+let toastT, toastMsg = '', toastAt = 0;
+function toast(msg, acts = '') {
+  const t = document.getElementById('toast'); toastMsg = msg; toastAt = performance.now();
+  t.innerHTML = `<span>${esc(msg)}</span>${acts}`; t.classList.toggle('act', !!acts); t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show', 'act'), acts ? 5000 : 2600);
+}
+
+/* Undo and redo: Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y) on a computer. Every change shows a
+   pill with Undo for a few seconds; after undoing it offers Redo too. On a phone the
+   arrows also sit quietly in the header while there's something to take back.
+   Inside a text box, Ctrl+Z is the box's own typing undo. */
+const short = t => { t = (t || '').trim() || 'item'; return t.length > 32 ? t.slice(0, 31) + '…' : t; };
+function describe(st) {
+  const main = st.ch.reduce((m, c) => Object.keys(c[1]).length > Object.keys(m[1]).length ? c : m, st.ch[0]);
+  const [id, b, a] = st.ch.find(c => c[2].x === true) || st.ch.find(c => c[1].x === true) || main;
+  const t = short(store.peek(id)?.t), k = Object.keys(b), n = st.ch.length;
+  if (a.x === true) return `Deleted ${t}`;
+  if (b.x === true) return `Added ${t}`;
+  if ('done' in b) return n > 1 ? `${a.done ? 'Checked off' : 'Unchecked'} ${n} steps` : `${a.done ? 'Checked off' : 'Unchecked'} ${t}`;
+  if ('c' in b) return `Changed the color of ${t}`;
+  if ('d' in b || 's' in b || 'ar' in b || 'a' in b) return `Moved ${t}`;
+  if ('m' in b) return `Changed the length of ${t}`;
+  if ('due' in b) return `Changed the due date of ${t}`;
+  if ('t' in b) return `Renamed ${t}`;
+  if ('notes' in b) return `Edited the notes of ${t}`;
+  if ('link' in b) return `Changed the link of ${t}`;
+  if ('o' in b || 'ds' in b) return `Reordered ${t}`;
+  return `Changed ${t}`;
+}
+const lower = s => s[0].toLowerCase() + s.slice(1);
+function urActs(fresh) {
+  const u = store.canUndo(), r = store.canRedo();
+  return (u ? `<button data-act="ur-undo">${ICON.undo}Undo</button>` : '') + (r && !fresh ? `<button data-act="ur-redo">${ICON.redo}Redo</button>` : '');
+}
+function urBtns() {
+  const u = store.canUndo(), r = store.canRedo(); if (!u && !r) return '';
+  return `<div class="ur phone-only">${u ? `<button class="ib" data-act="ur-undo" aria-label="Undo">${ICON.undo}</button>` : ''}${r ? `<button class="ib" data-act="ur-redo" aria-label="Redo">${ICON.redo}</button>` : ''}</div>`;
+}
+function urSync() { const h = document.querySelector('#main .mh-l'); if (!h) return; h.querySelector('.ur')?.remove(); if (!boardShown()) h.insertAdjacentHTML('beforeend', urBtns()); }
+function doUndo() { const st = store.undo(); toast(st ? `Undone: ${lower(describe(st))}` : 'Nothing to undo', st ? urActs() : ''); }
+function doRedo() { const st = store.redo(); toast(st ? `Redone: ${lower(describe(st))}` : 'Nothing to redo', st ? urActs() : ''); }
+// A new step: offer Undo, keeping any message the change just showed (like a project's progress)
+function onStep(st) {
+  urSync();
+  if (!st || st.text) return; // typing a name or notes: the box is right there, no pill needed
+  if (st.ch.length === 1 && st.ch[0][1].x === true && !store.peek(st.ch[0][0])?.t.trim()) return; // a new project or area, about to be named
+  toast(performance.now() - toastAt < 100 ? toastMsg : describe(st), urActs(true));
+}
 function toggle(id) {
   const n = node(id); const anc = ancestors(n); const before = anc.map(isDone);
   if (hasKids(id) || n.c) { const all = isDone(n); store.updateMany(leaves(id).filter(l => !l.c).map(l => [l.id, { done: !all }])); }
@@ -603,6 +652,8 @@ document.addEventListener('click', e => {
     case 'reset': store.resetLocal(store.sampleData); toast('Sample data restored'); break;
     case 'ask': openAI(); ask(b.dataset.q); break;
     case 'clear-chat': clearChat(); break;
+    case 'ur-undo': doUndo(); break;
+    case 'ur-redo': doRedo(); break;
     case 'undo': if (undo(b.dataset.u)) { b.disabled = true; b.textContent = 'Undone'; } break;
     case 'signin': signIn(); break;
     case 'demo': enterDemo(); break;
@@ -630,6 +681,13 @@ document.addEventListener('submit', e => {
   if (f.dataset.form === 'inbox' && v) { inp.value = ''; store.create({ t: v }); }
 });
 document.addEventListener('keydown', e => {
+  const key = e.key.toLowerCase();
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && (key === 'z' || key === 'y')) {
+    if (e.target.closest?.('textarea, input:not([type]), input[type=text], input[type=search], input[type=url], [contenteditable]:not([contenteditable=false])')) return; // the box's own undo
+    e.preventDefault(); if (D) return;
+    if (key === 'y' || e.shiftKey) doRedo(); else doUndo();
+    return;
+  }
   if (e.key === 'Escape' && S.linkEdit) { S.linkEdit = false; document.activeElement?.blur(); renderDetail(); return; }
   if (e.key === 'Escape') { if (S.adding) { S.adding = null; render(); } else if (S.open) { S.open = null; renderDetail(); } }
   if (e.key === 'Enter' && e.target.id === 'dt-title') { e.preventDefault(); e.target.blur(); }
@@ -919,7 +977,7 @@ async function enterCloud(u) {
   await store.useCloud(client, u);
   calendar.ensure(add(today(), -7), add(today(), 28), true);
 }
-store.onChange(kind => { if (kind === 'sync') { if (!D) later(); return; } if (!D) later(); });
+store.onChange((kind, st) => { if (kind === 'step') return onStep(st); if (kind === 'sync') { if (!D) later(); return; } if (!D) later(); });
 calendar.onCalendarChange(() => { if (!D) later(); });
 initAI({ anchor: () => S.anchor, showPlan, render: later });
 setInterval(() => { if (today() !== shown) { shown = today(); if (S.anchor === add(today(), -1)) S.anchor = today(); later(); } else if (S.mode === 'timed' && !D) { document.querySelectorAll('.now').forEach(n => n.style.top = hpx((nowMin() - H0 * 60) / 60)); } }, 60e3);
