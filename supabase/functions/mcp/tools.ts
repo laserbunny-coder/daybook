@@ -13,6 +13,8 @@ export type Row = {
   after_min: number | null;
   duration_min: number;
   sort: number;
+  /** Place in its day's list; sort is its place among its project's steps. */
+  day_sort?: number | null;
   color: string | null;
   due: string | null;
   link: string | null;
@@ -268,7 +270,7 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       if (to) rows = rows.filter((r) => r.day && r.day <= to);
       if (under) rows = rows.filter((r) => t.ancestors(r).includes(under));
       if (words.length) rows = rows.filter((r) => words.every((w) => r.title.toLowerCase().includes(w)));
-      rows.sort((a, b) => (a.day ?? "9999").localeCompare(b.day ?? "9999") || (a.start_min ?? 1e4) - (b.start_min ?? 1e4) || a.sort - b.sort);
+      rows.sort((a, b) => (a.day ?? "9999").localeCompare(b.day ?? "9999") || (a.start_min ?? 1e4) - (b.start_min ?? 1e4) || (a.day_sort ?? a.sort) - (b.day_sort ?? b.sort));
       const out = rows.slice(0, 300).map((r) => t.describe(r));
       return rows.length > 300 ? { tasks: out, note: `Showing 300 of ${rows.length}. Narrow it down with dates or a project.` } : { tasks: out };
     }
@@ -325,7 +327,7 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       if (has(args, "title")) { r.title = textArg(args.title, "title", 500).trim(); if (!r.title) throw new Bad("title can't be empty."); }
       if (has(args, "day")) {
         const d = args.day === null ? null : dayArg(args.day, "day");
-        if (d !== r.day) { r.day = d; r.start_min = null; r.after_min = null; r.sort = now(); }
+        if (d !== r.day) { r.day = d; r.start_min = null; r.after_min = null; r.day_sort = now(); }
       }
       if (has(args, "start_time")) {
         if (args.start_time === null) r.start_min = null;
