@@ -319,7 +319,7 @@ for (const side of ['l', 'r']) {
 document.getElementById('side').addEventListener('mouseleave', e => { if (!qSide || D || e.relatedTarget?.closest?.('#detail')) return; clearTimeout(qT); qT = setTimeout(() => { if (!D && !document.getElementById('side').matches(':hover')) setQSide(false); }, 450); });
 document.getElementById('side').addEventListener('mouseenter', () => clearTimeout(qT));
 // On a phone: swipe up from the bottom edge for projects and pinch to go between the day and the week.
-// Ask Claude has its own faint ✦ in the top corner, since phones keep the side edges for their own Back gesture.
+// Ask Claude sits in the strip (tap the day name), since phones keep the side edges for their own Back gesture.
 let QG = null;
 document.addEventListener('touchstart', e => {
   QG = null; if (!quiet() || !phone() || S.tab !== 'plan' || D) return;
@@ -333,12 +333,13 @@ document.addEventListener('touchmove', e => {
   if (QG.pinch) {
     if (t.length !== 2) { QG = null; return; } if (e.cancelable) e.preventDefault();
     const r = span(t) / Math.max(QG.d, 1), to = r < .72 ? 'week' : r > 1.38 ? 'day' : null;
-    if (to) { QG = null; if (S.view !== to) { S.view = to; W = null; render(); } }
+    // Once switched, keep holding the rest of the pinch so the page itself never zooms
+    if (to && !QG.done) { QG.done = true; if (S.view !== to) { S.view = to; W = null; render(); } }
     return;
   }
   if (QG.up && QG.y - t[0].clientY > 36) { QG = null; setDrawer(true); renderTabs(); }
 }, { passive: false });
-document.addEventListener('touchend', () => { if (QG && !QG.pinch) QG = null; });
+document.addEventListener('touchend', e => { if (QG && (!QG.pinch || !e.touches.length)) QG = null; });
 // Closed while in focus: it opens in focus again, on today
 if (S.focus) { Object.assign(S, { view: 'day', mode: 'list', page: 'plan', tab: 'plan' }); if (!history.state?.focus) history.pushState({ focus: 1 }, ''); }
 function layout(items) {
@@ -451,7 +452,7 @@ function renderMain() {
   <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
     ${S.tip ? `<div class="tip"><span>Tap a task to open it and add notes. Tap an empty time, or the + under a day, to add one. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
     ${S.mode === 'list' ? (S.view === 'week' ? weekList(days) : dayList(days[0])) : timed(days)}
-  </div>${drawerHTML()}${quiet() ? `<button class="qgrab" data-act="qproj" aria-label="Show projects"></button><button class="qask" data-act="ask-open" aria-label="Ask Claude">${ICON.ask}</button>` : ''}`;
+  </div>${drawerHTML()}${quiet() ? `<button class="qgrab" data-act="qproj" aria-label="Show projects"></button>` : ''}`;
   const dr = document.getElementById('dr-b'); if (dr) dr.scrollTop = drSc;
   const mb = document.getElementById('mbody');
   fitObs.disconnect(); mb.querySelectorAll('.block,.ev').forEach(b => fitObs.observe(b));
@@ -779,7 +780,6 @@ document.addEventListener('click', e => {
     case 'mode': S.mode = b.dataset.v; W = null; render(); break;
     case 'min': setQuiet(!S.min); break;
     case 'qstrip': setStrip(!S.qstrip); break;
-    case 'ask-open': openAI(); break;
     case 'qproj': if (phone()) { setStrip(false); setDrawer(true); renderTabs(); } else setQSide(!qSide); break;
     case 'focus': setFocus(!S.focus); break;
     case 'prev': case 'next': {

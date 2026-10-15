@@ -559,7 +559,7 @@ body.focus .toast{bottom:calc(24px + env(safe-area-inset-bottom,0px))}
 
 /* Quiet: the whole app rests in the focus look. The header waits behind the day's name, projects past the left edge
    (past the bottom on a phone) and Ask Claude past the right; each slides in over the plan without moving it. */
-.qh,.q-only,.qedge,.qgrab,.qask{display:none}
+.qh,.q-only,.qedge,.qgrab{display:none}
 body.quiet .app,body.quiet:not(.ai-off) .app,body.quiet.ai-off .app{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
 body.quiet .main{grid-column:1;grid-row:1;position:relative;background:none}
 body.quiet .tip:not(.warn){display:none}
@@ -603,9 +603,7 @@ body.quiet:not(.ai-off) .ai{transform:none;visibility:visible;transition:transfo
   body.quiet .toast{bottom:calc(24px + env(safe-area-inset-bottom,0px))}
   body.quiet:not(.dr-on) .qgrab{display:block;position:fixed;left:50%;bottom:0;width:96px;height:26px;margin-left:-48px;z-index:20;padding-bottom:env(safe-area-inset-bottom,0px)}
   /* Ask Claude's own faint star in the top corner, level with the day's name */
-  body.quiet .qask{display:grid;place-items:center;position:absolute;top:4px;right:8px;width:40px;height:40px;z-index:20;color:var(--faint);border-radius:50%;transition:color .2s}
-  body.quiet .qask svg{width:17px;height:17px}
-  body.quiet .qask:active{color:var(--fg)}
-  body.quiet.q-strip .qask{opacity:0;pointer-events:none}
+  /* Week list: two fingers pinch back to the day instead of zooming the page */
+  body.quiet .mbody.min:not(.day),body.quiet .mbody.min:not(.day) *{touch-action:pan-x pan-y}
   .qgrab::before{content:"";position:absolute;left:50%;bottom:calc(8px + env(safe-area-inset-bottom,0px));width:36px;height:4px;margin-left:-18px;border-radius:2px;background:rgba(241,242,250,.2)}
 }
