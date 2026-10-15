@@ -27,14 +27,13 @@ const ICON = {
   board: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1.3"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1.3"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1.3"/><rect x="9" y="9" width="4.5" height="4.5" rx="1.3"/></svg>',
   min: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4.5h10M3 8h10M3 11.5h6"/></svg>',
   close: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
-  focus: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="1.8" fill="currentColor" stroke="none"/></svg>',
 };
 
 /* View state (per device) */
 const UI_KEY = 'daybook-ui';
-const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, focus: false, fxPrev: null, ...lsGet(UI_KEY, {}), pick: null, adding: null, new: null, drOpen: false, drAt: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, notesEdit: false, mcp: null };
+const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), focus: false, pick: null, adding: null, new: null, drOpen: false, drAt: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, notesEdit: false, mcp: null };
 S.anchor = today();
-const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min, focus: S.focus, fxPrev: S.fxPrev });
+const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min });
 let client = null, user = null, configured = false, shown = today(), supaUrl = '';
 
 /* Links on items, such as the Thymer page a task came from */
@@ -75,7 +74,7 @@ function chipHTML(n, o = {}) {
     if (n.m && !kids) meta.push(fmtDur(n.m));
     if (kids) { const p = progress(n.id); meta.push(`${p.done}/${p.total} done`); }
   }
-  return `<div class="item${isDone(n) ? ' done' : ''}${o.compact ? ' compact' : ''}${o.leaving ? ' leaving' : ''}" data-drag data-id="${n.id}" style="--pc:${colorOf(n)}">${ckHTML(n)}<div class="it-body"><div class="it-t">${esc(n.t || 'Untitled')}</div>${meta.length ? `<div class="it-m">${meta.join('<span>·</span>')}</div>` : ''}</div></div>`;
+  return `<div class="item${isDone(n) ? ' done' : ''}${o.compact ? ' compact' : ''}" data-drag data-id="${n.id}" style="--pc:${colorOf(n)}">${ckHTML(n)}<div class="it-body"><div class="it-t">${esc(n.t || 'Untitled')}</div>${meta.length ? `<div class="it-m">${meta.join('<span>·</span>')}</div>` : ''}</div></div>`;
 }
 const whenLabel = n => dayShort(n.d) + (n.s != null ? ' ' + fmtT(n.s) : '');
 function pickerHTML(n, dep) {
@@ -189,12 +188,12 @@ function dayGaps(d) {
   for (const n of dayItems(d)) gaps[gapOf(E, n.s ?? n.a)].push(n);
   return { E, gaps };
 }
-function listHTML(d, bare = false) {
-  const { E, gaps } = dayGaps(d), keep = n => !bare || !isDone(n) || fxLeaving.has(n.id);
-  const chips = g => g.filter(keep).map(n => chipHTML(n, { time: !bare, min: bare || S.min, leaving: bare && isDone(n) })).join('');
+function listHTML(d) {
+  const { E, gaps } = dayGaps(d);
+  const chips = g => g.map(n => chipHTML(n, { time: true, min: S.min })).join('');
   const all = eventsOn(d).filter(e => e.allDay).map(evRow).join('');
   const body = chips(gaps[0]) + E.map((e, i) => evRow(e) + chips(gaps[i + 1])).join('');
-  const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a task to ${esc(dayShort(d))}"><span aria-hidden="true">+</span>${body || bare ? '' : ' Add a task'}</button>`;
+  const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a task to ${esc(dayShort(d))}"><span aria-hidden="true">+</span>${body ? '' : ' Add a task'}</button>`;
   return `${all}<div class="list${body ? '' : ' empty'}" data-drop="list" data-date="${d}">${body}${adder}</div>`;
 }
 /* Adding a task right on the plan: the + at the end of a day's list, or a tap on an empty time (or the "Any time" row) in Time blocks.
@@ -258,32 +257,10 @@ function weekList(days) {
     ${listHTML(d)}${S.min ? '' : loadHTML(d)}</section>`).join('')}</div></div>`;
 }
 function dayList(d) { return `<div class="dl">${listHTML(d)}${S.min ? '' : loadHTML(d)}</div>`; }
-/* Focus mode: just the day's unfinished tasks, titles only, with the day's calendar events as thin time lines between them.
-   A task checked off here stays a moment so you see it go, then slips away. A small + adds a task and a faint × leaves. */
-const fxLeaving = new Set();
-function focusHTML(d) {
-  const a = pd(d), label = d === today() ? DAYL[a.getDay()] : `${DAYL[a.getDay()]}, ${MON[a.getMonth()]} ${a.getDate()}`;
-  const left = dayItems(d).some(n => !isDone(n) || fxLeaving.has(n.id));
-  return `<div class="dl"><div class="fx-day">${label}</div>${left || timedOn(d).length ? '' : '<div class="fx-clear">Nothing left</div>'}${listHTML(d, true)}</div>`;
-}
-let fxAnchor = null;
-function setFocus(on, fromBack = false) {
-  if (on === !!S.focus) return;
-  if (on) { // remember where you were, then go to today as a list
-    S.fxPrev = { view: S.view, mode: S.mode, page: S.page, tab: S.tab }; fxAnchor = S.anchor;
-    Object.assign(S, { focus: true, view: 'day', mode: 'list', page: 'plan', tab: 'plan', anchor: today(), pick: null, adding: null, new: null });
-    setDrawer(false); W = null;
-    if (!history.state?.focus) history.pushState({ focus: 1 }, ''); // so a phone's Back gesture leaves focus instead of the app
-  } else {
-    Object.assign(S, S.fxPrev || {}, { focus: false, fxPrev: null, anchor: fxAnchor || today(), new: null }); fxAnchor = null; W = null;
-    if (!fromBack && history.state?.focus) history.back();
-  }
-  render();
-}
-addEventListener('popstate', () => { if (S.focus) setFocus(false, true); else if (qSkip) qSkip = false; else if (qVisit) { qVisit = false; if (S.tab !== 'plan') { S.tab = 'plan'; W = null; render(); } } });
-/* Quiet: the whole app rests in the focus look (titles only, events as thin lines, no bars) and the rest waits past the edges.
+addEventListener('popstate', () => { if (qSkip) qSkip = false; else if (qVisit) { qVisit = false; if (S.tab !== 'plan') { S.tab = 'plan'; W = null; render(); } } });
+/* Quiet: the whole app rests in a bare look (titles only, events as thin lines, no bars) and the rest waits past the edges.
    Tap the day's name for the controls. Projects come in from the left edge (from the bottom on a phone), Ask Claude from the right. */
-const quiet = () => !!S.min && !S.focus;
+const quiet = () => !!S.min;
 // On a phone the full Projects screen opens inside Quiet, with the same faint name on top; Back (or the grid button) returns to the plan
 const quietLook = quiet;
 let qVisit = false, qSkip = false;
@@ -347,8 +324,6 @@ document.addEventListener('touchmove', e => {
   if (QG.up && QG.y - t[0].clientY > 36) { QG = null; setDrawer(true); renderTabs(); }
 }, { passive: false });
 document.addEventListener('touchend', e => { if (QG && (!QG.pinch || !e.touches.length)) QG = null; });
-// Closed while in focus: it opens in focus again, on today
-if (S.focus) { Object.assign(S, { view: 'day', mode: 'list', page: 'plan', tab: 'plan' }); if (!history.state?.focus) history.pushState({ focus: 1 }, ''); }
 function layout(items) {
   items.sort((a, b) => a.s - b.s || b.m - a.m); const cl = []; let cur = [], end = -1;
   for (const it of items) { if (cur.length && it.s >= end) { cl.push(cur); cur = []; end = -1; } cur.push(it); end = Math.max(end, it.s + it.m); }
@@ -432,7 +407,6 @@ function renderBoard(el) {
 const vScroller = mb => (mb?.classList.contains('timed') && mb.querySelector('.tw')) || mb;
 function renderMain() {
   const el = document.getElementById('main');
-  document.body.classList.toggle('focus', !!S.focus);
   document.body.classList.toggle('quiet', quietLook()); document.body.classList.toggle('q-strip', quiet() && !!S.qstrip);
   if (boardShown()) return renderBoard(el);
   const strip = S.view === 'week';
@@ -448,14 +422,12 @@ function renderMain() {
   const P = (k, v) => `aria-pressed="${S[k] === v}"`;
   const prevDr = document.getElementById('dr-b'); const drSc = prevDr && prevDr.dataset.k === (S.drAt || '') ? prevDr.scrollTop : 0;
   const warn = store.sync.state === 'offline' || store.sync.state === 'error' ? `<div class="tip warn"><span>${SYNC_TEXT[store.sync.state]}</span></div>` : '';
-  if (S.focus) el.innerHTML = `<div class="mbody vscroll day fx" id="mbody" data-k="${key}">${warn}${focusHTML(S.anchor)}</div><button class="fx-x" data-act="focus" aria-label="Leave focus" title="Leave focus (Esc)">${ICON.close}</button>`;
-  else el.innerHTML = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">${title}</span></button>` : ''}<header class="mh">
+  el.innerHTML = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">${title}</span></button>` : ''}<header class="mh">
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg" role="group" aria-label="Range"><button data-act="view" data-v="day" ${P('view', 'day')}>Day</button><button data-act="view" data-v="week" ${P('view', 'week')}>Week</button></div>
     <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button></div>
     <div class="mh-i"><button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet: titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
-    <button class="ib q-only" data-act="qproj" aria-pressed="${qp}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>
-    <button class="ib fx-btn" data-act="focus" aria-label="Focus" title="Focus: just today (F)">${ICON.focus}</button></div>
+    <button class="ib q-only" data-act="qproj" aria-pressed="${qp}" aria-label="Projects" title="Projects (P)">${ICON.board}</button></div>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
   <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
     ${S.tip ? `<div class="tip"><span>Tap a task to open it and add notes. Tap an empty time, or the + under a day, to add one. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
@@ -708,7 +680,6 @@ function toggle(id) {
   const n = node(id); const anc = ancestors(n); const before = anc.map(isDone);
   if (hasKids(id) || n.c) { const all = isDone(n); store.updateMany(leaves(id).filter(l => !l.c).map(l => [l.id, { done: !all }])); }
   else store.update(id, { done: !n.done });
-  if (S.focus && isDone(node(id))) { fxLeaving.add(id); setTimeout(() => { fxLeaving.delete(id); later(); }, 1300); }
   const fin = anc.filter((a, i) => !before[i] && isDone(a));
   if (fin.length) { const a = fin[fin.length - 1]; const r = rootOf(n); const p = progress(r.id); toast(r === a ? `${a.t} is complete.` : `${a.t} is done. ${r.t} is now ${Math.round(p.done / p.total * 100)}% complete.`); }
   else if (!hasKids(id) && node(id).done && anc.length) { const r = rootOf(n), p = progress(r.id); toast(`${r.t}: ${p.done} of ${p.total} done`); }
@@ -792,7 +763,6 @@ document.addEventListener('click', e => {
     case 'min': setQuiet(!S.min); break;
     case 'qstrip': setStrip(!S.qstrip); break;
     case 'qproj': if (!phone()) setQSide(!qSide); else if (qProjects()) { quietPlan(); render(); } else quietProjects(); break;
-    case 'focus': setFocus(!S.focus); break;
     case 'prev': case 'next': if (qProjects()) { quietPlan(); render(); break; } {
       const dir = a === 'prev' ? -1 : 1;
       if (S.view !== 'week' || !W) { S.anchor = add(S.anchor, dir * (S.view === 'week' ? 7 : 1)); render(); break; }
@@ -858,9 +828,8 @@ document.addEventListener('keydown', e => {
   }
   if (e.key === 'Escape' && S.linkEdit) { S.linkEdit = false; document.activeElement?.blur(); renderDetail(); return; }
   if (e.key === 'Escape' && S.new) { closeNew(); return; }
-  if (e.key === 'Escape') { if (S.adding) { S.adding = null; render(); } else if (S.open) { S.open = null; renderDetail(); } else if (S.focus && !D) setFocus(false); else if (quiet() && !D) quietAway(); }
+  if (e.key === 'Escape') { if (S.adding) { S.adding = null; render(); } else if (S.open) { S.open = null; renderDetail(); } else if (quiet() && !D) quietAway(); }
   if (quiet() && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])') && quietKey(e)) { e.preventDefault(); return; }
-  if (key === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey && !D && !S.open && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); setFocus(!S.focus); }
   if (e.key === 'Enter' && e.target.id === 'dt-title') { e.preventDefault(); e.target.blur(); }
   if (e.key === 'Enter' && e.target.matches('.dt-notes-view')) { e.preventDefault(); e.target.click(); }
 });
