@@ -74,7 +74,7 @@ function chipHTML(n, o = {}) {
     if (n.m && !kids) meta.push(fmtDur(n.m));
     if (kids) { const p = progress(n.id); meta.push(`${p.done}/${p.total} done`); }
   }
-  return `<div class="item${isDone(n) ? ' done' : ''}${o.compact ? ' compact' : ''}" data-drag data-id="${n.id}" style="--pc:${colorOf(n)}">${ckHTML(n)}<div class="it-body"><div class="it-t">${esc(n.t || 'Untitled')}</div>${meta.length ? `<div class="it-m">${meta.join('<span>·</span>')}</div>` : ''}</div></div>`;
+  return `<div class="item${isDone(n) ? ' done' : ''}${overdue(n) ? ' overdue' : ''}${o.compact ? ' compact' : ''}" data-drag data-id="${n.id}" style="--pc:${colorOf(n)}">${ckHTML(n)}<div class="it-body"><div class="it-t">${esc(n.t || 'Untitled')}</div>${meta.length ? `<div class="it-m">${meta.join('<span>·</span>')}</div>` : ''}</div></div>`;
 }
 const whenLabel = n => dayShort(n.d) + (n.s != null ? ' ' + fmtT(n.s) : '');
 function pickerHTML(n, dep) {
@@ -250,6 +250,8 @@ function weekLabel(d) {
   const name = w === 0 ? 'This week' : w === 1 ? 'Next week' : w === -1 ? 'Last week' : '';
   return `<span class="wkl">${name ? `<b>${name}</b><span>${range}</span>` : `<b>${range}</b>`}</span>`;
 }
+// Left unchecked on a day before today: wears a thin red outline until it's checked off or moved to today or later
+const overdue = n => !!n.d && n.d < today() && !isDone(n);
 const dayCls = d => `${d === today() ? ' today' : ''}${d < today() ? ' past' : ''}${isMon(d) ? ' mon' : ''}`;
 function weekList(days) {
   return `<div class="wkx hscroll"><div class="wk" style="--n:${days.length}">${days.map(d => `<section class="wcol${dayCls(d)}" data-day="${d}">${isMon(d) ? weekLabel(d) : ''}
@@ -345,7 +347,7 @@ function blocksHTML(d) {
     const tm = `${fmtT(it.s)} – ${fmtT(it.s + it.m)}`;
     if (it.ev) return `<div class="ev" style="${pos}" title="${esc(it.ev.cal || '')}"><div class="b-in"><div class="b-t">${esc(it.ev.t)}</div><div class="b-time">${tm}</div></div></div>`;
     const n = it.n, pr = hasKids(n.id) && progress(n.id); // a whole project in a block is a work session: show how far along it is
-    return `<div class="block${isDone(n) ? ' done' : ''}" data-drag data-id="${n.id}" style="${pos};--pc:${colorOf(n)}">${ckHTML(n)}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${tm}${pr ? ` · ${pr.done}/${pr.total}` : ''}</div></div><div class="rs"></div></div>`;
+    return `<div class="block${isDone(n) ? ' done' : ''}${overdue(n) ? ' overdue' : ''}" data-drag data-id="${n.id}" style="${pos};--pc:${colorOf(n)}">${ckHTML(n)}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${tm}${pr ? ` · ${pr.done}/${pr.total}` : ''}</div></div><div class="rs"></div></div>`;
   }).join('');
 }
 function nowHTML(d) { if (d !== today()) return ''; const m = nowMin(); if (m < H0 * 60 || m > H1 * 60) return ''; return `<div class="now" style="top:${hpx((m - H0 * 60) / 60)}"></div>`; }
