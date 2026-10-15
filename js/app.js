@@ -292,6 +292,15 @@ function quietKey(e) {
   else return false;
   return true;
 }
+// While the controls are open, a tap outside them only closes them, so it can't also start a new task or open a block underneath
+let stripEat = false, stripEatT = 0;
+window.addEventListener('pointerdown', e => {
+  if (!quiet() || !S.qstrip || !(e.target instanceof Element) || e.target.closest('.mh, .qh')) return;
+  setStrip(false); stripEat = true; clearTimeout(stripEatT); stripEatT = setTimeout(() => { stripEat = false; }, 800);
+  e.stopImmediatePropagation();
+}, true);
+for (const t of ['touchstart', 'mousedown']) window.addEventListener(t, e => { if (stripEat) e.stopImmediatePropagation(); }, true);
+window.addEventListener('click', e => { if (stripEat) { stripEat = false; e.stopImmediatePropagation(); e.preventDefault(); } }, true);
 // A tap anywhere else tucks the controls and projects away again
 document.addEventListener('click', e => {
   if (!quiet() || !(e.target instanceof Element) || !e.target.isConnected) return;
