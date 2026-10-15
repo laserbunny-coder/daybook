@@ -569,6 +569,12 @@ body.quiet .side,body.quiet .ai{position:fixed;top:12px;bottom:12px;z-index:40;b
 body.quiet .side{display:flex;left:12px;width:min(480px,calc(100vw - 24px));transform:translateX(calc(-100% - 24px))} /* opens wide so names fit; no resizing in Quiet */
 body.quiet .side-rs{display:none}
 body.quiet.q-side .side{transform:none;visibility:visible;transition:transform .32s cubic-bezier(.2,.8,.2,1)}
+/* Pinned from the projects button: the panel stays put and the plan slides over beside it */
+.q-unpin{display:none}
+body.quiet.q-pin .q-unpin{display:inline-block;order:9;font-size:15px;line-height:1;color:var(--faint)}
+body.quiet.q-pin .q-unpin:hover{color:var(--fg)}
+body.quiet .main{transition:padding .32s cubic-bezier(.2,.8,.2,1)}
+body.quiet.q-pin .main{padding-left:min(504px,calc(100vw - 24px))}
 body.quiet .ai,body.quiet.ai-off .ai{display:flex;right:12px;width:min(380px,calc(100vw - 24px));transform:translateX(calc(100% + 24px))}
 body.quiet:not(.ai-off) .ai{transform:none;visibility:visible;transition:transform .32s cubic-bezier(.2,.8,.2,1)}
 @media (min-width:861px) and (hover:hover){
