@@ -528,37 +528,16 @@ button.area-t:hover{text-decoration:underline;text-underline-offset:3px;text-dec
 .area-h .pdot{margin-left:2px}
 .dt .swatches.area-sw{margin-left:0}
 
-/* Focus mode: only the day. No sidebar, header, Ask Claude or tab bar; titles only, events as thin time lines, a small + and a faint × */
-body.focus .app,body.focus:not(.ai-off) .app{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
-body.focus .side,body.focus .ai,body.focus .tabs,body.focus .drawer,body.focus .dr-back{display:none!important}
-body.focus .main{display:flex!important;grid-column:1;grid-row:1;position:relative;background:none}
-body.focus .toast{bottom:calc(24px + env(safe-area-inset-bottom,0px))}
-.fx .dl{max-width:560px;padding:0 20px 96px;gap:8px}
-.fx-day{font:500 10.5px/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--faint);text-align:center;padding:26px 48px 12px}
-.fx-clear{text-align:center;color:var(--faint);font-size:13px;padding:24px 0 4px}
-.fx .list{gap:8px;min-height:0}
-.fx .item{padding:9px 12px}
-.fx .item.leaving{animation:fx-go .45s ease-in .8s forwards}
-@keyframes fx-go{to{opacity:0;transform:scale(.97)}}
-/* Calendar events become a thin line: time, title, then a dotted rule to the edge */
-/* The minimal list (titles only) draws them the same way, in Day and Week */
-:is(.fx,.mbody.min) :is(.list,.dl,.wcol) > .evr{background:none;border:0;border-radius:0;padding:3px 4px;font-size:12px;color:var(--faint);align-items:center;flex-wrap:nowrap;gap:10px}
-:is(.fx,.mbody.min) .evr span{min-width:38px;flex:none;color:var(--faint)}
-:is(.fx,.mbody.min) .evr .ev-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-:is(.fx,.mbody.min) .evr::after{content:"";flex:1;min-width:16px;height:1px;background:repeating-linear-gradient(90deg,var(--edge) 0 4px,transparent 4px 8px)}
+/* In the minimal (Quiet) list, calendar events become a thin line: time, title, then a dotted rule to the edge, in Day and Week */
+.mbody.min :is(.list,.dl,.wcol) > .evr{background:none;border:0;border-radius:0;padding:3px 4px;font-size:12px;color:var(--faint);align-items:center;flex-wrap:nowrap;gap:10px}
+.mbody.min .evr span{min-width:38px;flex:none;color:var(--faint)}
+.mbody.min .evr .ev-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mbody.min .evr::after{content:"";flex:1;min-width:16px;height:1px;background:repeating-linear-gradient(90deg,var(--edge) 0 4px,transparent 4px 8px)}
 .mbody.min .wcol .evr{gap:6px;padding:2px}
 .mbody.min .wcol .evr span{min-width:0;flex:none}
 .mbody.min .wcol .evr::after{min-width:10px}
-.fx .ladd{width:34px;min-height:34px;height:34px;padding:0;justify-content:center;align-self:center;margin-top:6px;border-radius:50%;border:1px solid var(--line);color:var(--faint)}
-.fx .ladd span{font-size:18px}
-.fx .ladd:hover{color:var(--fg);border-color:var(--edge)}
-.fx .list.empty .ladd{border-style:solid;padding:0;border-radius:50%}
-.fx-x{position:absolute;top:14px;right:14px;z-index:5;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;color:var(--muted);border:1px solid var(--line);background:rgba(255,255,255,.04);opacity:.5;transition:opacity .2s}
-.fx-x svg{width:12px;height:12px}
-.fx-x:hover,.fx-x:focus-visible{opacity:1}
-.fx-btn[aria-pressed="true"]{color:var(--fg)}
 
-/* Quiet: the whole app rests in the focus look. The header waits behind the day's name, projects past the left edge
+/* Quiet: the whole app rests in a bare look. The header waits behind the day's name, projects past the left edge
    (past the bottom on a phone) and Ask Claude past the right; each slides in over the plan without moving it. */
 .qh,.q-only,.qedge,.qgrab{display:none}
 body.quiet .app,body.quiet:not(.ai-off) .app,body.quiet.ai-off .app{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
@@ -577,7 +556,10 @@ body.quiet .mh h1{font-size:15px}
 body.quiet .mh .page-seg{display:none}
 body.quiet .mh .ur{display:flex;margin:0;opacity:1}
 body.quiet .ur .ib:disabled{opacity:.28;pointer-events:none}
-body.quiet .mh-i{gap:2px}
+body.quiet .mh-i{gap:6px}
+body.quiet :is(.mh-i,.ur) .ib{width:36px;height:36px;border-radius:11px}
+body.quiet .mh-i .ib svg{width:18px;height:18px}
+body.quiet .ur .ib svg{width:17px;height:17px}
 body.quiet .q-only[aria-pressed="true"]{background:var(--sunk);color:var(--fg)}
 body.quiet .side-h{display:none}
 /* Projects and Ask Claude float over the plan */
