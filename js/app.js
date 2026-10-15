@@ -879,15 +879,16 @@ function startDrag() {
     document.body.appendChild(g); D.g = g; el.classList.add('dragging');
   }
   if (qSide && el.closest('.side')) setQSide(false); // Quiet: projects slide away once something is picked up from them, so the whole plan is free
-  D.fromDr = !!el.closest('.drawer'); // the drawer steps aside once the finger carries the item out of it (see moveDrag)
+  D.fromDr = !!el.closest('.drawer'); D.x0 = D.x; D.y0 = D.y; // the drawer steps aside after a short carry (see moveDrag)
   D.list = !!el.closest('.side, .board, .dt, .drawer'); // picked up from a list of projects rather than from the plan
   if (D.kind !== 'resize' && node(D.id)?.d) document.body.classList.add('drag-sched'); // the tab bar offers to unschedule it
   el.classList.remove('pressing'); document.body.classList.add('is-dragging'); P = null; moveDrag(D.x, D.y); requestAnimationFrame(autoScroll);
 }
 function clearMarks() { ind.remove(); ins.remove(); document.querySelectorAll('.over').forEach(x => x.classList.remove('over')); }
 function moveDrag(x, y) {
-  // Inside the drawer the item can be moved up or down among its neighbours; carried up past the drawer's top, the drawer sinks away to free the day
-  if (D.fromDr && !D.sunk && y < document.getElementById('drawer').getBoundingClientRect().top - 6) { D.sunk = true; document.body.classList.add('dr-drag'); }
+  // Picked up from the drawer, it's headed for the plan: once carried a little way, the drawer sinks away to free the whole day.
+  // (Reordering projects and steps belongs to the full Projects screen.)
+  if (D.fromDr && !D.sunk && Math.hypot(x - D.x0, y - D.y0) > 24) { D.sunk = true; document.body.classList.add('dr-drag'); }
   if (quiet() && !phone() && !qSide && x < 16 && D.kind !== 'resize') setQSide(true); // carried to the left edge: projects and the Inbox slide in to take it
   D.x = x; D.y = y; const hp = HP();
   if (D.kind === 'resize') { const r = D.block.getBoundingClientRect(); const n = node(D.id); const m = Math.max(15, Math.min(Math.round((y - r.top) / hp * 60 / 15) * 15, H1 * 60 - n.s)); D.newM = m; D.block.style.height = (m / 60 * hp - 2) + 'px'; D.block.querySelector('.b-time').textContent = `${fmtT(n.s)} – ${fmtT(n.s + m)}`; return; }
@@ -895,7 +896,7 @@ function moveDrag(x, y) {
   clearMarks(); D.g.classList.remove('off'); D.at = null; D.t = null;
   let t = document.elementFromPoint(x, y)?.closest('[data-drop]'); const n = node(D.id);
   // The nearest list that holds this item's siblings takes it at a new place among them
-  for (let s = t; s && (s.dataset.drop === 'sib' || s.dataset.drop === 'area'); s = s.parentElement.closest('[data-drop]')) if (holds(s, n)) return markAmong(s, n, y);
+  if (!D.fromDr) for (let s = t; s && (s.dataset.drop === 'sib' || s.dataset.drop === 'area'); s = s.parentElement.closest('[data-drop]')) if (holds(s, n)) return markAmong(s, n, y);
   while (t && t.dataset.drop === 'sib') t = t.parentElement.closest('[data-drop]');
   if (t && D.list && t.closest('.side, .board, .dt, .drawer')) t = null; // somewhere else among the projects: nothing to do there
   D.t = t || null; if (!t) return;
