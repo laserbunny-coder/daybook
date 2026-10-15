@@ -178,7 +178,7 @@ function loadHTML(d) {
   if (!tasks && !meet) return '';
   return `<div class="load${tasks + meet > 540 ? ' heavy' : ''}">${tasks ? fmtDur(tasks) + ' of tasks' : ''}${tasks && meet ? ' · ' : ''}${meet ? fmtDur(meet) + ' booked' : ''}</div>`;
 }
-const evRow = e => `<div class="evr"><span>${e.allDay ? 'All day' : fmtT(e.s)}</span>${esc(e.t)}</div>`;
+const evRow = e => `<div class="evr"><span>${e.allDay ? 'All day' : fmtT(e.s)}</span><b class="ev-t">${esc(e.t)}</b></div>`;
 /* In the List view, tasks sit between the day's calendar events. Gap 0 is before
    the first event, gap i is after event i. A task with a time goes where its time
    falls; one without sits after the event that starts at its "a" minute. */
