@@ -556,3 +556,51 @@ body.focus .toast{bottom:calc(24px + env(safe-area-inset-bottom,0px))}
 .fx-x svg{width:12px;height:12px}
 .fx-x:hover,.fx-x:focus-visible{opacity:1}
 .fx-btn[aria-pressed="true"]{color:var(--fg)}
+
+/* Quiet: the whole app rests in the focus look. The header waits behind the day's name, projects past the left edge
+   (past the bottom on a phone) and Ask Claude past the right; each slides in over the plan without moving it. */
+.qh,.q-only,.qedge,.qgrab{display:none}
+body.quiet .app,body.quiet:not(.ai-off) .app,body.quiet.ai-off .app{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
+body.quiet .main{grid-column:1;grid-row:1;position:relative;background:none}
+body.quiet .tip:not(.warn){display:none}
+body.quiet .qh{display:flex;align-items:center;justify-content:center;gap:7px;flex:none;align-self:center;margin:0 auto;padding:14px 18px 8px;font:500 10.5px/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--faint);transition:color .2s}
+body.quiet .qh::after{content:"";width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.8}
+body.quiet .qh:hover,body.quiet.q-strip .qh{color:var(--muted)}
+body.quiet .q-only{display:grid}
+/* The header becomes a frosted strip that drops from the day's name */
+body.quiet .main>.mh{position:absolute;top:8px;left:50%;z-index:30;width:max-content;max-width:calc(100% - 24px);justify-content:center;gap:8px 12px;padding:7px 10px;border:1px solid var(--edge);border-radius:22px;
+  background:rgba(16,18,30,.84);backdrop-filter:blur(24px) saturate(1.2);-webkit-backdrop-filter:blur(24px) saturate(1.2);box-shadow:0 20px 50px -20px rgba(0,0,0,.85);
+  transform:translate(-50%,-10px);opacity:0;visibility:hidden;transition:opacity .2s,transform .25s cubic-bezier(.2,.8,.2,1),visibility 0s .25s}
+body.quiet.q-strip .main>.mh{transform:translate(-50%,0);opacity:1;visibility:visible;transition:opacity .2s,transform .25s cubic-bezier(.2,.8,.2,1)}
+body.quiet .mh h1{font-size:15px}
+body.quiet .mh .page-seg{display:none}
+/* Projects and Ask Claude float over the plan */
+body.quiet .side,body.quiet .ai{position:fixed;top:12px;bottom:12px;z-index:40;border:1px solid var(--edge);border-radius:20px;overflow:hidden;
+  background:rgba(14,16,28,.88);backdrop-filter:blur(26px) saturate(1.2);-webkit-backdrop-filter:blur(26px) saturate(1.2);box-shadow:0 30px 70px -20px rgba(0,0,0,.85);
+  visibility:hidden;transition:transform .32s cubic-bezier(.2,.8,.2,1),visibility 0s .32s}
+body.quiet .side{display:flex;left:12px;width:min(320px,calc(100vw - 24px));transform:translateX(calc(-100% - 24px))}
+body.quiet .side-rs{display:none}
+body.quiet.q-side .side{transform:none;visibility:visible;transition:transform .32s cubic-bezier(.2,.8,.2,1)}
+body.quiet .ai,body.quiet.ai-off .ai{display:flex;right:12px;width:min(380px,calc(100vw - 24px));transform:translateX(calc(100% + 24px))}
+body.quiet:not(.ai-off) .ai{transform:none;visibility:visible;transition:transform .32s cubic-bezier(.2,.8,.2,1)}
+@media (min-width:861px) and (hover:hover){
+  body.quiet .qedge{display:block;position:fixed;top:0;bottom:0;width:10px;z-index:35}
+  .qedge.l{left:0}.qedge.r{right:0}
+  .qedge::after{content:"";position:absolute;top:25%;bottom:25%;width:3px;border-radius:3px;background:linear-gradient(180deg,transparent,rgba(143,168,255,.75),transparent);opacity:0;transition:opacity .2s}
+  .qedge.l::after{left:2px}.qedge.r::after{right:2px}
+  .qedge:hover::after{opacity:1}
+}
+@media (max-width:860px){
+  body.quiet .side{display:none!important}
+  body.quiet .main{display:flex}
+  body.quiet .main>.mh{left:10px;right:10px;width:auto;max-width:none;transform:translateY(-10px)}
+  body.quiet.q-strip .main>.mh{transform:none}
+  body.quiet .ask-btn{display:inline-flex}
+  body.quiet .ai,body.quiet.ai-off .ai{top:calc(8px + env(safe-area-inset-top,0px));bottom:calc(8px + env(safe-area-inset-bottom,0px));left:8px;right:8px;width:auto;grid-row:auto}
+  body.quiet .tabs{display:none}
+  /* While a task is carried, the bar comes back as the place to drop it to unschedule */
+  body.quiet.drag-sched .tabs{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:30}
+  body.quiet .toast{bottom:calc(24px + env(safe-area-inset-bottom,0px))}
+  body.quiet:not(.dr-on) .qgrab{display:block;position:fixed;left:50%;bottom:0;width:96px;height:26px;margin-left:-48px;z-index:20;padding-bottom:env(safe-area-inset-bottom,0px)}
+  .qgrab::before{content:"";position:absolute;left:50%;bottom:calc(8px + env(safe-area-inset-bottom,0px));width:36px;height:4px;margin-left:-18px;border-radius:2px;background:rgba(241,242,250,.2)}
+}
