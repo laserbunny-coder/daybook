@@ -292,10 +292,19 @@ function quietKey(e) {
   else return false;
   return true;
 }
-// A tap anywhere else tucks the controls and projects away again
+// While the controls are open, a tap outside them only closes them, so it can't also start a new task or open a block underneath
+let stripEat = false, stripEatT = 0;
+window.addEventListener('pointerdown', e => {
+  if (!quiet() || !S.qstrip || !(e.target instanceof Element) || e.target.closest('.mh, .qh')) return;
+  setStrip(false); stripEat = true; clearTimeout(stripEatT); stripEatT = setTimeout(() => { stripEat = false; }, 800);
+  e.stopImmediatePropagation();
+}, true);
+for (const t of ['touchstart', 'mousedown']) window.addEventListener(t, e => { if (stripEat) e.stopImmediatePropagation(); }, true);
+window.addEventListener('click', e => { if (stripEat) { stripEat = false; e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+// A tap anywhere else tucks the controls and projects away again; so does a tap on the strip's own background or date
 document.addEventListener('click', e => {
   if (!quiet() || !(e.target instanceof Element) || !e.target.isConnected) return;
-  if (S.qstrip && !e.target.closest('.mh, .qh')) setStrip(false);
+  if (S.qstrip && (!e.target.closest('.mh, .qh') || (e.target.closest('.main > .mh') && !e.target.closest('button, select, input, a, label')))) setStrip(false);
   if (qSide && !qPin && !e.target.closest('.side, .qedge, [data-act="qproj"], #detail')) setQSide(false);
 });
 // On a computer, resting the mouse at the left or right edge slides projects or Ask Claude in; leaving the projects lets them slide back
