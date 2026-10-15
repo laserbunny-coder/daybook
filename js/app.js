@@ -163,7 +163,7 @@ function renderSide() {
   el.innerHTML = `<div class="side-h"><div class="brand">Daybook</div>${user ? '' : '<span class="tag">Sample</span>'}</div>
   <div class="side-rs" title="Drag to make the sidebar wider or narrower. Double-click to reset." aria-hidden="true"></div>
   <div class="side-b vscroll" data-drop="inbox">
-    <div class="sec">Projects <span class="sec-acts"><button class="sec-add desk-only" data-act="page" data-v="projects" title="See all projects on one big board">Full view</button><button class="sec-add" data-act="new-area">+ Area</button></span></div>
+    <div class="sec">Projects <span class="sec-acts"><button class="sec-add q-unpin" data-act="qproj" aria-label="Close projects" title="Close (P)">×</button><button class="sec-add desk-only" data-act="page" data-v="projects" title="See all projects on one big board">Full view</button><button class="sec-add" data-act="new-area">+ Area</button></span></div>
     ${groups.map(g => areaHTML(g)).join('')}
     <div class="sec">Inbox <small>loose tasks</small></div>
     <div class="tree" data-drop="sib" data-g="loose">${loose.map(n => treeRows(n, 0)).join('')}</div>
@@ -267,9 +267,11 @@ let qVisit = false, qSkip = false;
 function quietProjects() { setStrip(false); S.tab = 'projects'; S.drOpen = false; document.body.classList.remove('dr-on'); if (!qVisit) { qVisit = true; history.pushState({ qVisit: 1 }, ''); } render(); }
 function quietPlan() { if (S.tab === 'plan') return; setStrip(false); S.tab = 'plan'; W = null; if (qVisit) { qVisit = false; qSkip = true; history.back(); } }
 const qProjects = () => quiet() && phone() && S.tab === 'projects';
-let qSide = false, qT = 0;
+let qSide = false, qPin = false, qT = 0;
 function setStrip(on) { S.qstrip = on; document.body.classList.toggle('q-strip', quiet() && on); document.querySelector('.qh')?.setAttribute('aria-expanded', on); }
-function setQSide(on) { qSide = on && quiet() && !phone(); document.body.classList.toggle('q-side', qSide); if (qSide) setStrip(false); }
+function setQSide(on) { qSide = on && quiet() && !phone(); if (!qSide) qPin = false; document.body.classList.toggle('q-side', qSide); document.body.classList.toggle('q-pin', qPin); if (!phone()) document.querySelector('.mh [data-act="qproj"]')?.setAttribute('aria-pressed', qPin); if (qSide) setStrip(false); }
+// The projects button pins the panel at the side to work in it (reorder, add, rename); the plan moves over to make room
+function setQPin(on) { qPin = on && quiet() && !phone(); setQSide(qPin); }
 function quietAway() { setStrip(false); setQSide(false); document.body.classList.add('ai-off'); if (S.drOpen) { setDrawer(false); renderTabs(); } }
 function setQuiet(on) {
   S.min = on; S.qstrip = false; setQSide(false);
@@ -283,7 +285,7 @@ function quietKey(e) {
   if (k === 'arrowleft') click('prev'); else if (k === 'arrowright') click('next');
   else if (k === 'd' || k === 'w') { const v = k === 'd' ? 'day' : 'week'; if (S.view !== v) { S.view = v; W = null; render(); } }
   else if (k === 't') { S.mode = S.mode === 'list' ? 'timed' : 'list'; W = null; render(); }
-  else if (k === 'p') setQSide(!qSide);
+  else if (k === 'p') setQPin(!qPin);
   else if (k === '/') { openAI(); setTimeout(() => document.getElementById('askq')?.focus(), 50); }
   else return false;
   return true;
@@ -292,7 +294,7 @@ function quietKey(e) {
 document.addEventListener('click', e => {
   if (!quiet() || !(e.target instanceof Element) || !e.target.isConnected) return;
   if (S.qstrip && !e.target.closest('.mh, .qh')) setStrip(false);
-  if (qSide && !e.target.closest('.side, .qedge, [data-act="qproj"], #detail')) setQSide(false);
+  if (qSide && !qPin && !e.target.closest('.side, .qedge, [data-act="qproj"], #detail')) setQSide(false);
 });
 // On a computer, resting the mouse at the left or right edge slides projects or Ask Claude in; leaving the projects lets them slide back
 for (const side of ['l', 'r']) {
@@ -300,7 +302,7 @@ for (const side of ['l', 'r']) {
   z.addEventListener('mouseenter', () => { clearTimeout(qT); qT = setTimeout(() => { if (!quiet()) return; if (side === 'l') setQSide(true); else openAI(); }, 140); });
   z.addEventListener('mouseleave', () => clearTimeout(qT));
 }
-document.getElementById('side').addEventListener('mouseleave', e => { if (!qSide || D || e.relatedTarget?.closest?.('#detail')) return; clearTimeout(qT); qT = setTimeout(() => { if (!D && !document.getElementById('side').matches(':hover')) setQSide(false); }, 450); });
+document.getElementById('side').addEventListener('mouseleave', e => { if (!qSide || qPin || D || e.relatedTarget?.closest?.('#detail')) return; clearTimeout(qT); qT = setTimeout(() => { if (!D && !document.getElementById('side').matches(':hover')) setQSide(false); }, 450); });
 document.getElementById('side').addEventListener('mouseenter', () => clearTimeout(qT));
 // On a phone: swipe up from the bottom edge for projects and pinch to go between the day and the week.
 // Ask Claude sits in the strip (tap the day name), since phones keep the side edges for their own Back gesture.
@@ -427,7 +429,7 @@ function renderMain() {
     <div class="mh-r"><div class="seg" role="group" aria-label="Range"><button data-act="view" data-v="day" ${P('view', 'day')}>Day</button><button data-act="view" data-v="week" ${P('view', 'week')}>Week</button></div>
     <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button></div>
     <div class="mh-i"><button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet: titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
-    <button class="ib q-only" data-act="qproj" aria-pressed="${qp}" aria-label="Projects" title="Projects (P)">${ICON.board}</button></div>
+    <button class="ib q-only" data-act="qproj" aria-pressed="${qp || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button></div>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
   <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
     ${S.tip ? `<div class="tip"><span>Tap a task to open it and add notes. Tap an empty time, or the + under a day, to add one. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
@@ -762,7 +764,7 @@ document.addEventListener('click', e => {
     case 'mode': quietPlan(); S.mode = b.dataset.v; W = null; render(); break;
     case 'min': setQuiet(!S.min); break;
     case 'qstrip': setStrip(!S.qstrip); break;
-    case 'qproj': if (!phone()) setQSide(!qSide); else if (qProjects()) { quietPlan(); render(); } else quietProjects(); break;
+    case 'qproj': if (!phone()) setQPin(!qPin); else if (qProjects()) { quietPlan(); render(); } else quietProjects(); break;
     case 'prev': case 'next': if (qProjects()) { quietPlan(); render(); break; } {
       const dir = a === 'prev' ? -1 : 1;
       if (S.view !== 'week' || !W) { S.anchor = add(S.anchor, dir * (S.view === 'week' ? 7 : 1)); render(); break; }
@@ -878,7 +880,7 @@ function startDrag() {
     if (D.timed) { g.style.height = r.height + 'px'; D.offX = Math.min(P.x - r.left, w - 10); } else D.offY = Math.min(D.offY, 24);
     document.body.appendChild(g); D.g = g; el.classList.add('dragging');
   }
-  if (qSide && el.closest('.side')) setQSide(false); // Quiet: projects slide away once something is picked up from them, so the whole plan is free
+  if (qSide && !qPin && el.closest('.side')) setQSide(false); // Quiet: projects slide away once something is picked up from them, so the whole plan is free
   D.fromDr = !!el.closest('.drawer'); D.x0 = D.x; D.y0 = D.y; // the drawer steps aside after a short carry (see moveDrag)
   D.list = !!el.closest('.side, .board, .dt, .drawer'); // picked up from a list of projects rather than from the plan
   if (D.kind !== 'resize' && node(D.id)?.d) document.body.classList.add('drag-sched'); // the tab bar offers to unschedule it
