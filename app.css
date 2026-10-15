@@ -146,6 +146,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .step{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .evr{display:flex;flex-wrap:wrap;gap:0 6px;font-size:12px;color:var(--ev-fg);padding:3px 4px;align-items:baseline}
 .evr span{font:500 11px var(--f-mono);min-width:44px;color:var(--muted)}
+.ev-t{font-weight:inherit}
 /* Calendar events inside the List view mark the gaps tasks can be dragged into.
    Every calendar event wears faint diagonal stripes: fixed, comes from Google, not editable here. */
 .list > .evr,.wcol > .evr,.dl > .evr{background:var(--stripes) var(--ev);border:1px dashed var(--edge);border-radius:14px;padding:5px 8px}
@@ -539,9 +540,14 @@ body.focus .toast{bottom:calc(24px + env(safe-area-inset-bottom,0px))}
 .fx .item.leaving{animation:fx-go .45s ease-in .8s forwards}
 @keyframes fx-go{to{opacity:0;transform:scale(.97)}}
 /* Calendar events become a thin line: time, title, then a dotted rule to the edge */
-.fx .list > .evr,.fx .dl > .evr{background:none;border:0;border-radius:0;padding:3px 4px;font-size:12px;color:var(--faint);align-items:center;flex-wrap:nowrap;gap:10px}
-.fx .evr span{min-width:38px;color:var(--faint)}
-.fx .evr::after{content:"";flex:1;min-width:24px;height:1px;background:repeating-linear-gradient(90deg,var(--edge) 0 4px,transparent 4px 8px)}
+/* The minimal list (titles only) draws them the same way, in Day and Week */
+:is(.fx,.mbody.min) :is(.list,.dl,.wcol) > .evr{background:none;border:0;border-radius:0;padding:3px 4px;font-size:12px;color:var(--faint);align-items:center;flex-wrap:nowrap;gap:10px}
+:is(.fx,.mbody.min) .evr span{min-width:38px;flex:none;color:var(--faint)}
+:is(.fx,.mbody.min) .evr .ev-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+:is(.fx,.mbody.min) .evr::after{content:"";flex:1;min-width:16px;height:1px;background:repeating-linear-gradient(90deg,var(--edge) 0 4px,transparent 4px 8px)}
+.mbody.min .wcol .evr{gap:6px;padding:2px}
+.mbody.min .wcol .evr span{min-width:0;flex:none}
+.mbody.min .wcol .evr::after{min-width:10px}
 .fx .ladd{width:34px;min-height:34px;height:34px;padding:0;justify-content:center;align-self:center;margin-top:6px;border-radius:50%;border:1px solid var(--line);color:var(--faint)}
 .fx .ladd span{font-size:18px}
 .fx .ladd:hover{color:var(--fg);border-color:var(--edge)}
