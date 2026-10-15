@@ -173,10 +173,19 @@ function listHTML(d) {
   const body = chips(gaps[0]) + E.map((e, i) => evRow(e) + chips(gaps[i + 1])).join('');
   return `${all}<div class="list${body ? '' : ' empty'}" data-drop="list" data-date="${d}">${body}</div>`;
 }
+/* Week view is an endless strip of days: it doesn't stop at Sunday. A faint line and a small label mark where each week starts. */
+const isMon = d => pd(d).getDay() === 1;
+const rangeLabel = (a, b) => `${MON[pd(a).getMonth()]} ${pd(a).getDate()} – ${pd(a).getMonth() === pd(b).getMonth() ? '' : MON[pd(b).getMonth()] + ' '}${pd(b).getDate()}`;
+function weekLabel(d) {
+  const w = daysBetween(weekStart(today()), d) / 7, range = rangeLabel(d, add(d, 6));
+  const name = w === 0 ? 'This week' : w === 1 ? 'Next week' : w === -1 ? 'Last week' : '';
+  return `<span class="wkl">${name ? `<b>${name}</b><span>${range}</span>` : `<b>${range}</b>`}</span>`;
+}
+const dayCls = d => `${d === today() ? ' today' : ''}${d < today() ? ' past' : ''}${isMon(d) ? ' mon' : ''}`;
 function weekList(days) {
-  return `<div class="wk">${days.map(d => `<section class="wcol${d === today() ? ' today' : ''}${d < today() ? ' past' : ''}">
+  return `<div class="wkx hscroll"><div class="wk" style="--n:${days.length}">${days.map(d => `<section class="wcol${dayCls(d)}" data-day="${d}">${isMon(d) ? weekLabel(d) : ''}
     <button class="dh" data-act="goday" data-d="${d}"><span>${DAYN[pd(d).getDay()]}</span><b>${pd(d).getDate()}</b></button>
-    ${listHTML(d)}${S.min ? '' : loadHTML(d)}</section>`).join('')}</div>`;
+    ${listHTML(d)}${S.min ? '' : loadHTML(d)}</section>`).join('')}</div></div>`;
 }
 function dayList(d) { return `<div class="dl">${listHTML(d)}${S.min ? '' : loadHTML(d)}</div>`; }
 function layout(items) {
@@ -201,10 +210,10 @@ function nowHTML(d) { if (d !== today()) return ''; const m = nowMin(); if (m < 
 function timed(days) {
   const hrs = []; for (let h = H0 + 1; h < H1; h++) hrs.push(h);
   return `<div class="tw hscroll"><div class="tg${days.length === 1 ? ' one' : ''}" style="--cols:${days.length};--hours:${H1 - H0}">
-    <div class="trow thead"><div class="gut"></div>${days.map(d => `<button class="th${d === today() ? ' today' : ''}" data-act="goday" data-d="${d}">${DAYN[pd(d).getDay()]} <b>${pd(d).getDate()}</b></button>`).join('')}</div>
-    <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray" data-drop="tray" data-date="${d}">${eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all">${esc(e.t)}</div>`).join('')}${dayItems(d).filter(n => n.s == null).map(n => chipHTML(n, { compact: days.length > 1 })).join('')}</div>`).join('')}</div>
+    <div class="trow thead"><div class="gut"></div>${days.map(d => `<button class="th${dayCls(d)}" data-act="goday" data-d="${d}" data-day="${d}">${days.length > 1 && isMon(d) ? weekLabel(d) : ''}${DAYN[pd(d).getDay()]} <b>${pd(d).getDate()}</b></button>`).join('')}</div>
+    <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray${isMon(d) ? ' mon' : ''}" data-drop="tray" data-date="${d}">${eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all">${esc(e.t)}</div>`).join('')}${dayItems(d).filter(n => n.s == null).map(n => chipHTML(n, { compact: days.length > 1 })).join('')}</div>`).join('')}</div>
     <div class="trow tbody"><div class="gut hrs">${hrs.map(h => `<div class="hl" style="top:${hpx(h - H0)}">${h % 12 || 12}${h < 12 ? 'am' : 'pm'}</div>`).join('')}</div>
-    ${days.map(d => `<div class="col${d === today() ? ' today' : ''}" data-drop="col" data-date="${d}">${blocksHTML(d)}${nowHTML(d)}</div>`).join('')}</div>
+    ${days.map(d => `<div class="col${d === today() ? ' today' : ''}${isMon(d) ? ' mon' : ''}" data-drop="col" data-date="${d}">${blocksHTML(d)}${nowHTML(d)}</div>`).join('')}</div>
   </div></div>`;
 }
 /* Phone: the projects drawer. It pulls up out of the tab bar over the plan; hold anything in it and drag it onto the day.
@@ -257,17 +266,20 @@ function renderBoard(el) {
 function renderMain() {
   const el = document.getElementById('main');
   if (boardShown()) return renderBoard(el);
-  const prev = document.getElementById('mbody'); const key = S.view + S.mode + S.anchor;
-  const same = prev && prev.dataset.k === key; const sc = same ? prev.scrollTop : null; const hsc = same ? prev.querySelector('.tw')?.scrollLeft : null;
-  const ws = weekStart(S.anchor); const days = S.view === 'week' ? [...Array(7)].map((_, i) => add(ws, i)) : [S.anchor];
+  const strip = S.view === 'week';
+  const prev = document.getElementById('mbody'); const key = S.view + S.mode + (strip ? '' : S.anchor);
+  const same = prev && prev.dataset.k === key; const sc = same ? prev.scrollTop : null;
+  const keep = strip && same ? stripPos() : null;
+  if (strip && !W) { const ws = weekStart(S.anchor); W = { from: add(ws, -7), to: add(ws, 7 * 5 - 1), jump: phone() ? S.anchor : ws }; }
+  const days = strip ? [...Array(daysBetween(W.from, W.to) + 1)].map((_, i) => add(W.from, i)) : [S.anchor];
   calendar.ensure(days[0], days[days.length - 1]);
-  const we = pd(add(ws, 6)), a = pd(S.anchor);
-  const title = S.view === 'week' ? `${MON[pd(ws).getMonth()]} ${pd(ws).getDate()} – ${pd(ws).getMonth() === we.getMonth() ? '' : MON[we.getMonth()] + ' '}${we.getDate()}` : `${S.anchor === today() ? 'Today' : DAYL[a.getDay()]}, ${MON[a.getMonth()]} ${a.getDate()}`;
+  const a = pd(S.anchor);
+  const title = strip ? rangeLabel(S.anchor, add(S.anchor, 6)) : `${S.anchor === today() ? 'Today' : DAYL[a.getDay()]}, ${MON[a.getMonth()]} ${a.getDate()}`;
   const P = (k, v) => `aria-pressed="${S[k] === v}"`;
   const prevDr = document.getElementById('dr-b'); const drSc = prevDr && prevDr.dataset.k === (S.drAt || '') ? prevDr.scrollTop : 0;
   const warn = store.sync.state === 'offline' || store.sync.state === 'error' ? `<div class="tip warn"><span>${SYNC_TEXT[store.sync.state]}</span></div>` : '';
   el.innerHTML = `<header class="mh">
-    <div class="mh-l">${pageSeg()}<h1>${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div></div>
+    <div class="mh-l">${pageSeg()}<h1 id="mtitle">${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div></div>
     <div class="mh-r"><div class="seg" role="group" aria-label="Range"><button data-act="view" data-v="day" ${P('view', 'day')}>Day</button><button data-act="view" data-v="week" ${P('view', 'week')}>Week</button></div>
     <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button></div>
     ${S.mode === 'list' ? `<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Minimal list" title="Minimal list: just task titles">${ICON.min}</button>` : ''}
@@ -278,11 +290,68 @@ function renderMain() {
   </div>${drawerHTML()}`;
   const dr = document.getElementById('dr-b'); if (dr) dr.scrollTop = drSc;
   const mb = document.getElementById('mbody');
-  if (sc != null) { mb.scrollTop = sc; const tw = mb.querySelector('.tw'); if (tw && hsc != null) tw.scrollLeft = hsc; }
+  if (sc != null) mb.scrollTop = sc;
   else if (S.mode === 'timed') {
     const target = Math.max(H0, (days.includes(today()) ? Math.floor(nowMin() / 60) - 1 : 8)); mb.scrollTop = Math.max(0, (Math.min(target, 17) - H0) * HP());
-    const tw = mb.querySelector('.tw'); const ti = days.indexOf(today()); if (tw && ti > 0 && tw.scrollWidth > tw.clientWidth) tw.scrollLeft = ti * 116;
   }
+  if (strip) {
+    if (keep) placeDay(keep.d, keep.off);
+    if (W.jump && placeDay(W.jump, 0)) W.jump = null;
+    const s = stripScroller(); if (s) s.el.addEventListener('scroll', onStrip, { passive: true });
+    stripTitle();
+  }
+}
+/* The strip of days in Week view. W is the range of days drawn; scrolling near either end draws more,
+   and re-drawing keeps the same day under the same spot on screen. */
+let W = null, stripRaf = 0;
+function stripScroller() {
+  const mb = document.getElementById('mbody'); if (!mb) return null;
+  if (S.mode === 'timed') { const tw = mb.querySelector('.tw'); return tw && { el: tw, x: true, edge: 36 }; }
+  const wx = mb.querySelector('.wkx'); if (wx && wx.scrollWidth > wx.clientWidth + 1) return { el: wx, x: true, edge: 0 };
+  return { el: mb, x: false, edge: 0 };
+}
+const dayEls = () => [...document.querySelectorAll('#mbody [data-day]')];
+function edgeOf(s) { const r = s.el.getBoundingClientRect(); return s.x ? r.left + s.edge : r.top; }
+function stripPos() { // the first day in view and how far it sits past the edge
+  const s = stripScroller(); if (!s) return null; const e = edgeOf(s);
+  for (const el of dayEls()) { const r = el.getBoundingClientRect(); if ((s.x ? r.right : r.bottom) > e + 1) return { d: el.dataset.day, off: (s.x ? r.left : r.top) - e }; }
+  return null;
+}
+function placeDay(d, off) {
+  const s = stripScroller(), el = document.querySelector(`#mbody [data-day="${d}"]`); if (!s || !el) return false;
+  const r = el.getBoundingClientRect(); if (!r.width) return false;
+  const delta = (s.x ? r.left : r.top) - edgeOf(s) - off;
+  if (s.x) s.el.scrollLeft += delta; else s.el.scrollTop += delta;
+  return true;
+}
+function visibleDays() {
+  const s = stripScroller(); if (!s) return [];
+  const r = s.el.getBoundingClientRect(), a = s.x ? r.left + s.edge : r.top, b = s.x ? r.right : r.bottom;
+  return dayEls().filter(el => { const q = el.getBoundingClientRect(), lo = s.x ? q.left : q.top, hi = s.x ? q.right : q.bottom; return Math.min(hi, b) - Math.max(lo, a) > (hi - lo) / 2; }).map(el => el.dataset.day);
+}
+function stripTitle() {
+  const v = visibleDays(); if (!v.length) return;
+  S.anchor = v.includes(today()) ? today() : v[0]; // Day view, "Plan my week" and switching layouts start from here
+  const t = document.getElementById('mtitle'); if (t) t.textContent = v.length > 1 ? rangeLabel(v[0], v[v.length - 1]) : `${DAYN[pd(v[0]).getDay()]}, ${MON[pd(v[0]).getMonth()]} ${pd(v[0]).getDate()}`;
+}
+function onStrip() {
+  if (stripRaf) return;
+  stripRaf = requestAnimationFrame(() => {
+    stripRaf = 0; if (S.view !== 'week' || !W) return;
+    stripTitle(); if (D) return; // don't redraw under a drag
+    const s = stripScroller(); if (!s) return; const el = s.el;
+    const pos = s.x ? el.scrollLeft : el.scrollTop, size = s.x ? el.clientWidth : el.clientHeight, full = s.x ? el.scrollWidth : el.scrollHeight;
+    const MAX = 126; // days kept drawn; the far end is let go as more are added
+    if (full - pos - size < size) { W.to = add(W.to, 28); if (daysBetween(W.from, W.to) > MAX) W.from = add(W.from, 28); renderMain(); }
+    else if (pos < size / 2) { W.from = add(W.from, -14); if (daysBetween(W.from, W.to) > MAX) W.to = add(W.to, -14); renderMain(); }
+  });
+}
+/* Prev / Next / Today in Week view move along the strip instead of swapping weeks */
+function stripGo(d, smooth) {
+  if (d < W.from || d > W.to) { W = null; S.anchor = d; renderMain(); return; }
+  const s = stripScroller(), el = document.querySelector(`#mbody [data-day="${d}"]`); if (!s || !el) return;
+  const delta = (s.x ? el.getBoundingClientRect().left : el.getBoundingClientRect().top) - edgeOf(s);
+  s.el.scrollBy({ [s.x ? 'left' : 'top']: delta, behavior: smooth ? 'smooth' : 'auto' });
 }
 function renderTabs() {
   const t = [['plan', 'Plan', ICON.plan], ['projects', 'Projects', ICON.proj], ['ask', 'Ask Claude', ICON.ask]];
@@ -391,6 +460,7 @@ function render() {
   const ae = document.activeElement; const fid = ae && ae.id && !document.getElementById('detail').contains(ae) ? ae.id : null;
   const val = fid ? ae.value : null;
   renderSide(); renderMain(); renderTabs(); renderDetail(); renderMsgs(); saveUI();
+  if (S.view === 'week' && W?.jump && placeDay(W.jump, 0)) { W.jump = null; stripTitle(); } // a phone only lays the plan out once its tab is set
   if (S.adding) { const i = document.getElementById('add-in'); if (i) { if (fid === 'add-in') i.value = val; i.focus({ preventScroll: true }); } }
   else if (fid && fid !== 'askq') { const i = document.getElementById(fid); if (i) { if (val != null && 'value' in i) i.value = val; i.focus({ preventScroll: true }); } }
 }
@@ -419,7 +489,7 @@ function makeProject(t, ar) {
 }
 function newProject(ar) { const n = makeProject('', ar); if (ar) S.col['area:' + ar] = false; openItem(n.id, true); }
 function newArea() { const n = store.create({ k: 'area', t: '', c: store.nextAreaColor(), o: Math.max(0, ...store.areas().map(a => a.o)) + 1 }); openItem(n.id, true); }
-function showPlan(view, mode) { S.view = view; S.mode = mode; S.page = 'plan'; render(); }
+function showPlan(view, mode) { if (S.view !== view || S.mode !== mode) W = null; S.view = view; S.mode = mode; S.page = 'plan'; render(); }
 function signIn() {
   if (!client) return;
   client.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname, scopes: 'https://www.googleapis.com/auth/calendar.readonly', queryParams: { access_type: 'offline', prompt: 'consent' } } });
@@ -453,12 +523,21 @@ document.addEventListener('click', e => {
     case 'new-project': newProject(b.dataset.area); break;
     case 'new-area': newArea(); break;
     case 'page': S.page = b.dataset.v; S.pick = null; S.adding = null; render(); break;
-    case 'view': S.view = b.dataset.v; render(); break;
-    case 'mode': S.mode = b.dataset.v; render(); break;
+    case 'view': S.view = b.dataset.v; W = null; render(); break;
+    case 'mode': S.mode = b.dataset.v; W = null; render(); break;
     case 'min': S.min = !S.min; render(); break;
-    case 'prev': case 'next': S.anchor = add(S.anchor, (a === 'prev' ? -1 : 1) * (S.view === 'week' ? 7 : 1)); render(); break;
-    case 'today': S.anchor = today(); render(); break;
-    case 'goday': S.anchor = b.dataset.d; S.view = 'day'; render(); break;
+    case 'prev': case 'next': {
+      const dir = a === 'prev' ? -1 : 1;
+      if (S.view !== 'week' || !W) { S.anchor = add(S.anchor, dir * (S.view === 'week' ? 7 : 1)); render(); break; }
+      const f = visibleDays()[0] || S.anchor, ws = weekStart(f); // a computer lines weeks up on Monday; a phone steps a week from where you are
+      const to = phone() ? add(f, dir * 7) : dir > 0 ? add(ws, 7) : f === ws ? add(ws, -7) : ws;
+      // draw a few weeks past where we're headed first, so the strip doesn't redraw mid-glide
+      let grew = false; if (add(to, -14) < W.from) { W.from = add(weekStart(to), -21); grew = true; } if (add(to, 21) > W.to) { W.to = add(to, 35); grew = true; }
+      if (grew) renderMain();
+      stripGo(to, true); break;
+    }
+    case 'today': if (S.view === 'week' && W) { stripGo(phone() ? today() : weekStart(today()), true); break; } S.anchor = today(); render(); break;
+    case 'goday': S.anchor = b.dataset.d; S.view = 'day'; W = null; render(); break;
     case 'tip': S.tip = false; render(); break;
     case 'tab': S.tab = b.dataset.v; S.drOpen = false; document.body.classList.remove('dr-on'); render(); break;
     case 'drawer': setDrawer(!S.drOpen); renderTabs(); break;
@@ -676,7 +755,7 @@ document.addEventListener('pointerdown', e => {
 document.addEventListener('pointermove', e => { if (SR) SR.now = setSideW(SR.w + e.clientX - SR.x); });
 document.addEventListener('pointerup', () => { if (!SR) return; if (SR.now) lsSet(SIDE_KEY, SR.now); SR = null; document.body.classList.remove('resizing'); });
 document.addEventListener('dblclick', e => { if (e.target.closest?.('.side-rs')) { document.documentElement.style.removeProperty('--side-w'); lsDel(SIDE_KEY); } });
-matchMedia('(max-width:860px)').addEventListener('change', () => later());
+matchMedia('(max-width:860px)').addEventListener('change', () => { W = null; later(); });
 
 /* Start-up: sign-in, sample mode, and keeping "today" current */
 function showWelcome(show) { document.getElementById('welcome').hidden = !show; }

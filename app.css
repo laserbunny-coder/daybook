@@ -42,6 +42,7 @@ body[data-page="projects"] .side{visibility:hidden;border:0}
 body.ai-off .ai{display:none}
 .vscroll{overflow-y:auto;overscroll-behavior:contain}
 .hscroll{overflow-x:auto;overscroll-behavior-x:contain}
+body.is-dragging .hscroll{scroll-snap-type:none}
 
 /* Sidebar */
 .side{position:relative;min-width:0;border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;background:rgba(6,7,13,.35)}
@@ -151,8 +152,15 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .mbody.min .list{gap:5px}
 
 /* Week list */
-.wk{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));min-height:100%}
-.wcol{display:flex;flex-direction:column;gap:6px;padding:10px 8px 16px;border-right:1px solid var(--line);min-width:0}
+.wkx{display:grid;container-type:inline-size;min-height:100%;scroll-snap-type:x proximity}
+/* Week is an endless strip: seven days fill the width and the rest are a sideways scroll away */
+.wk{display:grid;grid-template-columns:repeat(var(--n,7),calc(100cqw / 7));width:max-content;min-width:100%;min-height:100%}
+.wcol{position:relative;display:flex;flex-direction:column;gap:6px;padding:16px 8px 16px;border-right:1px solid var(--line);min-width:0;scroll-snap-align:start}
+.wcol.mon{box-shadow:inset 1px 0 0 rgba(143,168,255,.45)}
+/* Where a week starts: a small label over Monday */
+.wkl{position:absolute;top:4px;left:12px;right:4px;display:flex;gap:6px;align-items:baseline;font:500 9px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--accent);white-space:nowrap;overflow:hidden;pointer-events:none}
+.wkl b{font-weight:500}
+.wkl span{display:none}
 .wcol:last-child{border-right:0}
 .wcol.today{background:color-mix(in srgb,var(--accent-soft) 45%,var(--surface))}
 .dh{display:flex;align-items:baseline;gap:6px;padding:2px 4px 6px;text-align:left;border-radius:6px}
@@ -171,11 +179,16 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .dl .list{gap:8px;min-height:120px}
 
 /* Time blocks */
-.tw{min-height:100%}
-.tg{--gw:36px;--cols:7;--colmin:0px;display:flex;flex-direction:column;min-width:calc(var(--gw) + var(--cols)*var(--colmin))}
-.trow{display:grid;grid-template-columns:var(--gw) repeat(var(--cols),minmax(var(--colmin),1fr))}
+.tw{min-height:100%;container-type:inline-size;scroll-snap-type:x proximity;scroll-padding-left:var(--gw,36px)}
+.tg{--gw:36px;--cols:7;--colw:calc((100cqw - var(--gw)) / 7);display:flex;flex-direction:column;width:max-content;min-width:100%}
+.trow{display:grid;grid-template-columns:var(--gw) repeat(var(--cols),var(--colw))}
+.tg.one{--colw:minmax(0,1fr);width:auto}
+.tray.mon,.col.mon{border-left-color:rgba(143,168,255,.45)}
+.th.mon{box-shadow:inset 1px 0 0 rgba(143,168,255,.45)}
+.th .wkl{top:3px;left:8px}
+.th .wkl b{font:inherit;color:inherit;letter-spacing:inherit}
 .thead{position:sticky;top:0;z-index:7;background:rgba(10,12,22,.72);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-bottom:1px solid var(--line)}
-.th{padding:10px 8px 8px;text-align:left;display:flex;gap:6px;align-items:baseline;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.th{position:relative;scroll-snap-align:start;padding:14px 8px 8px;text-align:left;display:flex;gap:6px;align-items:baseline;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
 .th b{font:600 16px/1 var(--f-display);letter-spacing:0;color:var(--fg)}
 .th.today b{color:var(--accent)}
 .ttray{border-bottom:1px solid var(--line)}
@@ -296,11 +309,17 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
   .mh h1{font-size:19px}
   .mh-r{width:100%;justify-content:space-between}
   .tip{margin:10px 16px 0}
-  .wk{grid-template-columns:1fr}
+  .wkx{overflow:visible;container-type:normal;scroll-snap-type:none}
+  .wk{grid-template-columns:1fr;width:auto}
   .wcol{border-right:0;border-bottom:1px solid var(--line);padding:10px 16px 14px}
+  .wcol.mon{box-shadow:none}
+  /* On a phone the weeks run down the page, each with its own heading */
+  .wcol .wkl{position:static;margin:-10px -16px 6px;padding:16px 16px 8px;border-bottom:1px solid var(--line);font:600 13px/1.2 var(--f-display);letter-spacing:-.01em;text-transform:none;color:var(--fg);background:rgba(255,255,255,.03)}
+  .wcol .wkl b{font-weight:600}
+  .wcol .wkl span{display:inline;font:500 10.5px var(--f-mono);letter-spacing:.02em;color:var(--faint)}
   .list{min-height:44px}
-  .tg{--colmin:116px}
-  .tg.one{--colmin:0px}
+  .tg{--colw:116px}
+  .tg.one{--colw:minmax(0,1fr)}
   .dl{padding:14px 16px 40px}
   .side-h{padding:16px 18px 6px}
 }
