@@ -286,7 +286,7 @@ function renderMain() {
     <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button></div>
     ${S.mode === 'list' ? `<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Minimal list" title="Minimal list: just task titles">${ICON.min}</button>` : ''}
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
-  <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
+  <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
     ${S.tip ? `<div class="tip"><span>Tap a task to open it and add notes. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
     ${S.mode === 'list' ? (S.view === 'week' ? weekList(days) : dayList(days[0])) : timed(days)}
   </div>${drawerHTML()}`;
@@ -780,6 +780,74 @@ document.addEventListener('touchmove', e => {
   zoomTo(Z.hp * span(e.touches) / Math.max(Z.d, 1), m.y);
 }, { passive: false });
 document.addEventListener('touchend', e => { if (e.touches.length < 2) Z = null; });
+
+/* Day view: swipe sideways to go to the next or previous day. The day slides along under the finger and the
+   day it's heading to peeks in from the side. A trackpad's two-finger sideways swipe does the same on a computer. */
+let DS = null, WS = null, swBusy = false; const swp = document.createElement('div'); swp.className = 'swp';
+const dayBody = t => { const mb = document.getElementById('mbody'); return mb?.classList.contains('day') && t instanceof Element && mb.contains(t) ? mb : null; };
+function swSet(dx, o) {
+  const mb = document.getElementById('mbody'); if (!mb) return; const w = mb.clientWidth || 1;
+  mb.classList.add('swiping'); mb.style.setProperty('--swx', dx + 'px'); mb.style.setProperty('--swo', o ?? 1 - Math.min(1, Math.abs(dx) / w) * .6);
+  if (!dx || o != null) { swp.classList.remove('show'); return; }
+  const dir = dx < 0 ? 1 : -1, d = add(S.anchor, dir), r = mb.getBoundingClientRect();
+  swp.innerHTML = dir < 0 ? `‹ <span>${d === today() ? 'Today' : `${DAYN[pd(d).getDay()]} ${pd(d).getDate()}`}</span>` : `<span>${d === today() ? 'Today' : `${DAYN[pd(d).getDay()]} ${pd(d).getDate()}`}</span> ›`;
+  swp.style.top = (r.top + Math.min(r.height * .4, 240)) + 'px';
+  swp.style.left = dir < 0 ? (r.left + 12) + 'px' : ''; swp.style.right = dir > 0 ? (innerWidth - r.right + 12) + 'px' : '';
+  swp.style.opacity = Math.min(1, Math.abs(dx) / 90); swp.style.setProperty('--pk', (Math.min(Math.abs(dx), 90) / 90 - 1) * dir * -14 + 'px');
+  if (!swp.isConnected) document.body.appendChild(swp); swp.classList.add('show');
+}
+function swDone(mb) { mb.classList.remove('swiping', 'sw-anim'); mb.style.removeProperty('--swx'); mb.style.removeProperty('--swo'); }
+function swBack() { const mb = document.getElementById('mbody'); if (!mb) return; mb.classList.add('sw-anim'); swSet(0); setTimeout(() => swDone(mb), 220); }
+function swGo(dir) { // dir 1 = next day, -1 = previous
+  const mb = document.getElementById('mbody'); if (!mb) return; swBusy = true;
+  const w = mb.clientWidth; mb.classList.add('sw-anim'); swSet(-dir * w, 0);
+  justDragged = true;
+  setTimeout(() => {
+    const sc = S.mode === 'timed' ? vScroller(mb).scrollTop : null; // Time blocks keeps the same hours in view from day to day
+    S.anchor = add(S.anchor, dir); render(); justDragged = false;
+    const nb = document.getElementById('mbody'); if (!nb) { swBusy = false; return; }
+    if (sc != null) vScroller(nb).scrollTop = sc;
+    swSet(dir * w * .3, 0); nb.offsetWidth; nb.classList.add('sw-anim'); swSet(0, 1);
+    setTimeout(() => { swDone(nb); swBusy = false; }, 240);
+  }, 170);
+}
+document.addEventListener('touchstart', e => {
+  DS = null; if (e.touches.length !== 1 || swBusy || D) return;
+  const mb = dayBody(e.target); if (!mb || e.target.closest('input,textarea,select,.rs')) return;
+  const t = e.touches[0]; DS = { x: t.clientX, y: t.clientY, lx: t.clientX, lt: e.timeStamp, v: 0, on: false };
+}, { passive: true });
+document.addEventListener('touchmove', e => {
+  if (!DS) return;
+  if (D || e.touches.length !== 1) { if (DS.on) swBack(); DS = null; return; } // a drag or a pinch took over
+  const t = e.touches[0], dx = t.clientX - DS.x, dy = t.clientY - DS.y;
+  if (!DS.on) {
+    if (Math.abs(dy) > 10 && Math.abs(dy) >= Math.abs(dx)) { DS = null; return; } // scrolling up or down, as usual
+    if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+    if (!e.cancelable) { DS = null; return; } // the page is already scrolling
+    DS.on = true; DS.x = t.clientX; clearTimeout(lp); if (P) { P.el.classList.remove('pressing'); P = null; }
+  }
+  e.preventDefault();
+  const dt = e.timeStamp - DS.lt; if (dt > 0) DS.v = DS.v * .5 + (t.clientX - DS.lx) / dt * .5; DS.lx = t.clientX; DS.lt = e.timeStamp;
+  swSet(t.clientX - DS.x);
+}, { passive: false });
+const swEnd = () => {
+  const s = DS; DS = null; if (!s?.on) return;
+  const mb = document.getElementById('mbody'), dx = s.lx - s.x, w = mb?.clientWidth || 1;
+  justDragged = true; setTimeout(() => justDragged = false, 80);
+  if (Math.abs(dx) > w * .28 || (Math.abs(dx) > 30 && Math.abs(s.v) > .35 && Math.sign(s.v) === Math.sign(dx))) swGo(dx < 0 ? 1 : -1); else swBack();
+};
+document.addEventListener('touchend', swEnd); document.addEventListener('touchcancel', swEnd);
+document.addEventListener('wheel', e => {
+  if (e.ctrlKey || e.metaKey || !dayBody(e.target)) return;
+  const ax = Math.abs(e.deltaX), ay = Math.abs(e.deltaY);
+  if (WS?.lock || swBusy) { if (ax > ay) e.preventDefault(); clearTimeout(WS?.tm); WS = { lock: true, tm: setTimeout(() => WS = null, 300) }; return; } // let a flick's glide run out
+  if (!WS && ax <= ay * 1.2) return; // up and down scrolls as usual
+  e.preventDefault(); if (!WS) WS = { x: 0 }; clearTimeout(WS.tm);
+  WS.x -= e.deltaX * (e.deltaMode === 1 ? 33 : 1);
+  const w = document.getElementById('mbody').clientWidth;
+  if (Math.abs(WS.x) > Math.min(150, w * .25)) { swGo(WS.x < 0 ? 1 : -1); WS = { lock: true, tm: setTimeout(() => WS = null, 300) }; return; }
+  swSet(WS.x); WS.tm = setTimeout(() => { WS = null; swBack(); }, 150);
+}, { passive: false });
 
 /* Sidebar width: drag its right edge on a computer; double-click the edge to reset */
 const SIDE_KEY = 'daybook-side-w';

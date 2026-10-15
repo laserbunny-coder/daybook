@@ -201,6 +201,12 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .tray{display:flex;flex-direction:column;gap:4px;padding:6px 4px;min-height:44px;border-left:1px solid var(--line);min-width:0}
 .tbody .hrs{padding:0}
 .tw{touch-action:pan-x pan-y} /* two-finger pinch zooms the hours (see app.js), not the whole page */
+.mbody.day,.mbody.day .tw{touch-action:pan-y;overflow-x:hidden} /* in Day view a sideways swipe changes the day (see app.js) */
+.mbody.swiping :is(.dl,.th,.tray,.col){transform:translateX(var(--swx,0px));opacity:var(--swo,1)}
+.mbody.sw-anim :is(.dl,.th,.tray,.col){transition:transform .2s cubic-bezier(.2,.75,.25,1),opacity .2s}
+.swp{position:fixed;z-index:30;pointer-events:none;display:flex;gap:6px;align-items:center;padding:7px 13px;border-radius:999px;background:rgba(20,22,36,.8);border:1px solid var(--edge);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);color:var(--muted);font-size:13px;font-weight:600;transform:translate(var(--pk,0px),-50%);opacity:0;transition:opacity .15s}
+.swp span{color:var(--fg)}
+.swp:not(.show){opacity:0!important}
 .hl{position:absolute;right:5px;transform:translateY(-6px);font:500 10px var(--f-mono);color:var(--faint)}
 .col{position:relative;border-left:1px solid var(--line);height:calc(var(--hours,15) * var(--hp));background-image:repeating-linear-gradient(to bottom,var(--line) 0 1px,transparent 1px var(--hp));min-width:0}
 .col.today{background-color:color-mix(in srgb,var(--accent-soft) 40%,var(--surface))}
