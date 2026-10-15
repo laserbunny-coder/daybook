@@ -30,7 +30,7 @@ const ICON = {
 
 /* View state (per device) */
 const UI_KEY = 'daybook-ui';
-const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), pick: null, adding: null, drOpen: false, drAt: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, notesEdit: false, mcp: null };
+const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), pick: null, adding: null, new: null, drOpen: false, drAt: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, notesEdit: false, mcp: null };
 S.anchor = today();
 const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min });
 let client = null, user = null, configured = false, shown = today(), supaUrl = '';
@@ -188,7 +188,48 @@ function listHTML(d) {
   const { E, gaps } = dayGaps(d), chips = g => g.map(n => chipHTML(n, { time: true, min: S.min })).join('');
   const all = eventsOn(d).filter(e => e.allDay).map(evRow).join('');
   const body = chips(gaps[0]) + E.map((e, i) => evRow(e) + chips(gaps[i + 1])).join('');
-  return `${all}<div class="list${body ? '' : ' empty'}" data-drop="list" data-date="${d}">${body}</div>`;
+  const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a task to ${esc(dayShort(d))}"><span aria-hidden="true">+</span>${body ? '' : ' Add a task'}</button>`;
+  return `${all}<div class="list${body ? '' : ' empty'}" data-drop="list" data-date="${d}">${body}${adder}</div>`;
+}
+/* Adding a task right on the plan: the + at the end of a day's list, or a tap on an empty time (or the "Any time" row) in Time blocks.
+   A small form opens in place with the title ready to type. It goes in the Inbox unless a project is picked. */
+function projOptions(sel) {
+  const opt = (p, dep) => isDone(p) ? '' : `<option value="${p.id}"${sel === p.id ? ' selected' : ''}>${' '.repeat(dep)}${esc(p.t || 'Untitled')}</option>` + children(p.id).filter(c => hasKids(c.id)).map(c => opt(c, dep + 1)).join('');
+  return `<option value=""${sel ? '' : ' selected'}>Inbox</option>` + areaGroups().groups.map(g => { const o = g.projs.map(p => opt(p, 0)).join(''); return o ? `<optgroup label="${g.a ? esc(g.a.t || 'Untitled area') : 'No area'}">${o}</optgroup>` : ''; }).join('');
+}
+function newHTML() {
+  const N = S.new, p = N.p && node(N.p), pc = p ? colorOf(p) : '#B9BCD0';
+  const pos = N.at === 'col' ? `;top:${hpx((N.s - H0 * 60) / 60)};min-height:max(${hpx(N.m / 60)} - 2px, 62px)` : '';
+  return `<form class="nt at-${N.at}" data-form="new" style="--pc:${pc}${pos}"><input id="new-in" placeholder="New task" autocomplete="off" enterkeyhint="done" aria-label="New task">
+    <div class="nt-r">${N.s != null ? `<span class="nt-time">${fmtT(N.s)} – ${fmtT(N.s + N.m)}</span>` : ''}<label class="nt-p" title="Put it in a project"><span class="pdot"></span><select id="new-p" aria-label="Project">${projOptions(N.p)}</select></label></div></form>`;
+}
+let newClosed = 0;
+function openNew(o) {
+  S.new = { p: '', ...o }; S.adding = null; render();
+  const i = document.getElementById('new-in'); if (!i) return;
+  i.focus({ preventScroll: true }); i.closest('form').scrollIntoView({ block: 'nearest' });
+  setTimeout(() => { if (i.isConnected) i.closest('form').scrollIntoView({ block: 'nearest' }); }, 350); // again once a phone's keyboard is up
+}
+function closeNew() { if (!S.new) return; S.new = null; newClosed = Date.now(); render(); }
+// Leaving the form keeps what was typed; an empty one just closes
+function finishNew() { const v = document.getElementById('new-in')?.value.trim(); if (S.new && v) addNew(v); closeNew(); }
+function addNew(t) {
+  const N = S.new, f = { t, d: N.d, m: N.m || 60, p: N.p && node(N.p) ? N.p : null, ds: Date.now() / 1000 };
+  if (N.s != null) f.s = N.s;
+  else { const E = timedOn(N.d); f.a = E.length ? E[E.length - 1].s : null; } // lands at the end of the day, where the + was
+  store.create(f);
+}
+// A tap on an empty time in Time blocks starts a task on that half hour; a tap on the "Any time" row starts one with no time
+function tapNew(e) {
+  const t = e.target; if (!(t instanceof Element) || t.closest('form,.block,.ev,.item,.ev-all')) return;
+  if (Date.now() - newClosed < 400) return; // this tap just closed the last one
+  if (S.new) { finishNew(); return; }
+  const col = t.closest('#mbody .col[data-date]');
+  if (col) {
+    const s = Math.max(H0 * 60, Math.min(H0 * 60 + Math.floor((e.clientY - col.getBoundingClientRect().top) / HP() * 2) * 30, H1 * 60 - 30));
+    openNew({ at: 'col', d: col.dataset.date, s, m: Math.min(60, H1 * 60 - s) }); return;
+  }
+  const tray = t.closest('#mbody .tray[data-date]'); if (tray) openNew({ at: 'tray', d: tray.dataset.date });
 }
 /* Week view is an endless strip of days: it doesn't stop at Sunday. A faint line and a small label mark where each week starts. */
 const isMon = d => pd(d).getDay() === 1;
@@ -232,9 +273,9 @@ function timed(days) {
   const hrs = []; for (let h = H0 + 1; h < H1; h++) hrs.push(h);
   return `<div class="tw hscroll vscroll"><div class="tg${days.length === 1 ? ' one' : ''}" style="--cols:${days.length};--hours:${H1 - H0}">
     <div class="trow thead"><div class="gut"></div>${days.map(d => `<button class="th${dayCls(d)}" data-act="goday" data-d="${d}" data-day="${d}">${days.length > 1 && isMon(d) ? weekLabel(d) : ''}${DAYN[pd(d).getDay()]} <b>${pd(d).getDate()}</b></button>`).join('')}</div>
-    <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray${isMon(d) ? ' mon' : ''}" data-drop="tray" data-date="${d}">${eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all">${esc(e.t)}</div>`).join('')}${dayItems(d).filter(n => n.s == null).map(n => chipHTML(n, { compact: days.length > 1 })).join('')}</div>`).join('')}</div>
+    <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray${isMon(d) ? ' mon' : ''}" data-drop="tray" data-date="${d}">${eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all">${esc(e.t)}</div>`).join('')}${dayItems(d).filter(n => n.s == null).map(n => chipHTML(n, { compact: days.length > 1 })).join('')}${S.new?.at === 'tray' && S.new.d === d ? newHTML() : ''}</div>`).join('')}</div>
     <div class="trow tbody"><div class="gut hrs">${hrs.map(h => `<div class="hl" style="top:${hpx(h - H0)}">${h % 12 || 12}${h < 12 ? 'am' : 'pm'}</div>`).join('')}</div>
-    ${days.map(d => `<div class="col${d === today() ? ' today' : ''}${isMon(d) ? ' mon' : ''}" data-drop="col" data-date="${d}">${blocksHTML(d)}${nowHTML(d)}</div>`).join('')}</div>
+    ${days.map(d => `<div class="col${d === today() ? ' today' : ''}${isMon(d) ? ' mon' : ''}" data-drop="col" data-date="${d}">${blocksHTML(d)}${nowHTML(d)}${S.new?.at === 'col' && S.new.d === d ? newHTML() : ''}</div>`).join('')}</div>
   </div></div>`;
 }
 /* Phone: the projects drawer. It pulls up out of the tab bar over the plan; hold anything in it and drag it onto the day.
@@ -308,7 +349,7 @@ function renderMain() {
     ${S.mode === 'list' ? `<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Minimal list" title="Minimal list: just task titles">${ICON.min}</button>` : ''}
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
   <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
-    ${S.tip ? `<div class="tip"><span>Tap a task to open it and add notes. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
+    ${S.tip ? `<div class="tip"><span>Tap a task to open it and add notes. Tap an empty time, or the + under a day, to add one. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
     ${S.mode === 'list' ? (S.view === 'week' ? weekList(days) : dayList(days[0])) : timed(days)}
   </div>${drawerHTML()}`;
   const dr = document.getElementById('dr-b'); if (dr) dr.scrollTop = drSc;
@@ -597,7 +638,7 @@ let justDragged = false;
 document.addEventListener('click', e => {
   if (justDragged) { e.preventDefault(); e.stopPropagation(); return; }
   const b = e.target.closest('[data-act]');
-  if (!b) { const it = e.target.closest('[data-drag]'); if (it && !e.target.closest('input,textarea,select,form')) openItem(it.dataset.id); return; }
+  if (!b) { const it = e.target.closest('[data-drag]'); if (it && !e.target.closest('input,textarea,select,form')) openItem(it.dataset.id); else if (!it) tapNew(e); return; }
   const a = b.dataset.act, id = b.dataset.id;
   switch (a) {
     case 'open': openItem(id); break;
@@ -624,7 +665,8 @@ document.addEventListener('click', e => {
     case 'fold': S.col[id] = !S.col[id]; render(); break;
     case 'pick': S.pick = S.pick === id ? null : id; render(); break;
     case 'setday': setDay(id, b.dataset.d || null); break;
-    case 'add': S.adding = id; S.col[id] = false; render(); break;
+    case 'add': S.adding = id; S.new = null; S.col[id] = false; render(); break;
+    case 'new-day': if (Date.now() - newClosed > 400) openNew({ at: 'list', d: b.dataset.d }); break;
     case 'new-project': newProject(b.dataset.area); break;
     case 'new-area': newArea(); break;
     case 'page': S.page = b.dataset.v; S.pick = null; S.adding = null; render(); break;
@@ -677,6 +719,12 @@ document.addEventListener('submit', e => {
   if (f.dataset.form === 'link') { saveLink(); return; }
   if (f.dataset.form === 'area-project') { if (v) { makeProject(v, f.dataset.area); inp.value = ''; renderDetail(); document.getElementById('dt-add-in')?.focus(); } return; }
   if (f.dataset.form === 'step') { if (v) { store.create({ t: v, p: f.dataset.p, m: 30 }); S.col[f.dataset.p] = false; inp.value = ''; renderDetail(); document.getElementById('dt-add-in')?.focus(); } return; }
+  if (f.dataset.form === 'new') {
+    if (!v) { closeNew(); return; }
+    inp.value = ''; const at = S.new.at; addNew(v);
+    if (at === 'col') closeNew(); // a time block is one task; a day's list stays open for the next one
+    return;
+  }
   if (f.dataset.form === 'add') { if (!v) { S.adding = null; render(); return; } inp.value = ''; store.create({ t: v, p: f.dataset.p }); return; }
   if (f.dataset.form === 'inbox' && v) { inp.value = ''; store.create({ t: v }); }
 });
@@ -689,6 +737,7 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (e.key === 'Escape' && S.linkEdit) { S.linkEdit = false; document.activeElement?.blur(); renderDetail(); return; }
+  if (e.key === 'Escape' && S.new) { closeNew(); return; }
   if (e.key === 'Escape') { if (S.adding) { S.adding = null; render(); } else if (S.open) { S.open = null; renderDetail(); } }
   if (e.key === 'Enter' && e.target.id === 'dt-title') { e.preventDefault(); e.target.blur(); }
   if (e.key === 'Enter' && e.target.matches('.dt-notes-view')) { e.preventDefault(); e.target.click(); }
@@ -697,6 +746,20 @@ document.addEventListener('focusout', e => { if (e.target.id === 'dt-link') save
 // Leaving the notes box shows them as text with clickable links again. Wait a moment so a tap on something else still lands.
 document.addEventListener('focusout', e => { if (e.target.id === 'dt-notes' && S.notesEdit) { S.notesEdit = false; setTimeout(() => { if (!S.notesEdit) renderDetail(); }, 200); } });
 document.addEventListener('focusout', e => { if (e.target.id === 'add-in' && !e.target.value.trim()) setTimeout(() => { if (S.adding && !document.activeElement?.matches('#add-in')) { S.adding = null; render(); } }, 150); });
+// Picking a project goes back to the title
+const inNew = el => !!el?.closest?.('form[data-form="new"]');
+document.addEventListener('focusout', e => {
+  if (!S.new || !inNew(e.target)) return;
+  setTimeout(() => {
+    if (S.new && !inNew(document.activeElement)) finishNew();
+  }, 150);
+});
+document.addEventListener('change', e => {
+  if (e.target.id !== 'new-p' || !S.new) return;
+  S.new.p = e.target.value; const p = node(S.new.p);
+  e.target.closest('form').style.setProperty('--pc', p ? colorOf(p) : '#B9BCD0');
+  document.getElementById('new-in')?.focus({ preventScroll: true });
+});
 let savedT;
 document.addEventListener('input', e => {
   const t = e.target, n = S.open && node(S.open); if (!n) return;
@@ -827,6 +890,27 @@ document.addEventListener('touchmove', e => {
 }, { passive: false });
 const tend = e => { clearTimeout(lp); if (D) { e.preventDefault(); endDrag(); } if (P) { P.el.classList.remove('pressing'); P = null; } };
 document.addEventListener('touchend', tend, { passive: false }); document.addEventListener('touchcancel', tend, { passive: false });
+// On a computer, press on an empty time and drag down to choose how long the new task takes; a plain click picks the half hour
+let NB = null;
+const gridMin = (col, y) => H0 * 60 + Math.round((y - col.getBoundingClientRect().top) / HP() * 4) * 15;
+document.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'touch' || e.button !== 0 || S.new || D) return;
+  const col = e.target.closest?.('#mbody .col[data-date]'); if (!col || e.target.closest('.block,.ev,form')) return;
+  e.preventDefault(); NB = { col, y: e.clientY, on: false };
+});
+document.addEventListener('pointermove', e => {
+  if (!NB || (!NB.on && Math.abs(e.clientY - NB.y) < 6)) return;
+  NB.on = true; const a = gridMin(NB.col, Math.min(NB.y, e.clientY)), b = gridMin(NB.col, Math.max(NB.y, e.clientY));
+  NB.s = Math.max(H0 * 60, Math.min(a, H1 * 60 - 15)); NB.m = Math.max(15, Math.min(b, H1 * 60) - NB.s);
+  const hp = HP(); ind.style.top = ((NB.s - H0 * 60) / 60 * hp) + 'px'; ind.style.height = (NB.m / 60 * hp - 2) + 'px';
+  ind.innerHTML = `<div class="ind-t">New task</div><div class="ind-time">${fmtT(NB.s)} – ${fmtT(NB.s + NB.m)}</div>`;
+  if (ind.parentElement !== NB.col) NB.col.appendChild(ind);
+});
+document.addEventListener('pointerup', () => {
+  const nb = NB; NB = null; if (!nb?.on) return;
+  ind.remove(); justDragged = true; setTimeout(() => justDragged = false, 80);
+  openNew({ at: 'col', d: nb.col.dataset.date, s: nb.s, m: nb.m });
+});
 let SW = null;
 document.addEventListener('touchstart', e => {
   const t = e.touches[0], up = S.tab === 'plan' && !S.drOpen && e.target.closest('#tabs'), down = S.drOpen && e.target.closest('#dr-h');
