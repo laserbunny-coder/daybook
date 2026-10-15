@@ -212,11 +212,15 @@ function layout(items) {
 }
 function blocksHTML(d) {
   const items = [...timedOn(d).map(e => ({ ev: e, s: e.s, m: e.m })), ...store.all().filter(n => n.d === d && n.s != null).map(n => ({ n, s: n.s, m: n.m || 60 }))];
-  return layout(items).map(it => {
+  layout(items);
+  // A short block may grow to a readable 18px, but only into free space: never past the start of the next block beneath it
+  const x0 = it => it.lane / it.lanes, x1 = it => (it.lane + 1) / it.lanes;
+  return items.map(it => {
     const s = Math.max(it.s, H0 * 60), e = Math.min(it.s + it.m, H1 * 60); if (e <= s) return '';
-    const pos = `top:${hpx((s - H0 * 60) / 60)};height:max(${hpx((e - s) / 60)} - 2px, 18px);left:${it.lane / it.lanes * 100}%;width:calc(${100 / it.lanes}% - 4px)`;
+    const below = items.filter(o => o.s >= e && x0(o) < x1(it) && x1(o) > x0(it)).reduce((m, o) => Math.min(m, o.s), H1 * 60);
+    const pos = `top:${hpx((s - H0 * 60) / 60)};height:max(${hpx((e - s) / 60)} - 2px, min(18px, ${hpx((below - s) / 60)} - 2px));left:${it.lane / it.lanes * 100}%;width:calc(${100 / it.lanes}% - 4px)`;
     const tm = `${fmtT(it.s)} – ${fmtT(it.s + it.m)}`;
-    if (it.ev) return `<div class="ev" style="${pos}" title="${esc(it.ev.cal || '')}"><div class="b-t">${esc(it.ev.t)}</div><div class="b-time">${tm}</div></div>`;
+    if (it.ev) return `<div class="ev" style="${pos}" title="${esc(it.ev.cal || '')}"><div class="b-in"><div class="b-t">${esc(it.ev.t)}</div><div class="b-time">${tm}</div></div></div>`;
     const n = it.n, pr = hasKids(n.id) && progress(n.id); // a whole project in a block is a work session: show how far along it is
     return `<div class="block${isDone(n) ? ' done' : ''}" data-drag data-id="${n.id}" style="${pos};--pc:${colorOf(n)}">${ckHTML(n)}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${tm}${pr ? ` · ${pr.done}/${pr.total}` : ''}</div></div><div class="rs"></div></div>`;
   }).join('');
