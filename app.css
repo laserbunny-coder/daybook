@@ -107,6 +107,7 @@ body.is-dragging .hscroll{scroll-snap-type:none}
 .tb{font-size:13px;font-weight:600;padding:5px 11px;border-radius:999px;border:1px solid var(--edge);background:var(--surface)}
 .tb:hover{background:var(--sunk)}
 .mh-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mh-i{display:flex;align-items:center;gap:8px}
 .seg{display:inline-flex;background:var(--surface);border:1px solid var(--edge);border-radius:999px;padding:3px}
 .seg button{font-size:13px;font-weight:600;padding:5px 12px;border-radius:999px;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:#fff;color:#06070D}
@@ -574,6 +575,11 @@ body.quiet .main>.mh{position:absolute;top:8px;left:50%;z-index:30;width:max-con
 body.quiet.q-strip .main>.mh{transform:translate(-50%,0);opacity:1;visibility:visible;transition:opacity .2s,transform .25s cubic-bezier(.2,.8,.2,1)}
 body.quiet .mh h1{font-size:15px}
 body.quiet .mh .page-seg{display:none}
+body.quiet .mh .ur{display:flex;margin:0;opacity:1}
+body.quiet .ur .ib:disabled{opacity:.28;pointer-events:none}
+body.quiet .mh-i{gap:2px}
+body.quiet .q-only[aria-pressed="true"]{background:var(--sunk);color:var(--fg)}
+body.quiet .side-h{display:none}
 /* Projects and Ask Claude float over the plan */
 body.quiet .side,body.quiet .ai{position:fixed;top:12px;bottom:12px;z-index:40;border:1px solid var(--edge);border-radius:20px;overflow:hidden;
   background:rgba(14,16,28,.88);backdrop-filter:blur(26px) saturate(1.2);-webkit-backdrop-filter:blur(26px) saturate(1.2);box-shadow:0 30px 70px -20px rgba(0,0,0,.85);
@@ -591,9 +597,27 @@ body.quiet:not(.ai-off) .ai{transform:none;visibility:visible;transition:transfo
   .qedge:hover::after{opacity:1}
 }
 @media (max-width:860px){
-  body.quiet .side{display:none!important}
+  body.quiet:not([data-tab="projects"]) .side{display:none!important}
   body.quiet .main{display:flex}
-  body.quiet .main>.mh{left:10px;right:10px;width:auto;max-width:none;transform:translateY(-10px)}
+  /* The strip on a phone, in three calm rows: the day and its arrows; Day/Week and List/Time blocks; undo, the quiet tools and Ask Claude */
+  body.quiet .main>.mh{left:10px;right:10px;width:auto;max-width:none;transform:translateY(-10px);
+    display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"t t n" "r l l" "u i a";align-items:center;gap:12px 10px;padding:12px}
+  body.quiet .mh-l,body.quiet .mh-r{display:contents}
+  body.quiet .mh h1{grid-area:t;padding-left:6px;font-size:16px;overflow:hidden;text-overflow:ellipsis}
+  body.quiet .mh .nav{grid-area:n;justify-self:end}
+  body.quiet .mh .seg[aria-label="Range"]{grid-area:r}
+  body.quiet .mh .seg[aria-label="Layout"]{grid-area:l}
+  body.quiet .mh .seg button{flex:1}
+  body.quiet .mh .ur{grid-area:u}
+  body.quiet .mh .mh-i{grid-area:i;justify-self:center}
+  body.quiet .mh .ask-btn{grid-area:a;justify-self:end}
+  /* Projects, full screen but still quiet: no tab bar or name, only the faint label on top that brings the strip */
+  body.quiet[data-tab="projects"] .side{position:fixed;inset:0;top:calc(34px + env(safe-area-inset-top,0px));width:auto;z-index:20;transform:none;visibility:visible;border:0;border-radius:0;background:none;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+  body.quiet[data-tab="projects"] .main{position:fixed;top:0;left:0;right:0;z-index:30;pointer-events:none}
+  body.quiet[data-tab="projects"] .main>*{pointer-events:auto}
+  body.quiet[data-tab="projects"] :is(#mbody,.qgrab,.drawer,.dr-back){display:none!important}
+  /* the faint label already says Projects, so its heading keeps only + Area */
+  body.quiet[data-tab="projects"] .side-b>.sec:first-child{font-size:0;padding-top:0}
   body.quiet.q-strip .main>.mh{transform:none}
   body.quiet .ask-btn{display:inline-flex}
   body.quiet .ai,body.quiet.ai-off .ai{top:calc(8px + env(safe-area-inset-top,0px));bottom:calc(8px + env(safe-area-inset-bottom,0px));left:8px;right:8px;width:auto;grid-row:auto}
