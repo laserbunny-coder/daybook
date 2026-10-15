@@ -71,8 +71,8 @@ function treeRows(n, dep) {
     <button class="plus${isP ? '' : ' leaf'}" data-act="add" data-id="${n.id}" aria-label="Add a step to ${esc(n.t)}" title="Add a step">+</button>
     <button class="when${n.d ? ' set' : ''}" data-act="pick" data-id="${n.id}" aria-label="Schedule ${esc(n.t)}">${n.d ? whenLabel(n) : ICON.cal}</button></div>`;
   if (S.pick === n.id) h += pickerHTML(n, dep);
-  if (!S.col[n.id]) h += kids.map(k => treeRows(k, dep + 1)).join('');
-  return h + addRow(n.id, dep + 1);
+  const inner = (S.col[n.id] ? '' : kids.map(k => treeRows(k, dep + 1)).join('')) + addRow(n.id, dep + 1);
+  return h + (isP ? `<div class="kids" data-drop="sib" data-g="p:${n.id}">${inner}</div>` : inner);
 }
 function projHTML(p) {
   const pr = progress(p.id), pct = pr.total ? Math.round(pr.done / pr.total * 100) : 0;
@@ -80,7 +80,7 @@ function projHTML(p) {
   return `<div class="proj" style="--pc:${colorOf(p)}">
     <div class="proj-h" data-drag data-id="${p.id}"><button class="caret${S.col[p.id] ? ' shut' : ''}" data-act="fold" data-id="${p.id}" aria-label="Show or hide ${esc(p.t)}"></button><span class="pdot"></span><span class="proj-t">${esc(p.t || 'Untitled')}</span><span class="proj-n">${pr.total ? pct + '%' : ''}</span><button class="plus" data-act="add" data-id="${p.id}" aria-label="Add a task to ${esc(p.t)}" title="Add a task">+</button></div>
     <div class="bar"><i style="width:${pct}%"></i></div>${due}
-    ${S.col[p.id] ? addRow(p.id, 1) : `<div class="tree">${children(p.id).map(c => treeRows(c, 1)).join('')}${addRow(p.id, 1)}</div>`}</div>`;
+    ${S.col[p.id] ? addRow(p.id, 1) : `<div class="tree" data-drop="sib" data-g="p:${p.id}">${children(p.id).map(c => treeRows(c, 1)).join('')}${addRow(p.id, 1)}</div>`}</div>`;
 }
 const SYNC_TEXT = { saved: 'All changes saved', syncing: 'Saving…', offline: "You're offline. Changes are kept on this device and will sync when you're back.", error: "Couldn't save just now. Trying again.", local: '' };
 function mcpHTML() {
@@ -145,7 +145,7 @@ function renderSide() {
     <div class="sec">Projects <span class="sec-acts"><button class="sec-add desk-only" data-act="page" data-v="projects" title="See all projects on one big board">Full view</button><button class="sec-add" data-act="new-area">+ Area</button></span></div>
     ${groups.map(g => areaHTML(g)).join('')}
     <div class="sec">Inbox <small>loose tasks</small></div>
-    <div class="tree">${loose.map(n => treeRows(n, 0)).join('')}</div>
+    <div class="tree" data-drop="sib" data-g="loose">${loose.map(n => treeRows(n, 0)).join('')}</div>
     <form class="qa" data-form="inbox"><input id="qa-in" placeholder="+ Add a task" autocomplete="off" aria-label="Add a task to the inbox" enterkeyhint="done"></form>
     ${footHTML()}
   </div>`;
@@ -232,13 +232,13 @@ function drawerHTML() {
     const kids = children(at.id), open = kids.filter(k => !isDone(k)), done = kids.length - open.length, p = progress(at.id);
     top = `<button class="dr-up" data-act="dr-in" data-id="${at.p || ''}" aria-label="Back">${ICON.prev}</button><div class="dr-title">${esc(at.t || 'Untitled')}</div>`;
     body = `<div class="dr-row dr-sess" data-drag data-id="${at.id}" data-act="open" style="--pc:${colorOf(at)}"><span class="ring" style="--p:${p.total ? p.done / p.total : 0}"></span><div class="dr-txt"><b>Whole ${at.p ? 'part' : 'project'}</b><small>Drag onto your day as a work session</small></div>${at.d ? `<span class="dr-when">${whenLabel(at)}</span>` : ''}</div>
-      <div class="dr-sub">Steps</div>${open.map(drRow).join('') || `<div class="dr-empty">${kids.length ? 'Every step is done.' : 'No steps yet. Add them in Projects.'}</div>`}
+      <div class="dr-sub">Steps</div><div class="dr-grp" data-drop="sib" data-g="p:${at.id}">${open.map(drRow).join('') || `<div class="dr-empty">${kids.length ? 'Every step is done.' : 'No steps yet. Add them in Projects.'}</div>`}</div>
       ${done ? `<div class="dr-empty">${done} done</div>` : ''}`;
   } else {
     const { groups, loose } = areaGroups(), todo = loose.filter(n => !n.done);
     top = `<div class="dr-title">Projects</div><span class="dr-hint">Hold and drag onto your day</span>`;
-    body = groups.filter(g => g.projs.length).map(g => `<div class="dr-area"><span class="pdot" style="--pc:${g.a?.c || '#B9BCD0'}"></span>${g.a ? esc(g.a.t || 'Untitled area') : 'No area'}</div>${g.projs.map(drRow).join('')}`).join('')
-      + (todo.length ? `<div class="dr-area"><span class="pdot" style="--pc:var(--muted)"></span>Inbox</div>${todo.map(drRow).join('')}` : '')
+    body = groups.filter(g => g.projs.length).map(g => `<div class="dr-grp" data-drop="area" data-area="${g.a?.id || ''}"><div class="dr-area"><span class="pdot" style="--pc:${g.a?.c || '#B9BCD0'}"></span>${g.a ? esc(g.a.t || 'Untitled area') : 'No area'}</div>${g.projs.map(drRow).join('')}</div>`).join('')
+      + (todo.length ? `<div class="dr-grp" data-drop="sib" data-g="loose"><div class="dr-area"><span class="pdot" style="--pc:var(--muted)"></span>Inbox</div>${todo.map(drRow).join('')}</div>` : '')
       || '<div class="dr-empty">No projects yet. Add them in Projects.</div>';
   }
   return `<div class="dr-back${S.drOpen ? ' on' : ''}" data-act="dr-close"></div>
@@ -259,7 +259,7 @@ function renderBoard(el) {
     <div class="mh-r"><button class="tb" data-act="new-area">+ New area</button><button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
   <div class="board hscroll" id="board">${groups.map(g => areaHTML(g, true)).join('')}
     <section class="area bcol inbox" data-drop="inbox"><div class="area-h"><span class="area-t">Inbox</span><small>loose tasks</small></div>
-      <div class="bcol-b vscroll"><div class="tree">${loose.map(n => treeRows(n, 0)).join('')}</div>
+      <div class="bcol-b vscroll"><div class="tree" data-drop="sib" data-g="loose">${loose.map(n => treeRows(n, 0)).join('')}</div>
       <form class="qa" data-form="inbox"><input id="qa-in" placeholder="+ Add a task" autocomplete="off" aria-label="Add a task to the inbox" enterkeyhint="done"></form></div></section></div>`;
   const b = document.getElementById('board'); b.scrollLeft = hs; b.querySelectorAll('.bcol-b').forEach((c, i) => c.scrollTop = vs[i] || 0);
 }
@@ -366,7 +366,7 @@ function renderTabs() {
 /* Zoomed-in view of one item */
 function stepHTML(k) {
   const kk = hasKids(k.id), p = progress(k.id);
-  return `<div class="step${isDone(k) ? ' done' : ''}" style="--pc:${colorOf(k)}">${ckHTML(k)}<button class="step-t" data-act="open" data-id="${k.id}">${esc(k.t || 'Untitled')}${k.notes ? ICON.note : ''}${k.link ? ICON.linkS : ''}</button>${kk ? `<span class="step-n">${p.done}/${p.total}</span>` : ''}${k.d ? `<span class="when set">${whenLabel(k)}</span>` : ''}<span class="chev" aria-hidden="true">›</span></div>`;
+  return `<div class="step${isDone(k) ? ' done' : ''}" data-drag data-id="${k.id}" style="--pc:${colorOf(k)}">${ckHTML(k)}<button class="step-t" data-act="open" data-id="${k.id}" data-dragok>${esc(k.t || 'Untitled')}${k.notes ? ICON.note : ''}${k.link ? ICON.linkS : ''}</button>${kk ? `<span class="step-n">${p.done}/${p.total}</span>` : ''}${k.d ? `<span class="when set">${whenLabel(k)}</span>` : ''}<span class="chev" aria-hidden="true">›</span></div>`;
 }
 const grow = t => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
 function renderDetail() {
@@ -401,7 +401,7 @@ function renderDetail() {
       <textarea id="dt-notes" class="dt-notes" placeholder="Thoughts, links, where to start. These will be here when you sit down to do it." aria-label="Notes">${esc(n.notes || '')}</textarea>
       <div class="dt-saved" id="dt-saved" aria-live="polite"></div>
       <div class="dt-sec">Steps${kids.length ? `<small>${pr.done}/${pr.total}</small>` : ''}</div>
-      <div class="dt-steps">${kids.map(stepHTML).join('')}
+      <div class="dt-steps" data-drop="sib" data-g="p:${n.id}">${kids.map(stepHTML).join('')}
         <form class="dt-add" data-form="step" data-p="${n.id}"><span class="plus-i" aria-hidden="true">+</span><input id="dt-add-in" placeholder="Add a step" autocomplete="off" aria-label="Add a step" enterkeyhint="done"></form></div>
       <div class="dt-foot">
         <button class="dt-ask" data-act="dtbreak">✦ ${kids.length ? 'Ask Claude what else this needs' : 'Ask Claude to break this into steps'}</button>
@@ -429,7 +429,7 @@ function areaDetail(el, n, same) {
       <div class="dt-note">Projects in this area wear its colour, unless you give one its own.</div>
       ${swatchesHTML(n)}
       <div class="dt-sec">Projects<small>${projs.length}</small></div>
-      <div class="dt-steps">${projs.map(stepHTML).join('')}
+      <div class="dt-steps" data-drop="area" data-area="${n.id}">${projs.map(stepHTML).join('')}
         <form class="dt-add" data-form="area-project" data-area="${n.id}"><span class="plus-i" aria-hidden="true">+</span><input id="dt-add-in" placeholder="Add a project" autocomplete="off" aria-label="Add a project" enterkeyhint="done"></form></div>
       <div class="dt-foot"><span></span>
         ${S.confirmDel ? `<div class="confirm"><span>Delete the ${esc(n.t || 'untitled')} area?${projs.length ? ` Its ${projs.length} project${projs.length > 1 ? 's' : ''} will stay, under No area.` : ''}</span><button class="danger" data-act="delete">Delete</button><button data-act="nodelete">Cancel</button></div>` : `<button class="dt-del" data-act="askdelete">Delete area</button>`}
@@ -478,11 +478,28 @@ function toggle(id) {
   if (fin.length) { const a = fin[fin.length - 1]; const r = rootOf(n); const p = progress(r.id); toast(r === a ? `${a.t} is complete.` : `${a.t} is done. ${r.t} is now ${Math.round(p.done / p.total * 100)}% complete.`); }
   else if (!hasKids(id) && node(id).done && anc.length) { const r = rootOf(n), p = progress(r.id); toast(`${r.t}: ${p.done} of ${p.total} done`); }
 }
+// A day's list keeps its own order (ds), apart from the order of a project's steps (o)
 function reorder(date, id, idx, patch) {
   const list = dayGaps(date).gaps.flat().filter(n => n.id !== id); list.splice(Math.max(0, Math.min(idx, list.length)), 0, node(id));
-  store.updateMany(list.map((n, i) => [n.id, n.id === id ? { ...patch, o: i } : { o: i }]));
+  store.updateMany(list.map((n, i) => [n.id, n.id === id ? { ...patch, ds: i } : { ds: i }]));
 }
-function setDay(id, d) { const n = node(id); const patch = { d: d || null, o: Date.now() / 1000 }; if (n.d !== d) { patch.s = null; patch.a = null; } S.pick = null; S.dtpick = false; store.update(id, patch); if (d) toast(`${n.t} → ${d === today() ? 'today' : DAYL[pd(d).getDay()] + ' ' + fmtShort(d)}`); }
+/* Reordering projects, tasks and steps. A list says whose items it holds: data-g="p:<parent>" for a project's steps,
+   "loose" for inbox tasks, and an area (data-drop="area") holds top-level projects. A project dragged into another area moves there. */
+const groupOf = n => n.p ? 'p:' + n.p : isProj(n) ? 'a:' + areaOf(n) : 'loose';
+const keyOf = t => t.dataset.drop === 'area' ? 'a:' + (t.dataset.area || '') : t.dataset.g;
+const holds = (t, n) => t.dataset.drop === 'area' ? n.p == null && isProj(n) : t.dataset.drop === 'sib' && t.dataset.g === groupOf(n);
+function siblings(key) {
+  if (key.startsWith('p:')) return children(key.slice(2));
+  const roots = store.all().filter(n => n.p == null).sort((a, b) => a.o - b.o);
+  return key === 'loose' ? roots.filter(n => !isProj(n)) : roots.filter(n => isProj(n) && 'a:' + areaOf(n) === key);
+}
+function placeAmong(n, t, at, patch) {
+  const key = keyOf(t); if (t.dataset.drop === 'area' && groupOf(n) !== key) patch.ar = t.dataset.area || null;
+  const list = siblings(key).filter(x => x.id !== n.id), i = at.before ? list.findIndex(x => x.id === at.before) : at.after ? list.findIndex(x => x.id === at.after) + 1 : -1;
+  list.splice(i < 0 ? list.length : i, 0, n);
+  store.updateMany(list.map((x, j) => [x.id, x.id === n.id ? { ...patch, o: j } : { o: j }]).filter(([id, p]) => id === n.id || node(id).o !== p.o));
+}
+function setDay(id, d) { const n = node(id); const patch = { d: d || null, ds: Date.now() / 1000 }; if (n.d !== d) { patch.s = null; patch.a = null; } S.pick = null; S.dtpick = false; store.update(id, patch); if (d) toast(`${n.t} → ${d === today() ? 'today' : DAYL[pd(d).getDay()] + ' ' + fmtShort(d)}`); }
 function makeProject(t, ar) {
   // In an area a new project wears the area's colour; with no area it gets a colour of its own
   const used = new Set(store.all().filter(n => n.p == null && n.c && n.c !== 'area').map(n => glow(n.c)));
@@ -610,18 +627,25 @@ function startDrag() {
     if (D.timed) { g.style.height = r.height + 'px'; D.offX = Math.min(P.x - r.left, w - 10); } else D.offY = Math.min(D.offY, 24);
     document.body.appendChild(g); D.g = g; el.classList.add('dragging');
   }
-  D.fromDr = !!el.closest('.drawer'); // the drawer steps aside once the finger starts carrying the item away (see moveDrag)
+  D.fromDr = !!el.closest('.drawer'); // the drawer steps aside once the finger carries the item out of it (see moveDrag)
+  D.list = !!el.closest('.side, .board, .dt, .drawer'); // picked up from a list of projects rather than from the plan
   if (D.kind !== 'resize' && node(D.id)?.d) document.body.classList.add('drag-sched'); // the tab bar offers to unschedule it
   el.classList.remove('pressing'); document.body.classList.add('is-dragging'); P = null; moveDrag(D.x, D.y); requestAnimationFrame(autoScroll);
 }
 function clearMarks() { ind.remove(); ins.remove(); document.querySelectorAll('.over').forEach(x => x.classList.remove('over')); }
 function moveDrag(x, y) {
-  if (D.fromDr && !D.sunk && Math.hypot(x - D.x, y - D.y) > 12) { D.sunk = true; document.body.classList.add('dr-drag'); }
-  if (!D.sunk && D.fromDr) { D.g.style.transform = `translate(${x - D.offX}px,${y - D.offY}px)`; return; } // still over the drawer: nothing to drop on yet
+  // Inside the drawer the item can be moved up or down among its neighbours; carried up past the drawer's top, the drawer sinks away to free the day
+  if (D.fromDr && !D.sunk && y < document.getElementById('drawer').getBoundingClientRect().top - 6) { D.sunk = true; document.body.classList.add('dr-drag'); }
   D.x = x; D.y = y; const hp = HP();
   if (D.kind === 'resize') { const r = D.block.getBoundingClientRect(); const n = node(D.id); const m = Math.max(15, Math.min(Math.round((y - r.top) / hp * 60 / 15) * 15, H1 * 60 - n.s)); D.newM = m; D.block.style.height = (m / 60 * hp - 2) + 'px'; D.block.querySelector('.b-time').textContent = `${fmtT(n.s)} – ${fmtT(n.s + m)}`; return; }
   D.g.style.transform = `translate(${x - D.offX}px,${y - D.offY}px)`;
-  const t = document.elementFromPoint(x, y)?.closest('[data-drop]'); clearMarks(); D.g.classList.remove('off'); D.t = t || null; if (!t) return;
+  clearMarks(); D.g.classList.remove('off'); D.at = null; D.t = null;
+  let t = document.elementFromPoint(x, y)?.closest('[data-drop]'); const n = node(D.id);
+  // The nearest list that holds this item's siblings takes it at a new place among them
+  for (let s = t; s && (s.dataset.drop === 'sib' || s.dataset.drop === 'area'); s = s.parentElement.closest('[data-drop]')) if (holds(s, n)) return markAmong(s, n, y);
+  while (t && t.dataset.drop === 'sib') t = t.parentElement.closest('[data-drop]');
+  if (t && D.list && t.closest('.side, .board, .dt, .drawer')) t = null; // somewhere else among the projects: nothing to do there
+  D.t = t || null; if (!t) return;
   const type = t.dataset.drop;
   if (type === 'col') {
     const r = t.getBoundingClientRect(); const dur = node(D.id).m || 60;
@@ -636,17 +660,30 @@ function moveDrag(x, y) {
     if (rows[i]) t.insertBefore(ins, rows[i]); else t.appendChild(ins); t.classList.add('over');
   } else t.classList.add('over');
 }
+// Show a line where the item would land among its siblings
+function markAmong(t, n, y) {
+  const key = keyOf(t), rows = [...t.querySelectorAll('[data-drag]')].filter(el => el.closest('[data-drop]') === t && el.dataset.id !== n.id && !el.classList.contains('dr-sess') && node(el.dataset.id) && groupOf(node(el.dataset.id)) === key);
+  const blk = el => el.matches('.proj-h') ? el.parentElement : el, mid = el => { const r = blk(el).getBoundingClientRect(); return r.top + Math.min(r.height, 60) / 2; };
+  const i = rows.findIndex(el => y < mid(el)); D.t = t;
+  if (groupOf(n) !== key) t.classList.add('over'); // moving to another area
+  if (!rows.length) { D.at = {}; return; }
+  ins.style.setProperty('--dep', (i < 0 ? rows[rows.length - 1] : rows[i]).style.getPropertyValue('--dep') || 0);
+  if (i >= 0) { D.at = { before: rows[i].dataset.id }; blk(rows[i]).before(ins); return; }
+  let end = blk(rows[rows.length - 1]); while (end.nextElementSibling?.matches('.pick, .kids, .add')) end = end.nextElementSibling;
+  D.at = { after: rows[rows.length - 1].dataset.id }; end.after(ins);
+}
 function endDrag() {
   const d = D; D = null; clearMarks(); document.body.classList.remove('is-dragging', 'dr-drag', 'drag-sched'); d.g?.remove(); d.el.classList.remove('dragging');
-  if (d.fromDr && d.t) { S.drOpen = false; document.body.classList.remove('dr-on'); renderTabs(); }
+  if (d.fromDr && d.sunk && d.t) { S.drOpen = false; document.body.classList.remove('dr-on'); renderTabs(); }
   const n = node(d.id);
   justDragged = true; setTimeout(() => justDragged = false, 80);
   if (!n) return render();
   if (d.kind === 'resize') { if (d.newM) store.update(n.id, { m: d.newM }); else render(); return; }
   if (!d.t) return render();
+  if (d.at) return placeAmong(n, d.t, d.at, d.list ? {} : { d: null, s: null, a: null }); // dragged back here from the plan, it comes off the plan
   const type = d.t.dataset.drop, date = d.t.dataset.date || null;
   if (type === 'col') store.update(n.id, { d: date, s: d.min, m: n.m || 60 });
-  else if (type === 'tray') store.update(n.id, { d: date, s: null, a: null, o: Date.now() / 1000 });
+  else if (type === 'tray') store.update(n.id, { d: date, s: null, a: null, ds: Date.now() / 1000 });
   else if (type === 'list') {
     // Dropped between events: remember which event it follows, but no exact time.
     // A task that has a time keeps it only if that time still fits where it was dropped.
@@ -665,7 +702,7 @@ function endDrag() {
 }
 function autoScroll() {
   if (!D) return; const el = document.elementFromPoint(D.x, D.y);
-  const v = el?.closest('.vscroll'), h = el?.closest('.hscroll'); let moved = false;
+  const v = el?.closest('.vscroll, .dr-b'), h = el?.closest('.hscroll'); let moved = false;
   if (v) { const r = v.getBoundingClientRect(); if (D.y < r.top + 50) { v.scrollTop -= 10; moved = true; } else if (D.y > r.bottom - 50) { v.scrollTop += 10; moved = true; } }
   if (h && D.kind !== 'resize') { const r = h.getBoundingClientRect(); if (D.x < r.left + 40) { h.scrollLeft -= 10; moved = true; } else if (D.x > r.right - 40) { h.scrollLeft += 10; moved = true; } }
   if (moved) moveDrag(D.x, D.y); requestAnimationFrame(autoScroll);
@@ -673,7 +710,7 @@ function autoScroll() {
 document.addEventListener('pointerdown', e => {
   if (e.pointerType === 'touch' || e.button !== 0) return;
   const rs = e.target.closest('.rs'); if (rs) { P = { x: e.clientX, y: e.clientY, el: rs, kind: 'resize', id: rs.closest('.block').dataset.id }; startDrag(); e.preventDefault(); return; }
-  if (e.target.closest('button,input,a,form,textarea,select')) return;
+  if (e.target.closest('button:not([data-dragok]),input,a,form,textarea,select')) return;
   const el = e.target.closest('[data-drag]'); if (el) { e.preventDefault(); P = { x: e.clientX, y: e.clientY, el, kind: 'move', id: el.dataset.id }; }
 });
 document.addEventListener('pointermove', e => { if (e.pointerType === 'touch') return; if (D) { moveDrag(e.clientX, e.clientY); return; } if (P && Math.hypot(e.clientX - P.x, e.clientY - P.y) > 4) startDrag(); });
@@ -681,7 +718,7 @@ document.addEventListener('pointerup', e => { if (e.pointerType === 'touch') ret
 document.addEventListener('touchstart', e => {
   if (e.touches.length > 1) { clearTimeout(lp); P = null; return; } const t = e.touches[0];
   const rs = e.target.closest('.rs'); if (rs) { e.preventDefault(); P = { x: t.clientX, y: t.clientY, el: rs, kind: 'resize', id: rs.closest('.block').dataset.id }; startDrag(); return; }
-  if (e.target.closest('button,input,a,form,textarea,select')) return;
+  if (e.target.closest('button:not([data-dragok]),input,a,form,textarea,select')) return;
   const el = e.target.closest('[data-drag]'); if (!el) return;
   P = { x: t.clientX, y: t.clientY, el, kind: 'move', id: el.dataset.id }; el.classList.add('pressing');
   lp = setTimeout(() => { if (P) { navigator.vibrate?.(12); startDrag(); } }, 280);

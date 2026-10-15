@@ -84,7 +84,7 @@ function applyActions(actions) {
     const m = a.duration_min && a.duration_min >= 5 ? Math.min(a.duration_min, 1440) : null;
     const s = Number.isInteger(a.start_min) && a.start_min >= 0 && a.start_min < 1440 ? a.start_min : null;
     const day = /^\d{4}-\d{2}-\d{2}$/.test(a.day || '') ? a.day : null;
-    if (a.type === 'schedule' && valid(a.id)) { store.update(a.id, { d: day, s: day ? s : null, ...(node(a.id).d !== day ? { a: null } : {}), ...(m ? { m } : {}) }, true); count++; }
+    if (a.type === 'schedule' && valid(a.id)) { store.update(a.id, { d: day, s: day ? s : null, ...(node(a.id).d !== day ? { a: null, ds: Date.now() / 1000 } : {}), ...(m ? { m } : {}) }, true); count++; }
     else if (a.type === 'add_task' && a.title) { store.create({ t: a.title, p: valid(a.parent_id) ? a.parent_id : null, d: day, s: day ? s : null, m: m || 60, notes: a.notes || null }); count++; }
     else if (a.type === 'add_steps' && valid(a.id)) { (a.steps || []).forEach((st, i) => { if (st.title) store.create({ t: st.title, p: a.id, m: Math.max(5, st.duration_min || 30), o: Date.now() / 1000 + i }); count++; }); store.update(a.id, { done: false }, true); }
     else if (a.type === 'add_project' && a.title) {
@@ -115,7 +115,7 @@ function planWeek() {
   }
   const work = days.filter(d => { const w = pd(d).getDay(); return w > 0 && w < 6; });
   const pulled = unscheduled().filter(n => rootOf(n).due).sort((a, b) => rootOf(a).due.localeCompare(rootOf(b).due) || a.o - b.o).slice(0, 2);
-  for (const n of pulled) { const d = (work.length ? work : days).slice().sort((a, b) => freeMin(b) - freeMin(a))[0]; if (!d) continue; const s = findSlot(d, n.m || 60); if (s == null) continue; store.update(n.id, { d, s }, true); (placed[d] = placed[d] || []).push(n); count++; }
+  for (const n of pulled) { const d = (work.length ? work : days).slice().sort((a, b) => freeMin(b) - freeMin(a))[0]; if (!d) continue; const s = findSlot(d, n.m || 60); if (s == null) continue; store.update(n.id, { d, s, ds: Date.now() / 1000 }, true); (placed[d] = placed[d] || []).push(n); count++; }
   store.updateMany(changes); ctx.showPlan('week', 'timed');
   const lines = Object.keys(placed).sort().map(d => `<li><b>${dayShort(d)}</b>: ${placed[d].sort((a, b) => a.s - b.s).map(n => `${esc(n.t)} at ${fmtT(n.s)}`).join(', ')}</li>`).join('');
   let h = count ? `<p>I gave <b>${count} tasks</b> a time this week, between 9am and 6pm and around your calendar events.</p><ul>${lines}</ul>` : `<p>Everything this week already has a time.</p>`;

@@ -20,7 +20,8 @@ export const glow = c => (c && GLOW[c.toUpperCase()]) || c;
 /* A project's colour is its own, or 'area' to wear its area's colour. Tasks wear their project's. */
 export const projColor = p => (p.c === 'area' ? store.get(p.ar)?.c : glow(p.c)) || '#B9BCD0';
 export const colorOf = n => projColor(rootOf(n));
-export const dayItems = d => store.all().filter(n => n.d === d).sort((a, b) => a.o - b.o);
+/* Order in a day's list (ds) is kept apart from order among a project's steps (o). */
+export const dayItems = d => store.all().filter(n => n.d === d).sort((a, b) => (a.ds ?? a.o) - (b.ds ?? b.o));
 /* A step with no day of its own rides along with the nearest scheduled project above it. */
 export const heldBy = n => { let p = n.p && node(n.p); while (p) { if (p.d) return p; p = p.p && node(p.p); } return null; };
 export const riders = id => children(id).filter(c => !c.d).flatMap(c => hasKids(c.id) ? riders(c.id) : [c]);

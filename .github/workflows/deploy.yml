@@ -55,6 +55,7 @@ jobs:
 
   site:
     name: Publish the app
+    needs: backend # the app may rely on a database change from the same push
     runs-on: ubuntu-latest
     environment:
       name: github-pages
