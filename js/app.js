@@ -279,7 +279,7 @@ function setQuiet(on) {
   else if (matchMedia('(min-width:1500px)').matches) document.body.classList.remove('ai-off');
   render();
 }
-// Keys while quiet: arrows change day or week, D and W pick the range, T switches List and Time blocks, P brings projects, / asks Claude
+// Keys while quiet (Q turns it on and off anywhere): arrows change day or week, D and W pick the range, T switches List and Time blocks, P brings projects, / asks Claude
 function quietKey(e) {
   const k = e.key.toLowerCase(), click = a => document.querySelector(`#main [data-act="${a}"]`)?.click();
   if (k === 'arrowleft') click('prev'); else if (k === 'arrowright') click('next');
@@ -428,7 +428,7 @@ function renderMain() {
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg" role="group" aria-label="Range"><button data-act="view" data-v="day" ${P('view', 'day')}>Day</button><button data-act="view" data-v="week" ${P('view', 'week')}>Week</button></div>
     <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button></div>
-    <div class="mh-i"><button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet: titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
+    <div class="mh-i"><button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
     <button class="ib q-only" data-act="qproj" aria-pressed="${qp || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button></div>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
   <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
@@ -831,6 +831,8 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && S.linkEdit) { S.linkEdit = false; document.activeElement?.blur(); renderDetail(); return; }
   if (e.key === 'Escape' && S.new) { closeNew(); return; }
   if (e.key === 'Escape') { if (S.adding) { S.adding = null; render(); } else if (S.open) { S.open = null; renderDetail(); } else if (quiet() && !D) quietAway(); }
+  // Q turns Quiet on and off, anywhere outside a text box
+  if (key === 'q' && !D && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); if (S.open) { S.open = null; renderDetail(); } setQuiet(!S.min); return; }
   if (quiet() && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])') && quietKey(e)) { e.preventDefault(); return; }
   if (e.key === 'Enter' && e.target.id === 'dt-title') { e.preventDefault(); e.target.blur(); }
   if (e.key === 'Enter' && e.target.matches('.dt-notes-view')) { e.preventDefault(); e.target.click(); }
