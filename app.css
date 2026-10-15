@@ -602,7 +602,6 @@ body.quiet:not(.ai-off) .ai{transform:none;visibility:visible;transition:transfo
   body.quiet.drag-sched .tabs{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:30}
   body.quiet .toast{bottom:calc(24px + env(safe-area-inset-bottom,0px))}
   body.quiet:not(.dr-on) .qgrab{display:block;position:fixed;left:50%;bottom:0;width:96px;height:26px;margin-left:-48px;z-index:20;padding-bottom:env(safe-area-inset-bottom,0px)}
-  /* Ask Claude's own faint star in the top corner, level with the day's name */
   /* Week list: two fingers pinch back to the day instead of zooming the page */
   body.quiet .mbody.min:not(.day),body.quiet .mbody.min:not(.day) *{touch-action:pan-x pan-y}
   .qgrab::before{content:"";position:absolute;left:50%;bottom:calc(8px + env(safe-area-inset-bottom,0px));width:36px;height:4px;margin-left:-18px;border-radius:2px;background:rgba(241,242,250,.2)}
