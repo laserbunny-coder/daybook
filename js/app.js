@@ -28,13 +28,28 @@ const ICON = {
 
 /* View state (per device) */
 const UI_KEY = 'daybook-ui';
-const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), pick: null, adding: null, drOpen: false, drAt: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, mcp: null };
+const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), pick: null, adding: null, drOpen: false, drAt: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, notesEdit: false, mcp: null };
 S.anchor = today();
 const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min });
 let client = null, user = null, configured = false, shown = today(), supaUrl = '';
 
 /* Links on items, such as the Thymer page a task came from */
 const safeLink = u => { try { const x = new URL(u); return x.protocol === 'https:' || x.protocol === 'http:' ? x.href : null; } catch { return null; } };
+/* Notes text with web addresses turned into links that open in a new tab. Everything else is escaped. */
+const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"]+/gi;
+function linkify(text) {
+  let out = '', last = 0;
+  for (const m of text.matchAll(URL_RE)) {
+    let raw = m[0];
+    while (/[.,;:!?'"]$/.test(raw) || (raw.endsWith(')') && !raw.includes('('))) raw = raw.slice(0, -1);
+    const u = safeLink(/^www\./i.test(raw) ? 'https://' + raw : raw);
+    if (!u) continue;
+    const shown = raw.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
+    out += esc(text.slice(last, m.index)) + `<a href="${esc(u)}" target="_blank" rel="noopener" title="${esc(u)}">${esc(shown.length > 60 ? shown.slice(0, 57) + '…' : shown)}</a>`;
+    last = m.index + raw.length;
+  }
+  return out + esc(text.slice(last));
+}
 const linkLabel = u => { const h = new URL(u).hostname.replace(/^www\./, ''); return h === 'thymer.com' || h.endsWith('.thymer.com') ? 'Open in Thymer' : 'Open ' + h; };
 
 /* Rendering */
@@ -398,7 +413,7 @@ function renderDetail() {
       ${S.dtpick ? pickerHTML(n, 0) : ''}
       ${n.p == null && isProj(n) ? swatchesHTML(n) : ''}
       <div class="dt-sec">Notes</div>
-      <textarea id="dt-notes" class="dt-notes" placeholder="Thoughts, links, where to start. These will be here when you sit down to do it." aria-label="Notes">${esc(n.notes || '')}</textarea>
+      ${n.notes && !S.notesEdit ? `<div class="dt-notes dt-notes-view" data-act="editnotes" role="button" tabindex="0" aria-label="Notes, tap to edit">${linkify(n.notes)}</div>` : `<textarea id="dt-notes" class="dt-notes" placeholder="Thoughts, links, where to start. These will be here when you sit down to do it." aria-label="Notes">${esc(n.notes || '')}</textarea>`}
       <div class="dt-saved" id="dt-saved" aria-live="polite"></div>
       <div class="dt-sec">Steps${kids.length ? `<small>${pr.done}/${pr.total}</small>` : ''}</div>
       <div class="dt-steps" data-drop="sib" data-g="p:${n.id}">${kids.map(stepHTML).join('')}
@@ -451,7 +466,7 @@ function saveLink() {
   renderDetail();
 }
 function openItem(id, focusTitle = false) {
-  S.open = id; S.dtpick = false; S.confirmDel = false; S.linkEdit = false; renderDetail();
+  S.open = id; S.dtpick = false; S.confirmDel = false; S.linkEdit = false; S.notesEdit = false; renderDetail();
   if (focusTitle) { const t = document.getElementById('dt-title'); t.focus(); t.select(); }
 }
 
@@ -522,6 +537,12 @@ document.addEventListener('click', e => {
   switch (a) {
     case 'open': openItem(id); break;
     case 'close': S.open = null; S.confirmDel = false; S.linkEdit = false; renderDetail(); break;
+    case 'editnotes': {
+      if (e.target.closest('a') || String(getSelection())) break; // links open in a new tab; selecting text shouldn't start editing
+      S.notesEdit = true; renderDetail();
+      const t = document.getElementById('dt-notes'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
+      break;
+    }
     case 'editlink': S.linkEdit = true; renderDetail(); document.getElementById('dt-link')?.focus(); break;
     case 'dtpick': S.dtpick = !S.dtpick; renderDetail(); break;
     case 'dtbreak': {
@@ -596,8 +617,11 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && S.linkEdit) { S.linkEdit = false; document.activeElement?.blur(); renderDetail(); return; }
   if (e.key === 'Escape') { if (S.adding) { S.adding = null; render(); } else if (S.open) { S.open = null; renderDetail(); } }
   if (e.key === 'Enter' && e.target.id === 'dt-title') { e.preventDefault(); e.target.blur(); }
+  if (e.key === 'Enter' && e.target.matches('.dt-notes-view')) { e.preventDefault(); e.target.click(); }
 });
 document.addEventListener('focusout', e => { if (e.target.id === 'dt-link') saveLink(); });
+// Leaving the notes box shows them as text with clickable links again. Wait a moment so a tap on something else still lands.
+document.addEventListener('focusout', e => { if (e.target.id === 'dt-notes' && S.notesEdit) { S.notesEdit = false; setTimeout(() => { if (!S.notesEdit) renderDetail(); }, 200); } });
 document.addEventListener('focusout', e => { if (e.target.id === 'add-in' && !e.target.value.trim()) setTimeout(() => { if (S.adding && !document.activeElement?.matches('#add-in')) { S.adding = null; render(); } }, 150); });
 let savedT;
 document.addEventListener('input', e => {
