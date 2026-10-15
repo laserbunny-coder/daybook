@@ -301,10 +301,10 @@ window.addEventListener('pointerdown', e => {
 }, true);
 for (const t of ['touchstart', 'mousedown']) window.addEventListener(t, e => { if (stripEat) e.stopImmediatePropagation(); }, true);
 window.addEventListener('click', e => { if (stripEat) { stripEat = false; e.stopImmediatePropagation(); e.preventDefault(); } }, true);
-// A tap anywhere else tucks the controls and projects away again; so does a tap on the strip's own background or date
+// A tap anywhere else tucks the controls and projects away again
 document.addEventListener('click', e => {
   if (!quiet() || !(e.target instanceof Element) || !e.target.isConnected) return;
-  if (S.qstrip && (!e.target.closest('.mh, .qh') || (e.target.closest('.main > .mh') && !e.target.closest('button, select, input, a, label')))) setStrip(false);
+  if (S.qstrip && !e.target.closest('.mh, .qh')) setStrip(false);
   if (qSide && !qPin && !e.target.closest('.side, .qedge, [data-act="qproj"], #detail')) setQSide(false);
 });
 // On a computer, resting the mouse at the left or right edge slides projects or Ask Claude in; leaving the projects lets them slide back
