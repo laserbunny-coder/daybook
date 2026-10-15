@@ -838,27 +838,29 @@ function swGo(dir) { // dir 1 = next day, -1 = previous
 document.addEventListener('touchstart', e => {
   DS = null; if (e.touches.length !== 1 || swBusy || D) return;
   const mb = dayBody(e.target); if (!mb || e.target.closest('input,textarea,select,.rs')) return;
-  const t = e.touches[0]; DS = { x: t.clientX, y: t.clientY, lx: t.clientX, lt: e.timeStamp, v: 0, on: false };
+  const t = e.touches[0]; DS = { x: t.clientX, y: t.clientY, lx: t.clientX, h: [[e.timeStamp, t.clientX]], on: false };
 }, { passive: true });
 document.addEventListener('touchmove', e => {
   if (!DS) return;
   if (D || e.touches.length !== 1) { if (DS.on) swBack(); DS = null; return; } // a drag or a pinch took over
   const t = e.touches[0], dx = t.clientX - DS.x, dy = t.clientY - DS.y;
   if (!DS.on) {
-    if (Math.abs(dy) > 10 && Math.abs(dy) >= Math.abs(dx)) { DS = null; return; } // scrolling up or down, as usual
-    if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
-    if (!e.cancelable) { DS = null; return; } // the page is already scrolling
-    DS.on = true; DS.x = t.clientX; clearTimeout(lp); if (P) { P.el.classList.remove('pressing'); P = null; }
+    // Forgiving on angle: anything closer to sideways than to up-and-down counts as a swipe
+    if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx) * 1.2) { DS = null; return; } // scrolling up or down, as usual
+    if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy)) return;
+    DS.on = true; clearTimeout(lp); if (P) { P.el.classList.remove('pressing'); P = null; }
   }
-  e.preventDefault();
-  const dt = e.timeStamp - DS.lt; if (dt > 0) DS.v = DS.v * .5 + (t.clientX - DS.lx) / dt * .5; DS.lx = t.clientX; DS.lt = e.timeStamp;
+  if (e.cancelable) e.preventDefault();
+  DS.lx = t.clientX; DS.h.push([e.timeStamp, t.clientX]); if (DS.h.length > 12) DS.h.shift();
   swSet(t.clientX - DS.x);
 }, { passive: false });
 const swEnd = () => {
   const s = DS; DS = null; if (!s?.on) return;
   const mb = document.getElementById('mbody'), dx = s.lx - s.x, w = mb?.clientWidth || 1;
   justDragged = true; setTimeout(() => justDragged = false, 80);
-  if (Math.abs(dx) > w * .28 || (Math.abs(dx) > 30 && Math.abs(s.v) > .35 && Math.sign(s.v) === Math.sign(dx))) swGo(dx < 0 ? 1 : -1); else swBack();
+  // Speed over the last tenth of a second, so a quick flick counts even if the finger slows as it lifts
+  const now = s.h[s.h.length - 1], old = s.h.find(p => now[0] - p[0] <= 100) || now, v = now[0] > old[0] ? (now[1] - old[1]) / (now[0] - old[0]) : 0;
+  if (Math.abs(dx) > Math.min(w * .2, 90) || (Math.abs(dx) > 24 && Math.abs(v) > .2 && Math.sign(v) === Math.sign(dx))) swGo(dx < 0 ? 1 : -1); else swBack();
 };
 document.addEventListener('touchend', swEnd); document.addEventListener('touchcancel', swEnd);
 document.addEventListener('wheel', e => {
