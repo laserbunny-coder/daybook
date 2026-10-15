@@ -25,51 +25,100 @@ function setSync(state) { sync.state = state; sync.pending = dirty.size; for (co
 export function onChange(f) { listeners.add(f); return () => listeners.delete(f); }
 export const all = () => [...nodes.values()].filter(n => !n.x && n.k !== 'area');
 export const areas = () => [...nodes.values()].filter(n => !n.x && n.k === 'area').sort((a, b) => a.o - b.o);
+/** An item even if it's been deleted (to name it in Undo). */
+export const peek = id => nodes.get(id);
 export const get = id => { const n = nodes.get(id); return n && !n.x ? n : null; };
 
 function touch(n) { nodes.set(n.id, n); if (sb) { dirty.add(n.id); scheduleFlush(); } }
 
+/* Undo and redo. Everything changed in one moment (a drop, a check-off, a delete
+   with all its steps) is one step, undone together. A step remembers only the
+   fields it changed, so undoing it leaves alone whatever arrived from the other
+   device meanwhile. Changes from the other device are never steps of their own.
+   Typing in one title or notes box is one step, not one per letter. */
+const past = [], future = []; let step = null; const KEEP = 100;
+const TEXT = ['t', 'notes', 'link'];
+const same = (a, b) => (a ?? null) === (b ?? null);
+/** Call before changing a node the person changed. */
+function mark(id) {
+  if (!step) { step = new Map(); queueMicrotask(commit); }
+  if (!step.has(id)) step.set(id, nodes.has(id) ? { ...nodes.get(id) } : null);
+}
+function commit() {
+  const s = step; step = null; if (!s) return;
+  const ch = [];
+  for (const [id, old] of s) {
+    const n = nodes.get(id); if (!n) continue; const b = {}, a = {};
+    if (!old) { if (n.x) continue; b.x = true; a.x = false; }             // made just now
+    else for (const k of Object.keys(ROW)) if (!same(old[k], n[k])) { b[k] = old[k] ?? null; a[k] = n[k] ?? null; }
+    if (Object.keys(b).length) ch.push([id, b, a]);
+  }
+  if (!ch.length) return;
+  const top = past[past.length - 1], now = Date.now();
+  const text = ch.length === 1 && Object.keys(ch[0][1]).every(k => TEXT.includes(k)) ? ch[0][0] + ':' + Object.keys(ch[0][1]).join() : null;
+  let fresh = null;
+  if (text && top && !future.length && top.text === text && now - top.at < 60e3) { Object.assign(top.ch[0][2], ch[0][2]); top.at = now; }
+  else {
+    // Typing the name of something just made belongs to making it
+    const made = text && top && !future.length && now - top.at < 60e3 && top.ch.some(([id, b]) => id === ch[0][0] && b.x === true);
+    if (made) { const c = top.ch.find(([id]) => id === ch[0][0]); Object.assign(c[2], ch[0][2]); top.at = now; }
+    else { past.push(fresh = { ch, at: now, text }); if (past.length > KEEP) past.shift(); }
+  }
+  future.length = 0;
+  for (const f of listeners) f('step', fresh); // fresh is null when this only added to the last step
+}
+function apply(st, side) {
+  for (const [id, b, a] of st.ch) { const n = nodes.get(id); if (n) { Object.assign(n, side === 'b' ? b : a); touch(n); } }
+  emit();
+}
+/** Takes back the last step; returns it, or null when there's nothing to undo. */
+export function undo() { commit(); const st = past.pop(); if (!st) return null; apply(st, 'b'); future.push(st); return st; }
+export function redo() { commit(); const st = future.pop(); if (!st) return null; apply(st, 'a'); past.push(st); return st; }
+export const canUndo = () => past.length > 0 || !!step;
+export const canRedo = () => future.length > 0;
+function forget() { past.length = 0; future.length = 0; step = null; }
+
 export function create(fields) {
   const n = { id: uid(), p: null, t: '', notes: null, done: false, d: null, s: null, m: 60, o: Date.now() / 1000, c: null, due: null, link: null, a: null, k: null, ar: null, x: false, ...fields };
-  touch(n); emit(); return n;
+  mark(n.id); touch(n); emit(); return n;
 }
 export function update(id, patch, quiet = false) {
   const n = nodes.get(id); if (!n) return;
-  Object.assign(n, patch); touch(n); if (quiet) saveCache(); else emit();
+  mark(id); Object.assign(n, patch); touch(n); if (quiet) saveCache(); else emit();
 }
-export function updateMany(changes) { for (const [id, patch] of changes) { const n = nodes.get(id); if (n) { Object.assign(n, patch); touch(n); } } emit(); }
+export function updateMany(changes) { for (const [id, patch] of changes) { const n = nodes.get(id); if (n) { mark(id); Object.assign(n, patch); touch(n); } } emit(); }
 /** Deletes an item and everything under it. */
 export function remove(id) {
   const n0 = nodes.get(id);
-  const kill = i => { const n = nodes.get(i); if (!n) return; n.x = true; touch(n); for (const c of [...nodes.values()]) if (c.p === i && !c.x) kill(c.id); };
+  const kill = i => { const n = nodes.get(i); if (!n) return; mark(i); n.x = true; touch(n); for (const c of [...nodes.values()]) if (c.p === i && !c.x) kill(c.id); };
   kill(id);
-  if (n0?.k === 'area') for (const c of nodes.values()) if (c.ar === id && !c.x) { c.ar = null; if (c.c === 'area') c.c = n0.c; touch(c); } // its projects stay, with no area, keeping the colour they had
+  if (n0?.k === 'area') for (const c of nodes.values()) if (c.ar === id && !c.x) { mark(c.id); c.ar = null; if (c.c === 'area') c.c = n0.c; touch(c); } // its projects stay, with no area, keeping the colour they had
   emit();
 }
 export const snapshot = () => JSON.stringify([...nodes.values()]);
-/** Puts everything back the way a snapshot had it (used by Undo). */
+/** Puts everything back the way a snapshot had it (used by Ask Claude's Undo). */
 export function restore(snap) {
   const before = new Map(JSON.parse(snap).map(n => [n.id, n]));
   for (const n of [...nodes.values()]) {
     const old = before.get(n.id);
-    if (!old) { if (!n.x) { n.x = true; touch(n); } }
-    else if (JSON.stringify(old) !== JSON.stringify(n)) touch({ ...old });
+    if (!old) { if (!n.x) { mark(n.id); n.x = true; touch(n); } }
+    else if (JSON.stringify(old) !== JSON.stringify(n)) { mark(n.id); touch({ ...old }); }
   }
   emit();
 }
 
 /* Local-only mode with sample data (before sign-in, or when not set up). */
 export function useLocal(key, seedFn) {
-  stopCloud(); cacheKey = key; nodes.clear(); dirty = new Set();
+  stopCloud(); forget(); cacheKey = key; nodes.clear(); dirty = new Set();
   const c = lsGet(key);
   (c?.nodes?.length ? c.nodes : seedFn()).forEach(n => nodes.set(n.id, n));
   ensureAreas('local'); setSync('local'); emit();
 }
-export function resetLocal(seedFn) { nodes.clear(); seedFn().forEach(n => nodes.set(n.id, n)); ensureAreas('local'); emit(); }
+export function resetLocal(seedFn) { forget(); nodes.clear(); seedFn().forEach(n => nodes.set(n.id, n)); ensureAreas('local'); emit(); }
 
 /* Cloud mode: this person's items in Supabase. */
 export async function useCloud(client, user) {
-  stopCloud(); sb = client; userId = user.id; cacheKey = 'daybook-cache-' + user.id;
+  stopCloud(); forget(); sb = client; userId = user.id; cacheKey = 'daybook-cache-' + user.id;
   nodes.clear();
   const c = lsGet(cacheKey);
   if (c) { c.nodes.forEach(n => nodes.set(n.id, n)); dirty = new Set(c.dirty || []); cursor = c.cursor || null; } else { dirty = new Set(); cursor = null; }
