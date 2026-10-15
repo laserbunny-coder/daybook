@@ -301,9 +301,15 @@ document.addEventListener('click', e => {
 // On a computer, resting the mouse at the left or right edge slides projects or Ask Claude in; leaving the projects lets them slide back
 for (const side of ['l', 'r']) {
   const z = document.createElement('div'); z.className = 'qedge ' + side; z.setAttribute('aria-hidden', 'true'); document.body.appendChild(z);
-  z.addEventListener('mouseenter', () => { clearTimeout(qT); qT = setTimeout(() => { if (!quiet()) return; if (side === 'l') setQSide(true); else openAI(); }, 140); });
+  z.addEventListener('mouseenter', () => { clearTimeout(qT); qT = setTimeout(() => { if (!quiet()) return; if (side === 'l') setQSide(true); else { openAI(); aiPeek = true; } }, 140); });
   z.addEventListener('mouseleave', () => clearTimeout(qT));
 }
+// Ask Claude slid in from the edge is only peeking: it slides back when the mouse leaves, until you click or type in it
+let aiPeek = false;
+const aiEl = document.getElementById('ai');
+aiEl.addEventListener('pointerdown', () => { aiPeek = false; });
+aiEl.addEventListener('focusin', () => { aiPeek = false; });
+aiEl.addEventListener('mouseleave', () => { if (!aiPeek) return; clearTimeout(qT); qT = setTimeout(() => { if (aiPeek && quiet() && !aiEl.matches(':hover')) { aiPeek = false; document.body.classList.add('ai-off'); } }, 450); });
 document.getElementById('side').addEventListener('mouseleave', e => { if (!qSide || qPin || D || e.relatedTarget?.closest?.('#detail')) return; clearTimeout(qT); qT = setTimeout(() => { if (!D && !document.getElementById('side').matches(':hover')) setQSide(false); }, 450); });
 document.getElementById('side').addEventListener('mouseenter', () => clearTimeout(qT));
 // On a phone: swipe up from the bottom edge for projects and pinch to go between the day and the week.
@@ -805,7 +811,7 @@ document.addEventListener('click', e => {
     }
   }
 }, true);
-function openAI() { if (quietLook()) { setStrip(false); document.body.classList.remove('ai-off'); return; } if (phone()) { if (S.tab !== 'ask') { S.tab = 'ask'; renderTabs(); } } else document.body.classList.remove('ai-off'); }
+function openAI() { aiPeek = false; if (quietLook()) { setStrip(false); document.body.classList.remove('ai-off'); return; } if (phone()) { if (S.tab !== 'ask') { S.tab = 'ask'; renderTabs(); } } else document.body.classList.remove('ai-off'); }
 document.addEventListener('submit', e => {
   const f = e.target; e.preventDefault();
   if (f.id === 'askf') { const q = document.getElementById('askq'); if (q.value.trim()) { ask(q.value.trim()); q.value = ''; } return; }
