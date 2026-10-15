@@ -212,11 +212,15 @@ function layout(items) {
 }
 function blocksHTML(d) {
   const items = [...timedOn(d).map(e => ({ ev: e, s: e.s, m: e.m })), ...store.all().filter(n => n.d === d && n.s != null).map(n => ({ n, s: n.s, m: n.m || 60 }))];
-  return layout(items).map(it => {
+  layout(items);
+  // A short block may grow to a readable 18px, but only into free space: never past the start of the next block beneath it
+  const x0 = it => it.lane / it.lanes, x1 = it => (it.lane + 1) / it.lanes;
+  return items.map(it => {
     const s = Math.max(it.s, H0 * 60), e = Math.min(it.s + it.m, H1 * 60); if (e <= s) return '';
-    const pos = `top:${hpx((s - H0 * 60) / 60)};height:max(${hpx((e - s) / 60)} - 2px, 18px);left:${it.lane / it.lanes * 100}%;width:calc(${100 / it.lanes}% - 4px)`;
+    const below = items.filter(o => o.s >= e && x0(o) < x1(it) && x1(o) > x0(it)).reduce((m, o) => Math.min(m, o.s), H1 * 60);
+    const pos = `top:${hpx((s - H0 * 60) / 60)};height:max(${hpx((e - s) / 60)} - 2px, min(18px, ${hpx((below - s) / 60)} - 2px));left:${it.lane / it.lanes * 100}%;width:calc(${100 / it.lanes}% - 4px)`;
     const tm = `${fmtT(it.s)} – ${fmtT(it.s + it.m)}`;
-    if (it.ev) return `<div class="ev" style="${pos}" title="${esc(it.ev.cal || '')}"><div class="b-t">${esc(it.ev.t)}</div><div class="b-time">${tm}</div></div>`;
+    if (it.ev) return `<div class="ev" style="${pos}" title="${esc(it.ev.cal || '')}"><div class="b-in"><div class="b-t">${esc(it.ev.t)}</div><div class="b-time">${tm}</div></div></div>`;
     const n = it.n, pr = hasKids(n.id) && progress(n.id); // a whole project in a block is a work session: show how far along it is
     return `<div class="block${isDone(n) ? ' done' : ''}" data-drag data-id="${n.id}" style="${pos};--pc:${colorOf(n)}">${ckHTML(n)}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${tm}${pr ? ` · ${pr.done}/${pr.total}` : ''}</div></div><div class="rs"></div></div>`;
   }).join('');
@@ -307,6 +311,7 @@ function renderMain() {
   </div>${drawerHTML()}`;
   const dr = document.getElementById('dr-b'); if (dr) dr.scrollTop = drSc;
   const mb = document.getElementById('mbody');
+  fitObs.disconnect(); mb.querySelectorAll('.block,.ev').forEach(b => fitObs.observe(b));
   if (sc != null) vScroller(mb).scrollTop = sc;
   else if (S.mode === 'timed') {
     const target = Math.max(H0, (days.includes(today()) ? Math.floor(nowMin() / 60) - 1 : 8)); vScroller(mb).scrollTop = Math.max(0, (Math.min(target, 17) - H0) * HP());
@@ -318,6 +323,17 @@ function renderMain() {
     stripTitle();
   }
 }
+// A title too long for its block ends on the last line that fits, with an ellipsis, instead of being sliced through.
+// Rechecked whenever a block changes size, so it follows pinch-zoom and resizing.
+const fitObs = new ResizeObserver(es => {
+  for (const { target: b } of es) {
+    const t = b.querySelector('.b-t'), box = b.querySelector('.b-in'); if (!t || !box) continue;
+    t.classList.remove('clamp');
+    const cs = getComputedStyle(t); if (cs.whiteSpace === 'nowrap') continue; // short blocks already use one line
+    const avail = box.clientHeight - parseFloat(getComputedStyle(box).paddingTop) * 2, lh = parseFloat(cs.lineHeight);
+    if (t.offsetHeight > avail + 1) { t.style.setProperty('--l', Math.max(1, Math.floor(avail / lh))); t.classList.add('clamp'); }
+  }
+});
 /* The strip of days in Week view. W is the range of days drawn; scrolling near either end draws more,
    and re-drawing keeps the same day under the same spot on screen. */
 let W = null, stripRaf = 0;
