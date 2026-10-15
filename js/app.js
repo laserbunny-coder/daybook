@@ -280,14 +280,16 @@ function setFocus(on, fromBack = false) {
   }
   render();
 }
-addEventListener('popstate', () => { if (S.focus) setFocus(false, true); else if (qVisit) { qVisit = false; if (S.tab !== 'plan') { S.tab = 'plan'; render(); } } });
+addEventListener('popstate', () => { if (S.focus) setFocus(false, true); else if (qSkip) qSkip = false; else if (qVisit) { qVisit = false; if (S.tab !== 'plan') { S.tab = 'plan'; W = null; render(); } } });
 /* Quiet: the whole app rests in the focus look (titles only, events as thin lines, no bars) and the rest waits past the edges.
    Tap the day's name for the controls. Projects come in from the left edge (from the bottom on a phone), Ask Claude from the right. */
 const quiet = () => !!S.min && !S.focus;
-// On a phone the full Projects tab is a visit out of the quiet plan: the tab bar comes back until you return to Plan (or press Back)
-const quietLook = () => quiet() && !(phone() && S.tab !== 'plan');
-let qVisit = false;
+// On a phone the full Projects screen opens inside Quiet, with the same faint name on top; Back (or the grid button) returns to the plan
+const quietLook = quiet;
+let qVisit = false, qSkip = false;
 function quietProjects() { setStrip(false); S.tab = 'projects'; S.drOpen = false; document.body.classList.remove('dr-on'); if (!qVisit) { qVisit = true; history.pushState({ qVisit: 1 }, ''); } render(); }
+function quietPlan() { if (S.tab === 'plan') return; setStrip(false); S.tab = 'plan'; W = null; if (qVisit) { qVisit = false; qSkip = true; history.back(); } }
+const qProjects = () => quiet() && phone() && S.tab === 'projects';
 let qSide = false, qT = 0;
 function setStrip(on) { S.qstrip = on; document.body.classList.toggle('q-strip', quiet() && on); document.querySelector('.qh')?.setAttribute('aria-expanded', on); }
 function setQSide(on) { qSide = on && quiet() && !phone(); document.body.classList.toggle('q-side', qSide); if (qSide) setStrip(false); }
@@ -441,7 +443,8 @@ function renderMain() {
   const days = strip ? [...Array(daysBetween(W.from, W.to) + 1)].map((_, i) => add(W.from, i)) : [S.anchor];
   calendar.ensure(days[0], days[days.length - 1]);
   const a = pd(S.anchor);
-  const title = strip ? rangeLabel(S.anchor, add(S.anchor, 6)) : `${S.anchor === today() ? 'Today' : DAYL[a.getDay()]}, ${MON[a.getMonth()]} ${a.getDate()}`;
+  const qp = qProjects();
+  const title = qp ? 'Projects' : strip ? rangeLabel(S.anchor, add(S.anchor, 6)) : `${S.anchor === today() ? 'Today' : DAYL[a.getDay()]}, ${MON[a.getMonth()]} ${a.getDate()}`;
   const P = (k, v) => `aria-pressed="${S[k] === v}"`;
   const prevDr = document.getElementById('dr-b'); const drSc = prevDr && prevDr.dataset.k === (S.drAt || '') ? prevDr.scrollTop : 0;
   const warn = store.sync.state === 'offline' || store.sync.state === 'error' ? `<div class="tip warn"><span>${SYNC_TEXT[store.sync.state]}</span></div>` : '';
@@ -450,9 +453,9 @@ function renderMain() {
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg" role="group" aria-label="Range"><button data-act="view" data-v="day" ${P('view', 'day')}>Day</button><button data-act="view" data-v="week" ${P('view', 'week')}>Week</button></div>
     <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button></div>
-    <button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet: titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
-    <button class="ib q-only" data-act="qproj" aria-label="Projects" title="Projects (P)">${ICON.board}</button>
-    <button class="ib fx-btn" data-act="focus" aria-label="Focus" title="Focus: just today (F)">${ICON.focus}</button>
+    <div class="mh-i"><button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet: titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
+    <button class="ib q-only" data-act="qproj" aria-pressed="${qp}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>
+    <button class="ib fx-btn" data-act="focus" aria-label="Focus" title="Focus: just today (F)">${ICON.focus}</button></div>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
   <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
     ${S.tip ? `<div class="tip"><span>Tap a task to open it and add notes. Tap an empty time, or the + under a day, to add one. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
@@ -685,7 +688,10 @@ function urActs(fresh) {
   return (u ? `<button data-act="ur-undo">${ICON.undo}Undo</button>` : '') + (r && !fresh ? `<button data-act="ur-redo">${ICON.redo}Redo</button>` : '');
 }
 function urBtns() {
-  const u = store.canUndo(), r = store.canRedo(); if (!u && !r) return '';
+  const u = store.canUndo(), r = store.canRedo();
+  // Quiet's strip always keeps both, dimmed when there's nothing to undo or redo, so the row never shifts
+  if (quiet()) return `<div class="ur"><button class="ib" data-act="ur-undo" aria-label="Undo" title="Undo"${u ? '' : ' disabled'}>${ICON.undo}</button><button class="ib" data-act="ur-redo" aria-label="Redo" title="Redo"${r ? '' : ' disabled'}>${ICON.redo}</button></div>`;
+  if (!u && !r) return '';
   return `<div class="ur phone-only">${u ? `<button class="ib" data-act="ur-undo" aria-label="Undo">${ICON.undo}</button>` : ''}${r ? `<button class="ib" data-act="ur-redo" aria-label="Redo">${ICON.redo}</button>` : ''}</div>`;
 }
 function urSync() { const h = document.querySelector('#main .mh-l'); if (!h) return; h.querySelector('.ur')?.remove(); if (!boardShown()) h.insertAdjacentHTML('beforeend', urBtns()); }
@@ -781,13 +787,13 @@ document.addEventListener('click', e => {
     case 'new-area': newArea(); break;
     case 'page': if (quiet() && b.dataset.v === 'projects') setQuiet(false); // the full Projects board is its own page, outside Quiet
       S.page = b.dataset.v; S.pick = null; S.adding = null; render(); break;
-    case 'view': S.view = b.dataset.v; W = null; render(); break;
-    case 'mode': S.mode = b.dataset.v; W = null; render(); break;
+    case 'view': quietPlan(); S.view = b.dataset.v; W = null; render(); break;
+    case 'mode': quietPlan(); S.mode = b.dataset.v; W = null; render(); break;
     case 'min': setQuiet(!S.min); break;
     case 'qstrip': setStrip(!S.qstrip); break;
-    case 'qproj': if (phone()) quietProjects(); else setQSide(!qSide); break;
+    case 'qproj': if (!phone()) setQSide(!qSide); else if (qProjects()) { quietPlan(); render(); } else quietProjects(); break;
     case 'focus': setFocus(!S.focus); break;
-    case 'prev': case 'next': {
+    case 'prev': case 'next': if (qProjects()) { quietPlan(); render(); break; } {
       const dir = a === 'prev' ? -1 : 1;
       if (S.view !== 'week' || !W) { S.anchor = add(S.anchor, dir * (S.view === 'week' ? 7 : 1)); render(); break; }
       const f = visibleDays()[0] || S.anchor, ws = weekStart(f); // a computer lines weeks up on Monday; a phone steps a week from where you are
@@ -797,10 +803,10 @@ document.addEventListener('click', e => {
       if (grew) renderMain();
       stripGo(to, true); break;
     }
-    case 'today': if (S.view === 'week' && W) { stripGo(phone() ? today() : weekStart(today()), true); break; } S.anchor = today(); render(); break;
+    case 'today': if (qProjects()) { quietPlan(); S.anchor = today(); render(); break; } if (S.view === 'week' && W) { stripGo(phone() ? today() : weekStart(today()), true); break; } S.anchor = today(); render(); break;
     case 'goday': S.anchor = b.dataset.d; S.view = 'day'; W = null; render(); break;
     case 'tip': S.tip = false; render(); break;
-    case 'tab': if (qVisit && b.dataset.v === 'plan') { history.back(); break; } S.tab = b.dataset.v; S.drOpen = false; document.body.classList.remove('dr-on'); render(); break;
+    case 'tab': S.tab = b.dataset.v; S.drOpen = false; document.body.classList.remove('dr-on'); render(); break;
     case 'drawer': setDrawer(!S.drOpen); renderTabs(); break;
     case 'dr-close': setDrawer(false); renderTabs(); break;
     case 'dr-in': S.drAt = id || null; renderMain(); break;
