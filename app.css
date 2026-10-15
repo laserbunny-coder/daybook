@@ -566,7 +566,7 @@ body.quiet .side-h{display:none}
 body.quiet .side,body.quiet .ai{position:fixed;top:12px;bottom:12px;z-index:40;border:1px solid var(--edge);border-radius:20px;overflow:hidden;
   background:rgba(14,16,28,.88);backdrop-filter:blur(26px) saturate(1.2);-webkit-backdrop-filter:blur(26px) saturate(1.2);box-shadow:0 30px 70px -20px rgba(0,0,0,.85);
   visibility:hidden;transition:transform .32s cubic-bezier(.2,.8,.2,1),visibility 0s .32s}
-body.quiet .side{display:flex;left:12px;width:min(320px,calc(100vw - 24px));transform:translateX(calc(-100% - 24px))}
+body.quiet .side{display:flex;left:12px;width:min(480px,calc(100vw - 24px));transform:translateX(calc(-100% - 24px))} /* opens wide so names fit; no resizing in Quiet */
 body.quiet .side-rs{display:none}
 body.quiet.q-side .side{transform:none;visibility:visible;transition:transform .32s cubic-bezier(.2,.8,.2,1)}
 body.quiet .ai,body.quiet.ai-off .ai{display:flex;right:12px;width:min(380px,calc(100vw - 24px));transform:translateX(calc(100% + 24px))}
