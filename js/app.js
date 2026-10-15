@@ -280,6 +280,65 @@ function setFocus(on, fromBack = false) {
   render();
 }
 addEventListener('popstate', () => { if (S.focus) setFocus(false, true); });
+/* Quiet: the whole app rests in the focus look (titles only, events as thin lines, no bars) and the rest waits past the edges.
+   Tap the day's name for the controls. Projects come in from the left edge (from the bottom on a phone), Ask Claude from the right. */
+const quiet = () => !!S.min && !S.focus;
+let qSide = false, qT = 0;
+function setStrip(on) { S.qstrip = on; document.body.classList.toggle('q-strip', quiet() && on); document.querySelector('.qh')?.setAttribute('aria-expanded', on); }
+function setQSide(on) { qSide = on && quiet() && !phone(); document.body.classList.toggle('q-side', qSide); if (qSide) setStrip(false); }
+function quietAway() { setStrip(false); setQSide(false); document.body.classList.add('ai-off'); if (S.drOpen) { setDrawer(false); renderTabs(); } }
+function setQuiet(on) {
+  S.min = on; S.qstrip = false; setQSide(false);
+  if (on) { document.body.classList.add('ai-off'); S.page = 'plan'; S.tab = 'plan'; }
+  else if (matchMedia('(min-width:1500px)').matches) document.body.classList.remove('ai-off');
+  render();
+}
+// Keys while quiet: arrows change day or week, D and W pick the range, T switches List and Time blocks, P brings projects, / asks Claude
+function quietKey(e) {
+  const k = e.key.toLowerCase(), click = a => document.querySelector(`#main [data-act="${a}"]`)?.click();
+  if (k === 'arrowleft') click('prev'); else if (k === 'arrowright') click('next');
+  else if (k === 'd' || k === 'w') { const v = k === 'd' ? 'day' : 'week'; if (S.view !== v) { S.view = v; W = null; render(); } }
+  else if (k === 't') { S.mode = S.mode === 'list' ? 'timed' : 'list'; W = null; render(); }
+  else if (k === 'p') setQSide(!qSide);
+  else if (k === '/') { openAI(); setTimeout(() => document.getElementById('askq')?.focus(), 50); }
+  else return false;
+  return true;
+}
+// A tap anywhere else tucks the controls and projects away again
+document.addEventListener('click', e => {
+  if (!quiet() || !(e.target instanceof Element) || !e.target.isConnected) return;
+  if (S.qstrip && !e.target.closest('.mh, .qh')) setStrip(false);
+  if (qSide && !e.target.closest('.side, .qedge, [data-act="qproj"], #detail')) setQSide(false);
+});
+// On a computer, resting the mouse at the left or right edge slides projects or Ask Claude in; leaving the projects lets them slide back
+for (const side of ['l', 'r']) {
+  const z = document.createElement('div'); z.className = 'qedge ' + side; z.setAttribute('aria-hidden', 'true'); document.body.appendChild(z);
+  z.addEventListener('mouseenter', () => { clearTimeout(qT); qT = setTimeout(() => { if (!quiet()) return; if (side === 'l') setQSide(true); else openAI(); }, 140); });
+  z.addEventListener('mouseleave', () => clearTimeout(qT));
+}
+document.getElementById('side').addEventListener('mouseleave', e => { if (!qSide || D || e.relatedTarget?.closest?.('#detail')) return; clearTimeout(qT); qT = setTimeout(() => { if (!D && !document.getElementById('side').matches(':hover')) setQSide(false); }, 450); });
+document.getElementById('side').addEventListener('mouseenter', () => clearTimeout(qT));
+// On a phone: swipe up from the bottom edge for projects, in from the right edge for Ask Claude, and pinch to go between the day and the week
+let QG = null;
+document.addEventListener('touchstart', e => {
+  QG = null; if (!quiet() || !phone() || S.tab !== 'plan' || D) return;
+  if (e.touches.length === 2 && S.mode === 'list') { QG = { pinch: true, d: span(e.touches) }; return; }
+  if (e.touches.length !== 1 || S.drOpen || e.target.closest?.('.drawer, .ai, .mh, form')) return;
+  const t = e.touches[0];
+  if (t.clientY > innerHeight - 40) QG = { up: true, y: t.clientY }; else if (t.clientX > innerWidth - 22) QG = { left: true, x: t.clientX };
+}, { passive: true });
+document.addEventListener('touchmove', e => {
+  if (!QG || D) return; const t = e.touches;
+  if (QG.pinch) {
+    if (t.length !== 2) { QG = null; return; } if (e.cancelable) e.preventDefault();
+    const r = span(t) / Math.max(QG.d, 1), to = r < .72 ? 'week' : r > 1.38 ? 'day' : null;
+    if (to) { QG = null; if (S.view !== to) { S.view = to; W = null; render(); } }
+    return;
+  }
+  if (QG.up && QG.y - t[0].clientY > 36) { QG = null; setDrawer(true); renderTabs(); }
+  else if (QG.left && QG.x - t[0].clientX > 44) { QG = null; openAI(); }
+}, { passive: false });
+document.addEventListener('touchend', () => { if (QG && !QG.pinch) QG = null; });
 // Closed while in focus: it opens in focus again, on today
 if (S.focus) { Object.assign(S, { view: 'day', mode: 'list', page: 'plan', tab: 'plan' }); if (!history.state?.focus) history.pushState({ focus: 1 }, ''); }
 function layout(items) {
@@ -366,6 +425,7 @@ const vScroller = mb => (mb?.classList.contains('timed') && mb.querySelector('.t
 function renderMain() {
   const el = document.getElementById('main');
   document.body.classList.toggle('focus', !!S.focus);
+  document.body.classList.toggle('quiet', quiet()); document.body.classList.toggle('q-strip', quiet() && !!S.qstrip);
   if (boardShown()) return renderBoard(el);
   const strip = S.view === 'week';
   const prev = document.getElementById('mbody'); const key = S.view + S.mode + (strip ? '' : S.anchor);
@@ -380,17 +440,18 @@ function renderMain() {
   const prevDr = document.getElementById('dr-b'); const drSc = prevDr && prevDr.dataset.k === (S.drAt || '') ? prevDr.scrollTop : 0;
   const warn = store.sync.state === 'offline' || store.sync.state === 'error' ? `<div class="tip warn"><span>${SYNC_TEXT[store.sync.state]}</span></div>` : '';
   if (S.focus) el.innerHTML = `<div class="mbody vscroll day fx" id="mbody" data-k="${key}">${warn}${focusHTML(S.anchor)}</div><button class="fx-x" data-act="focus" aria-label="Leave focus" title="Leave focus (Esc)">${ICON.close}</button>`;
-  else el.innerHTML = `<header class="mh">
+  else el.innerHTML = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">${title}</span></button>` : ''}<header class="mh">
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg" role="group" aria-label="Range"><button data-act="view" data-v="day" ${P('view', 'day')}>Day</button><button data-act="view" data-v="week" ${P('view', 'week')}>Week</button></div>
     <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button></div>
-    ${S.mode === 'list' ? `<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Minimal list" title="Minimal list: just task titles">${ICON.min}</button>` : ''}
+    <button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet: titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
+    <button class="ib q-only" data-act="qproj" aria-label="Projects" title="Projects (P)">${ICON.proj}</button>
     <button class="ib fx-btn" data-act="focus" aria-label="Focus" title="Focus: just today (F)">${ICON.focus}</button>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
   <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
     ${S.tip ? `<div class="tip"><span>Tap a task to open it and add notes. Tap an empty time, or the + under a day, to add one. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
     ${S.mode === 'list' ? (S.view === 'week' ? weekList(days) : dayList(days[0])) : timed(days)}
-  </div>${drawerHTML()}`;
+  </div>${drawerHTML()}${quiet() ? '<button class="qgrab" data-act="qproj" aria-label="Show projects"></button>' : ''}`;
   const dr = document.getElementById('dr-b'); if (dr) dr.scrollTop = drSc;
   const mb = document.getElementById('mbody');
   fitObs.disconnect(); mb.querySelectorAll('.block,.ev').forEach(b => fitObs.observe(b));
@@ -447,7 +508,8 @@ function visibleDays() {
 function stripTitle() {
   const v = visibleDays(); if (!v.length) return;
   S.anchor = v.includes(today()) ? today() : v[0]; // Day view, "Plan my week" and switching layouts start from here
-  const t = document.getElementById('mtitle'); if (t) t.textContent = v.length > 1 ? rangeLabel(v[0], v[v.length - 1]) : `${DAYN[pd(v[0]).getDay()]}, ${MON[pd(v[0]).getMonth()]} ${pd(v[0]).getDate()}`;
+  const t = document.getElementById('mtitle'), q = document.getElementById('qtitle'); if (t) t.textContent = v.length > 1 ? rangeLabel(v[0], v[v.length - 1]) : `${DAYN[pd(v[0]).getDay()]}, ${MON[pd(v[0]).getMonth()]} ${pd(v[0]).getDate()}`;
+  if (t && q) q.textContent = t.textContent;
 }
 function onStrip() {
   if (stripRaf) return;
@@ -711,10 +773,13 @@ document.addEventListener('click', e => {
     case 'new-day': if (Date.now() - newClosed > 400) openNew({ at: 'list', d: b.dataset.d }); break;
     case 'new-project': newProject(b.dataset.area); break;
     case 'new-area': newArea(); break;
-    case 'page': S.page = b.dataset.v; S.pick = null; S.adding = null; render(); break;
+    case 'page': if (quiet() && b.dataset.v === 'projects') setQuiet(false); // the full Projects board is its own page, outside Quiet
+      S.page = b.dataset.v; S.pick = null; S.adding = null; render(); break;
     case 'view': S.view = b.dataset.v; W = null; render(); break;
     case 'mode': S.mode = b.dataset.v; W = null; render(); break;
-    case 'min': S.min = !S.min; render(); break;
+    case 'min': setQuiet(!S.min); break;
+    case 'qstrip': setStrip(!S.qstrip); break;
+    case 'qproj': if (phone()) { setStrip(false); setDrawer(true); renderTabs(); } else setQSide(!qSide); break;
     case 'focus': setFocus(!S.focus); break;
     case 'prev': case 'next': {
       const dir = a === 'prev' ? -1 : 1;
@@ -754,7 +819,7 @@ document.addEventListener('click', e => {
     }
   }
 }, true);
-function openAI() { if (phone()) { if (S.tab !== 'ask') { S.tab = 'ask'; renderTabs(); } } else document.body.classList.remove('ai-off'); }
+function openAI() { if (quiet()) { setStrip(false); document.body.classList.remove('ai-off'); return; } if (phone()) { if (S.tab !== 'ask') { S.tab = 'ask'; renderTabs(); } } else document.body.classList.remove('ai-off'); }
 document.addEventListener('submit', e => {
   const f = e.target; e.preventDefault();
   if (f.id === 'askf') { const q = document.getElementById('askq'); if (q.value.trim()) { ask(q.value.trim()); q.value = ''; } return; }
@@ -781,7 +846,8 @@ document.addEventListener('keydown', e => {
   }
   if (e.key === 'Escape' && S.linkEdit) { S.linkEdit = false; document.activeElement?.blur(); renderDetail(); return; }
   if (e.key === 'Escape' && S.new) { closeNew(); return; }
-  if (e.key === 'Escape') { if (S.adding) { S.adding = null; render(); } else if (S.open) { S.open = null; renderDetail(); } else if (S.focus && !D) setFocus(false); }
+  if (e.key === 'Escape') { if (S.adding) { S.adding = null; render(); } else if (S.open) { S.open = null; renderDetail(); } else if (S.focus && !D) setFocus(false); else if (quiet() && !D) quietAway(); }
+  if (quiet() && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])') && quietKey(e)) { e.preventDefault(); return; }
   if (key === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey && !D && !S.open && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); setFocus(!S.focus); }
   if (e.key === 'Enter' && e.target.id === 'dt-title') { e.preventDefault(); e.target.blur(); }
   if (e.key === 'Enter' && e.target.matches('.dt-notes-view')) { e.preventDefault(); e.target.click(); }
@@ -831,6 +897,7 @@ function startDrag() {
     if (D.timed) { g.style.height = r.height + 'px'; D.offX = Math.min(P.x - r.left, w - 10); } else D.offY = Math.min(D.offY, 24);
     document.body.appendChild(g); D.g = g; el.classList.add('dragging');
   }
+  if (qSide && el.closest('.side')) setQSide(false); // Quiet: projects slide away once something is picked up from them, so the whole plan is free
   D.fromDr = !!el.closest('.drawer'); // the drawer steps aside once the finger carries the item out of it (see moveDrag)
   D.list = !!el.closest('.side, .board, .dt, .drawer'); // picked up from a list of projects rather than from the plan
   if (D.kind !== 'resize' && node(D.id)?.d) document.body.classList.add('drag-sched'); // the tab bar offers to unschedule it
@@ -840,6 +907,7 @@ function clearMarks() { ind.remove(); ins.remove(); document.querySelectorAll('.
 function moveDrag(x, y) {
   // Inside the drawer the item can be moved up or down among its neighbours; carried up past the drawer's top, the drawer sinks away to free the day
   if (D.fromDr && !D.sunk && y < document.getElementById('drawer').getBoundingClientRect().top - 6) { D.sunk = true; document.body.classList.add('dr-drag'); }
+  if (quiet() && !phone() && !qSide && x < 16 && D.kind !== 'resize') setQSide(true); // carried to the left edge: projects and the Inbox slide in to take it
   D.x = x; D.y = y; const hp = HP();
   if (D.kind === 'resize') { const r = D.block.getBoundingClientRect(); const n = node(D.id); const m = Math.max(15, Math.min(Math.round((y - r.top) / hp * 60 / 15) * 15, H1 * 60 - n.s)); D.newM = m; D.block.style.height = (m / 60 * hp - 2) + 'px'; D.block.querySelector('.b-time').textContent = `${fmtT(n.s)} – ${fmtT(n.s + m)}`; return; }
   D.g.style.transform = `translate(${x - D.offX}px,${y - D.offY}px)`;
@@ -1039,6 +1107,7 @@ function swGo(dir) { // dir 1 = next day, -1 = previous
 document.addEventListener('touchstart', e => {
   DS = null; if (e.touches.length !== 1 || swBusy || D) return;
   const mb = dayBody(e.target); if (!mb || e.target.closest('input,textarea,select,.rs')) return;
+  if (quiet() && (e.touches[0].clientX > innerWidth - 22 || e.touches[0].clientY > innerHeight - 40)) return; // Quiet: the edges bring in Ask Claude and projects
   const t = e.touches[0]; DS = { x: t.clientX, y: t.clientY, lx: t.clientX, h: [[e.timeStamp, t.clientX]], on: false };
 }, { passive: true });
 document.addEventListener('touchmove', e => {
@@ -1109,6 +1178,7 @@ calendar.onCalendarChange(() => { if (!D) later(); });
 initAI({ anchor: () => S.anchor, showPlan, render: later });
 setInterval(() => { if (today() !== shown) { shown = today(); if (S.anchor === add(today(), -1)) S.anchor = today(); later(); } else if (S.mode === 'timed' && !D) { document.querySelectorAll('.now').forEach(n => n.style.top = hpx((nowMin() - H0 * 60) / 60)); } }, 60e3);
 if (!matchMedia('(min-width:1500px)').matches) document.body.classList.add('ai-off');
+if (S.min) { document.body.classList.add('ai-off'); S.page = 'plan'; S.tab = 'plan'; }
 
 async function boot() {
   let cfg = {};
