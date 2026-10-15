@@ -642,16 +642,25 @@ document.addEventListener('wheel', e => {
   const dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
   zoomTo(HP() * Math.exp(-Math.max(-50, Math.min(50, dy)) * 0.006), e.clientY);
 }, { passive: false });
+// Two fingers do both at once: spreading or pinching zooms, moving them together scrolls, so the time under them follows the fingers
 let Z = null;
 const span = ts => Math.hypot(ts[0].clientX - ts[1].clientX, ts[0].clientY - ts[1].clientY);
+const mid = ts => ({ x: (ts[0].clientX + ts[1].clientX) / 2, y: (ts[0].clientY + ts[1].clientY) / 2 });
 document.addEventListener('touchstart', e => {
   if (e.touches.length !== 2 || D || !inGrid(e.target)) { if (e.touches.length !== 2) Z = null; return; }
-  Z = { d: span(e.touches), hp: HP() };
+  Z = { d: span(e.touches), hp: HP(), m: mid(e.touches) };
 }, { passive: true });
 document.addEventListener('touchmove', e => {
   if (!Z || e.touches.length !== 2 || D) return;
-  e.preventDefault();
-  zoomTo(Z.hp * span(e.touches) / Math.max(Z.d, 1), (e.touches[0].clientY + e.touches[1].clientY) / 2);
+  const m = mid(e.touches);
+  if (e.cancelable) { // otherwise the browser is already scrolling, so only zoom
+    e.preventDefault();
+    const mb = document.getElementById('mbody'), tw = mb?.querySelector('.tw');
+    if (mb) mb.scrollTop -= m.y - Z.m.y;
+    if (tw) tw.scrollLeft -= m.x - Z.m.x;
+  }
+  Z.m = m;
+  zoomTo(Z.hp * span(e.touches) / Math.max(Z.d, 1), m.y);
 }, { passive: false });
 document.addEventListener('touchend', e => { if (e.touches.length < 2) Z = null; });
 
