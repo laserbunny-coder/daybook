@@ -68,6 +68,7 @@ function chipHTML(n, o = {}) {
     if (n.notes) meta.push(ICON.note);
     if (n.link) meta.push(ICON.linkS);
     if (crumbs.length) meta.push(`<span class="pd"></span>${esc(crumbs.slice(-2).join(' › '))}`);
+    else if (!kids && areaOf(n)) meta.push(`<span class="pd"></span>${esc(store.get(n.ar).t || 'Untitled area')}`); // a task right in an area
     if (o.time && n.s != null) meta.push(`<span class="tm">${fmtT(n.s)}</span>`);
     if (n.m && !kids) meta.push(fmtDur(n.m));
     if (kids) { const p = progress(n.id); meta.push(`${p.done}/${p.total} done`); }
@@ -133,20 +134,22 @@ function footHTML() {
   return `<div class="side-f">Sample data, stored only on this device. Drag anything onto the plan, or back here to unschedule it.
     <div class="foot-acts">${configured ? '<button class="link" data-act="signin">Sign in with Google</button>' : ''}<button class="link" data-act="reset">Reset sample data</button></div></div>`;
 }
-/* Areas group the top-level projects. A project whose area is gone shows under "No area". */
+/* Areas group the top-level projects, and tasks that belong to an area without being part of a project.
+   Such a task becomes a project in that area as soon as it gets steps. A project whose area is gone shows under "No area";
+   a task whose area is gone goes back to the Inbox. */
 const areaOf = p => (p.ar && store.areas().some(a => a.id === p.ar) ? p.ar : '');
 function areaGroups() {
   const roots = store.all().filter(n => n.p == null).sort((a, b) => a.o - b.o);
-  const projs = roots.filter(isProj);
+  const projs = roots.filter(n => isProj(n) || areaOf(n));
   const groups = store.areas().map(a => ({ a, projs: projs.filter(p => areaOf(p) === a.id) }));
   const none = projs.filter(p => !areaOf(p));
   if (none.length || !groups.length) groups.push({ a: null, projs: none });
-  return { groups, loose: roots.filter(n => !isProj(n)) };
+  return { groups, loose: roots.filter(n => !isProj(n) && !areaOf(n)) };
 }
 function areaHTML({ a, projs }, board = false) {
   const id = a ? a.id : '', key = 'area:' + id, shut = !board && S.col[key], label = a ? esc(a.t || 'Untitled area') : 'No area';
   const name = a ? `<span class="pdot" style="--pc:${a.c || '#B9BCD0'}"></span><button class="area-t" data-act="open" data-id="${id}" title="Rename or delete this area">${label}</button>` : `<span class="area-t">${label}</span>`;
-  const list = (projs.length ? projs.map(projHTML).join('') : '<div class="empty-note">No projects here yet.</div>') + (board ? `<button class="bcol-add" data-act="new-project" data-area="${id}">+ New project</button>` : '');
+  const list = (projs.length ? projs.map(p => isProj(p) ? projHTML(p) : treeRows(p, 0)).join('') : '<div class="empty-note">No projects here yet.</div>') + (board ? `<button class="bcol-add" data-act="new-project" data-area="${id}">+ New project</button>` : '');
   return `<section class="area${board ? ' bcol' : ''}" data-drop="area" data-area="${id}">
     <div class="area-h">${board ? '' : `<button class="caret${shut ? ' shut' : ''}" data-act="fold" data-id="${key}" aria-label="Show or hide ${label}"></button>`}${name}<span class="area-n">${projs.length}</span><button class="plus" data-act="new-project" data-area="${id}" aria-label="New project in ${label}" title="New project">+</button></div>
     ${shut ? '' : board ? `<div class="bcol-b vscroll">${list}</div>` : list}</section>`;
@@ -193,15 +196,20 @@ function listHTML(d) {
 }
 /* Adding a task right on the plan: the + at the end of a day's list, or a tap on an empty time (or the "Any time" row) in Time blocks.
    A small form opens in place with the title ready to type. It goes in the Inbox unless a project is picked. */
+// Each area is a choice of its own (the task then belongs to the area, in no project), with its projects indented under it
 function projOptions(sel) {
-  const opt = (p, dep) => isDone(p) ? '' : `<option value="${p.id}"${sel === p.id ? ' selected' : ''}>${' '.repeat(dep)}${esc(p.t || 'Untitled')}</option>` + children(p.id).filter(c => hasKids(c.id)).map(c => opt(c, dep + 1)).join('');
-  return `<option value=""${sel ? '' : ' selected'}>Inbox</option>` + areaGroups().groups.map(g => { const o = g.projs.map(p => opt(p, 0)).join(''); return o ? `<optgroup label="${g.a ? esc(g.a.t || 'Untitled area') : 'No area'}">${o}</optgroup>` : ''; }).join('');
+  const o = (v, t, dep) => `<option value="${v}"${sel === v ? ' selected' : ''}>${'\u2003'.repeat(dep)}${esc(t)}</option>`;
+  const opt = (p, dep) => isDone(p) || !isProj(p) ? '' : o(p.id, p.t || 'Untitled', dep) + children(p.id).filter(c => hasKids(c.id)).map(c => opt(c, dep + 1)).join('');
+  return o('', 'Inbox', 0) + areaGroups().groups.map(g => g.a ? o('area:' + g.a.id, g.a.t || 'Untitled area', 0) + g.projs.map(p => opt(p, 1)).join('')
+    : (g.projs.length ? `<optgroup label="No area">${g.projs.map(p => opt(p, 0)).join('')}</optgroup>` : '')).join('');
 }
+// The colour of what's picked: a project's, an area's, or grey for the Inbox
+const pickColor = v => v.startsWith('area:') ? store.get(v.slice(5))?.c || '#B9BCD0' : v && node(v) ? colorOf(node(v)) : '#B9BCD0';
 function newHTML() {
-  const N = S.new, p = N.p && node(N.p), pc = p ? colorOf(p) : '#B9BCD0';
+  const N = S.new, pc = pickColor(N.p);
   const pos = N.at === 'col' ? `;top:${hpx((N.s - H0 * 60) / 60)};min-height:max(${hpx(N.m / 60)} - 2px, 62px)` : '';
   return `<form class="nt at-${N.at}" data-form="new" style="--pc:${pc}${pos}"><input id="new-in" placeholder="New task" autocomplete="off" enterkeyhint="done" aria-label="New task">
-    <div class="nt-r">${N.s != null ? `<span class="nt-time">${fmtT(N.s)} – ${fmtT(N.s + N.m)}</span>` : ''}<label class="nt-p" title="Put it in a project"><span class="pdot"></span><select id="new-p" aria-label="Project">${projOptions(N.p)}</select></label></div></form>`;
+    <div class="nt-r">${N.s != null ? `<span class="nt-time">${fmtT(N.s)} – ${fmtT(N.s + N.m)}</span>` : ''}<label class="nt-p" title="Put it in an area or a project"><span class="pdot"></span><select id="new-p" aria-label="Project">${projOptions(N.p)}</select></label></div></form>`;
 }
 let newClosed = 0;
 function openNew(o) {
@@ -215,6 +223,7 @@ function closeNew() { if (!S.new) return; S.new = null; newClosed = Date.now(); 
 function finishNew() { const v = document.getElementById('new-in')?.value.trim(); if (S.new && v) addNew(v); closeNew(); }
 function addNew(t) {
   const N = S.new, f = { t, d: N.d, m: N.m || 60, p: N.p && node(N.p) ? N.p : null, ds: Date.now() / 1000 };
+  if (N.p.startsWith('area:') && store.get(N.p.slice(5))) f.ar = N.p.slice(5);
   if (N.s != null) f.s = N.s;
   else { const E = timedOn(N.d); f.a = E.length ? E[E.length - 1].s : null; } // lands at the end of the day, where the + was
   store.create(f);
@@ -299,7 +308,7 @@ function drawerHTML() {
   } else {
     const { groups, loose } = areaGroups(), todo = loose.filter(n => !n.done);
     top = `<div class="dr-title">Projects</div><span class="dr-hint">Hold and drag onto your day</span>`;
-    body = groups.filter(g => g.projs.length).map(g => `<div class="dr-grp" data-drop="area" data-area="${g.a?.id || ''}"><div class="dr-area"><span class="pdot" style="--pc:${g.a?.c || '#B9BCD0'}"></span>${g.a ? esc(g.a.t || 'Untitled area') : 'No area'}</div>${g.projs.map(drRow).join('')}</div>`).join('')
+    body = groups.filter(g => g.projs.length).map(g => `<div class="dr-grp" data-drop="area" data-area="${g.a?.id || ''}"><div class="dr-area"><span class="pdot" style="--pc:${g.a?.c || '#B9BCD0'}"></span>${g.a ? esc(g.a.t || 'Untitled area') : 'No area'}</div>${g.projs.filter(p => isProj(p) || !p.done).map(drRow).join('')}</div>`).join('')
       + (todo.length ? `<div class="dr-grp" data-drop="sib" data-g="loose"><div class="dr-area"><span class="pdot" style="--pc:var(--muted)"></span>Inbox</div>${todo.map(drRow).join('')}</div>` : '')
       || '<div class="dr-empty">No projects yet. Add them in Projects.</div>';
   }
@@ -467,7 +476,7 @@ function renderDetail() {
         ${kids.length || n.c ? '' : `<label class="chip"><span class="k">Takes about</span><select id="dt-dur">${durs.sort((a, b) => a - b).map(m => `<option value="${m}"${(n.m || 60) === m ? ' selected' : ''}>${fmtDur(m)}</option>`).join('')}</select></label>`}
         ${kids.length || n.c || n.due ? `<label class="chip${n.due ? ' set' : ''}"><span class="k">Due</span><input type="date" id="dt-due" value="${n.due || ''}"></label>` : ''}
         ${linkHTML(n)}
-        ${n.p == null && isProj(n) ? `<label class="chip"><span class="k">Area</span><select id="dt-area">${store.areas().map(a => `<option value="${a.id}"${areaOf(n) === a.id ? ' selected' : ''}>${esc(a.t || 'Untitled area')}</option>`).join('')}<option value=""${areaOf(n) ? '' : ' selected'}>No area</option></select></label>` : ''}
+        ${n.p == null ? `<label class="chip"><span class="k">Area</span><select id="dt-area">${store.areas().map(a => `<option value="${a.id}"${areaOf(n) === a.id ? ' selected' : ''}>${esc(a.t || 'Untitled area')}</option>`).join('')}<option value=""${areaOf(n) ? '' : ' selected'}>No area</option></select></label>` : ''}
       </div>
       ${S.dtpick ? pickerHTML(n, 0) : ''}
       ${n.p == null && isProj(n) ? swatchesHTML(n) : ''}
@@ -502,11 +511,11 @@ function areaDetail(el, n, same) {
       <div class="dt-head"><textarea id="dt-title" class="dt-title" rows="1" aria-label="Area name" placeholder="Name this area" enterkeyhint="done">${esc(n.t)}</textarea></div>
       <div class="dt-note">Projects in this area wear its colour, unless you give one its own.</div>
       ${swatchesHTML(n)}
-      <div class="dt-sec">Projects<small>${projs.length}</small></div>
+      <div class="dt-sec">${projs.some(p => !isProj(p)) ? 'Projects and tasks' : 'Projects'}<small>${projs.length}</small></div>
       <div class="dt-steps" data-drop="area" data-area="${n.id}">${projs.map(stepHTML).join('')}
         <form class="dt-add" data-form="area-project" data-area="${n.id}"><span class="plus-i" aria-hidden="true">+</span><input id="dt-add-in" placeholder="Add a project" autocomplete="off" aria-label="Add a project" enterkeyhint="done"></form></div>
       <div class="dt-foot"><span></span>
-        ${S.confirmDel ? `<div class="confirm"><span>Delete the ${esc(n.t || 'untitled')} area?${projs.length ? ` Its ${projs.length} project${projs.length > 1 ? 's' : ''} will stay, under No area.` : ''}</span><button class="danger" data-act="delete">Delete</button><button data-act="nodelete">Cancel</button></div>` : `<button class="dt-del" data-act="askdelete">Delete area</button>`}
+        ${S.confirmDel ? `<div class="confirm"><span>Delete the ${esc(n.t || 'untitled')} area?${projs.length ? ` Everything in it stays: projects under No area, tasks in the Inbox.` : ''}</span><button class="danger" data-act="delete">Delete</button><button data-act="nodelete">Cancel</button></div>` : `<button class="dt-del" data-act="askdelete">Delete area</button>`}
       </div>
     </div></section>`;
 }
@@ -605,17 +614,19 @@ function reorder(date, id, idx, patch) {
   store.updateMany(list.map((n, i) => [n.id, n.id === id ? { ...patch, ds: i } : { ds: i }]));
 }
 /* Reordering projects, tasks and steps. A list says whose items it holds: data-g="p:<parent>" for a project's steps,
-   "loose" for inbox tasks, and an area (data-drop="area") holds top-level projects. A project dragged into another area moves there. */
-const groupOf = n => n.p ? 'p:' + n.p : isProj(n) ? 'a:' + areaOf(n) : 'loose';
+   "loose" for inbox tasks, and an area (data-drop="area") holds top-level projects and its own tasks. Dragged into another area,
+   a project or task moves there; an area's task dragged into the Inbox leaves its area. */
+const groupOf = n => n.p ? 'p:' + n.p : isProj(n) || areaOf(n) ? 'a:' + areaOf(n) : 'loose';
 const keyOf = t => t.dataset.drop === 'area' ? 'a:' + (t.dataset.area || '') : t.dataset.g;
-const holds = (t, n) => t.dataset.drop === 'area' ? n.p == null && isProj(n) : t.dataset.drop === 'sib' && t.dataset.g === groupOf(n);
+const holds = (t, n) => t.dataset.drop === 'area' ? n.p == null && (isProj(n) || !!t.dataset.area) : t.dataset.drop === 'sib' && (t.dataset.g === groupOf(n) || (t.dataset.g === 'loose' && n.p == null && !isProj(n)));
 function siblings(key) {
   if (key.startsWith('p:')) return children(key.slice(2));
   const roots = store.all().filter(n => n.p == null).sort((a, b) => a.o - b.o);
-  return key === 'loose' ? roots.filter(n => !isProj(n)) : roots.filter(n => isProj(n) && 'a:' + areaOf(n) === key);
+  return key === 'loose' ? roots.filter(n => !isProj(n) && !areaOf(n)) : roots.filter(n => (isProj(n) || areaOf(n)) && 'a:' + areaOf(n) === key);
 }
 function placeAmong(n, t, at, patch) {
   const key = keyOf(t); if (t.dataset.drop === 'area' && groupOf(n) !== key) patch.ar = t.dataset.area || null;
+  if (key === 'loose' && n.ar) patch.ar = null;
   const list = siblings(key).filter(x => x.id !== n.id), i = at.before ? list.findIndex(x => x.id === at.before) : at.after ? list.findIndex(x => x.id === at.after) + 1 : -1;
   list.splice(i < 0 ? list.length : i, 0, n);
   store.updateMany(list.map((x, j) => [x.id, x.id === n.id ? { ...patch, o: j } : { o: j }]).filter(([id, p]) => id === n.id || node(id).o !== p.o));
@@ -756,8 +767,7 @@ document.addEventListener('focusout', e => {
 });
 document.addEventListener('change', e => {
   if (e.target.id !== 'new-p' || !S.new) return;
-  S.new.p = e.target.value; const p = node(S.new.p);
-  e.target.closest('form').style.setProperty('--pc', p ? colorOf(p) : '#B9BCD0');
+  S.new.p = e.target.value; e.target.closest('form').style.setProperty('--pc', pickColor(S.new.p));
   document.getElementById('new-in')?.focus({ preventScroll: true });
 });
 let savedT;
@@ -854,9 +864,9 @@ function endDrag() {
   }
   else if (type === 'inbox') store.update(n.id, { d: null, s: null, a: null });
   else if (type === 'area') {
-    // A top-level project moves to that area (and, dragged in from the plan, comes off it); anything else just comes off the plan.
+    // A top-level project or task moves to that area (and, dragged in from the plan, comes off it); anything else just comes off the plan.
     const fromPlan = !d.el.closest('.side, .board'), off = { d: null, s: null, a: null };
-    if (n.p == null && isProj(n)) store.update(n.id, { ar: d.t.dataset.area || null, ...(fromPlan ? off : {}) });
+    if (n.p == null && (isProj(n) || d.t.dataset.area)) store.update(n.id, { ar: d.t.dataset.area || null, ...(fromPlan ? off : {}) });
     else store.update(n.id, off);
   }
   else render();

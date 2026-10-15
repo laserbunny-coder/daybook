@@ -44,9 +44,9 @@ const OUTPUT_SCHEMA = {
             type: "string",
             enum: ["schedule", "add_task", "add_steps", "add_project", "move_to_area", "rename", "set_notes", "set_due"],
             description:
-              "schedule: set day/start_min/duration_min on item id. add_task: new item under parent_id (null for inbox). " +
+              "schedule: set day/start_min/duration_min on item id. add_task: new item under parent_id (null for inbox, or an area id to put a standalone task right in that area). " +
               "add_steps: add steps under item id. add_project: new top-level project titled title in the area parent_id (an area id), with optional notes, due date (day) and steps. " +
-              "move_to_area: move top-level project id into the area parent_id. rename: change title of id. set_notes: replace notes of id. set_due: set due date (day) on id.",
+              "move_to_area: move top-level project or task id into the area parent_id. rename: change title of id. set_notes: replace notes of id. set_due: set due date (day) on id.",
           },
           id: nullable("string"),
           parent_id: nullable("string"),

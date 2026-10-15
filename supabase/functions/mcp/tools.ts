@@ -35,7 +35,7 @@ const VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 export const INSTRUCTIONS = `Daybook is this person's own task and calendar app.
 - Everything is an item in a tree. An item with steps under it is a project; steps can be sub-projects or tasks. Checking off tasks moves the parent project's progress.
-- Top-level projects are grouped into areas, such as Business, Filmmaking and Personal; list_projects shows them. When you add a project, put it in the area it clearly belongs to, or ask.
+- Top-level projects are grouped into areas, such as Business, Filmmaking and Personal; list_projects shows them. When you add a project, put it in the area it clearly belongs to, or ask. A task can also sit right in an area without being part of a project (a standalone task, such as a bigger one-off in Filmmaking); it becomes a project in that area once it gets steps.
 - A task can sit on a day without a time ("sometime that day"), or in a time block on that day (start_time plus duration). Leave the time empty unless the person asks for a specific time.
 - Any item can carry a link back to where its notes live, often a Thymer page. When you make a task from something in Thymer, set its link to that page and put a short summary in notes, so the person can glance at it and tap through for the rest. A Thymer page link looks like https://NAME.thymer.com/?open=WORKSPACE.PAGEID; if you can't tell the address, look at the links on existing tasks for the pattern, or ask.
 - Dates are the person's local dates as YYYY-MM-DD, and times are 24-hour HH:MM.
@@ -79,13 +79,14 @@ export const TOOLS = [
   {
     name: "add_task",
     title: "Add a task",
-    description: "Adds a task, either to the inbox or under a project, optionally on a day or in a time block, with notes and a link.",
+    description: "Adds a task to the inbox, right in an area, or under a project, optionally on a day or in a time block, with notes and a link.",
     inputSchema: {
       type: "object",
       required: ["title"],
       properties: {
         title: str("What to do, short."),
-        project_id: str("Put it under this project or task. Leave out for the inbox."),
+        project_id: str("Put it under this project or task. Leave out for the inbox or an area."),
+        area: str("Put it right in this area, by name, without a project. Not with project_id."),
         day: str("Day to do it, YYYY-MM-DD. Leave out to keep it unscheduled."),
         start_time: str("Start time, HH:MM 24-hour. Needs a day. Leave out for 'sometime that day'."),
         duration_minutes: { type: "integer", description: "How long it takes, 5 to 1440. Defaults to 60." },
@@ -143,7 +144,7 @@ export const TOOLS = [
         link: orNull("string", "Replaces the link. null removes it."),
         due: orNull("string", "Due date, YYYY-MM-DD, or null."),
         project_id: orNull("string", "Move under this project, or null to move to the inbox."),
-        area: orNull("string", "For a top-level project: move it to this area, by name, or null for no area."),
+        area: orNull("string", "For a top-level project or task: move it to this area, by name, or null for no area (a task goes back to the inbox)."),
       },
     },
   },
@@ -287,6 +288,7 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       const f: Partial<Row> = { title: textArg(args.title, "title", 500).trim() };
       if (!f.title) throw new Bad("title can't be empty.");
       if (has(args, "project_id")) f.parent_id = t.get(args.project_id).id;
+      if (has(args, "area")) { if (f.parent_id) throw new Bad("Give either project_id or area, not both."); f.area_id = t.area(args.area).id; }
       if (has(args, "day")) f.day = dayArg(args.day, "day");
       if (has(args, "start_time")) { if (!f.day) throw new Bad("start_time needs a day."); f.start_min = timeArg(args.start_time); }
       if (has(args, "duration_minutes")) f.duration_min = durArg(args.duration_minutes);
@@ -348,7 +350,7 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
         r.sort = now();
       }
       if (has(args, "area")) {
-        if (r.parent_id != null) throw new Bad("Only top-level projects sit in an area; this item is inside another project.");
+        if (r.parent_id != null) throw new Bad("Only top-level projects and tasks sit in an area; this item is inside another project.");
         if (args.area === null && r.color === "area") r.color = t.areaOf(r)?.color ?? null; // keep the colour it had
         r.area_id = args.area === null ? null : t.area(args.area).id;
       }
