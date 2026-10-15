@@ -318,14 +318,15 @@ for (const side of ['l', 'r']) {
 }
 document.getElementById('side').addEventListener('mouseleave', e => { if (!qSide || D || e.relatedTarget?.closest?.('#detail')) return; clearTimeout(qT); qT = setTimeout(() => { if (!D && !document.getElementById('side').matches(':hover')) setQSide(false); }, 450); });
 document.getElementById('side').addEventListener('mouseenter', () => clearTimeout(qT));
-// On a phone: swipe up from the bottom edge for projects, in from the right edge for Ask Claude, and pinch to go between the day and the week
+// On a phone: swipe up from the bottom edge for projects and pinch to go between the day and the week.
+// Ask Claude has its own faint ✦ in the top corner, since phones keep the side edges for their own Back gesture.
 let QG = null;
 document.addEventListener('touchstart', e => {
   QG = null; if (!quiet() || !phone() || S.tab !== 'plan' || D) return;
   if (e.touches.length === 2 && S.mode === 'list') { QG = { pinch: true, d: span(e.touches) }; return; }
   if (e.touches.length !== 1 || S.drOpen || e.target.closest?.('.drawer, .ai, .mh, form')) return;
   const t = e.touches[0];
-  if (t.clientY > innerHeight - 40) QG = { up: true, y: t.clientY }; else if (t.clientX > innerWidth - 22) QG = { left: true, x: t.clientX };
+  if (t.clientY > innerHeight - 40) QG = { up: true, y: t.clientY };
 }, { passive: true });
 document.addEventListener('touchmove', e => {
   if (!QG || D) return; const t = e.touches;
@@ -336,7 +337,6 @@ document.addEventListener('touchmove', e => {
     return;
   }
   if (QG.up && QG.y - t[0].clientY > 36) { QG = null; setDrawer(true); renderTabs(); }
-  else if (QG.left && QG.x - t[0].clientX > 44) { QG = null; openAI(); }
 }, { passive: false });
 document.addEventListener('touchend', () => { if (QG && !QG.pinch) QG = null; });
 // Closed while in focus: it opens in focus again, on today
@@ -451,7 +451,7 @@ function renderMain() {
   <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
     ${S.tip ? `<div class="tip"><span>Tap a task to open it and add notes. Tap an empty time, or the + under a day, to add one. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
     ${S.mode === 'list' ? (S.view === 'week' ? weekList(days) : dayList(days[0])) : timed(days)}
-  </div>${drawerHTML()}${quiet() ? '<button class="qgrab" data-act="qproj" aria-label="Show projects"></button>' : ''}`;
+  </div>${drawerHTML()}${quiet() ? `<button class="qgrab" data-act="qproj" aria-label="Show projects"></button><button class="qask" data-act="ask-open" aria-label="Ask Claude">${ICON.ask}</button>` : ''}`;
   const dr = document.getElementById('dr-b'); if (dr) dr.scrollTop = drSc;
   const mb = document.getElementById('mbody');
   fitObs.disconnect(); mb.querySelectorAll('.block,.ev').forEach(b => fitObs.observe(b));
@@ -779,6 +779,7 @@ document.addEventListener('click', e => {
     case 'mode': S.mode = b.dataset.v; W = null; render(); break;
     case 'min': setQuiet(!S.min); break;
     case 'qstrip': setStrip(!S.qstrip); break;
+    case 'ask-open': openAI(); break;
     case 'qproj': if (phone()) { setStrip(false); setDrawer(true); renderTabs(); } else setQSide(!qSide); break;
     case 'focus': setFocus(!S.focus); break;
     case 'prev': case 'next': {
@@ -1107,7 +1108,7 @@ function swGo(dir) { // dir 1 = next day, -1 = previous
 document.addEventListener('touchstart', e => {
   DS = null; if (e.touches.length !== 1 || swBusy || D) return;
   const mb = dayBody(e.target); if (!mb || e.target.closest('input,textarea,select,.rs')) return;
-  if (quiet() && (e.touches[0].clientX > innerWidth - 22 || e.touches[0].clientY > innerHeight - 40)) return; // Quiet: the edges bring in Ask Claude and projects
+  if (quiet() && e.touches[0].clientY > innerHeight - 40) return; // Quiet: the bottom edge brings in projects
   const t = e.touches[0]; DS = { x: t.clientX, y: t.clientY, lx: t.clientX, h: [[e.timeStamp, t.clientX]], on: false };
 }, { passive: true });
 document.addEventListener('touchmove', e => {
