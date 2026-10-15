@@ -1,6 +1,6 @@
 // Keeps the app opening instantly and working offline. Data requests to
 // Supabase and Google always go to the network.
-const VERSION = 'daybook-v2';
+const VERSION = 'daybook-v1';
 const SHELL = ['./', 'index.html', 'app.css', 'manifest.webmanifest', 'js/app.js', 'js/store.js', 'js/calendar.js', 'js/ai.js', 'js/tree.js', 'js/util.js', 'js/vendor/supabase.js', 'icons/icon-192.png'];
 
 self.addEventListener('install', e => {
