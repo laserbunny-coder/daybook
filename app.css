@@ -364,6 +364,9 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .dt-sec small{font:500 11px var(--f-mono);letter-spacing:0}
 .dt-notes{display:block;width:100%;min-height:150px;border:1px solid var(--edge);border-radius:16px;background:rgba(255,255,255,.04);color:var(--fg);padding:12px 14px;font:15px/1.6 var(--f-body);resize:none;outline:none;overflow:hidden}
 .dt-notes:focus{border-color:var(--accent);background:rgba(255,255,255,.07)}
+.dt-notes-view{white-space:pre-wrap;overflow-wrap:anywhere;cursor:text}
+.dt-notes-view a{color:var(--accent);text-decoration:underline;text-decoration-color:rgba(143,168,255,.45);text-underline-offset:3px}
+.dt-notes-view a:hover{text-decoration-color:var(--accent)}
 .dt-saved{font-size:11px;color:var(--faint);height:14px;margin-top:4px;text-align:right}
 .dt-steps{display:flex;flex-direction:column;border-top:1px solid var(--line)}
 .step{display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line);min-height:46px}
