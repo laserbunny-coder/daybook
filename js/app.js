@@ -209,7 +209,7 @@ function blocksHTML(d) {
 function nowHTML(d) { if (d !== today()) return ''; const m = nowMin(); if (m < H0 * 60 || m > H1 * 60) return ''; return `<div class="now" style="top:${hpx((m - H0 * 60) / 60)}"></div>`; }
 function timed(days) {
   const hrs = []; for (let h = H0 + 1; h < H1; h++) hrs.push(h);
-  return `<div class="tw hscroll"><div class="tg${days.length === 1 ? ' one' : ''}" style="--cols:${days.length};--hours:${H1 - H0}">
+  return `<div class="tw hscroll vscroll"><div class="tg${days.length === 1 ? ' one' : ''}" style="--cols:${days.length};--hours:${H1 - H0}">
     <div class="trow thead"><div class="gut"></div>${days.map(d => `<button class="th${dayCls(d)}" data-act="goday" data-d="${d}" data-day="${d}">${days.length > 1 && isMon(d) ? weekLabel(d) : ''}${DAYN[pd(d).getDay()]} <b>${pd(d).getDate()}</b></button>`).join('')}</div>
     <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray${isMon(d) ? ' mon' : ''}" data-drop="tray" data-date="${d}">${eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all">${esc(e.t)}</div>`).join('')}${dayItems(d).filter(n => n.s == null).map(n => chipHTML(n, { compact: days.length > 1 })).join('')}</div>`).join('')}</div>
     <div class="trow tbody"><div class="gut hrs">${hrs.map(h => `<div class="hl" style="top:${hpx(h - H0)}">${h % 12 || 12}${h < 12 ? 'am' : 'pm'}</div>`).join('')}</div>
@@ -263,12 +263,14 @@ function renderBoard(el) {
       <form class="qa" data-form="inbox"><input id="qa-in" placeholder="+ Add a task" autocomplete="off" aria-label="Add a task to the inbox" enterkeyhint="done"></form></div></section></div>`;
   const b = document.getElementById('board'); b.scrollLeft = hs; b.querySelectorAll('.bcol-b').forEach((c, i) => c.scrollTop = vs[i] || 0);
 }
+// Time blocks scrolls both ways in one box, so one finger can go sideways and up/down in the same swipe, and the day names stay pinned on top
+const vScroller = mb => (mb?.classList.contains('timed') && mb.querySelector('.tw')) || mb;
 function renderMain() {
   const el = document.getElementById('main');
   if (boardShown()) return renderBoard(el);
   const strip = S.view === 'week';
   const prev = document.getElementById('mbody'); const key = S.view + S.mode + (strip ? '' : S.anchor);
-  const same = prev && prev.dataset.k === key; const sc = same ? prev.scrollTop : null;
+  const same = prev && prev.dataset.k === key; const sc = same ? vScroller(prev).scrollTop : null;
   const keep = strip && same ? stripPos() : null;
   if (strip && !W) { const ws = weekStart(S.anchor); W = { from: add(ws, -7), to: add(ws, 7 * 5 - 1), jump: phone() ? S.anchor : ws }; }
   const days = strip ? [...Array(daysBetween(W.from, W.to) + 1)].map((_, i) => add(W.from, i)) : [S.anchor];
@@ -284,15 +286,15 @@ function renderMain() {
     <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button></div>
     ${S.mode === 'list' ? `<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Minimal list" title="Minimal list: just task titles">${ICON.min}</button>` : ''}
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
-  <div class="mbody vscroll${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
+  <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
     ${S.tip ? `<div class="tip"><span>Tap a task to open it and add notes. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
     ${S.mode === 'list' ? (S.view === 'week' ? weekList(days) : dayList(days[0])) : timed(days)}
   </div>${drawerHTML()}`;
   const dr = document.getElementById('dr-b'); if (dr) dr.scrollTop = drSc;
   const mb = document.getElementById('mbody');
-  if (sc != null) mb.scrollTop = sc;
+  if (sc != null) vScroller(mb).scrollTop = sc;
   else if (S.mode === 'timed') {
-    const target = Math.max(H0, (days.includes(today()) ? Math.floor(nowMin() / 60) - 1 : 8)); mb.scrollTop = Math.max(0, (Math.min(target, 17) - H0) * HP());
+    const target = Math.max(H0, (days.includes(today()) ? Math.floor(nowMin() / 60) - 1 : 8)); vScroller(mb).scrollTop = Math.max(0, (Math.min(target, 17) - H0) * HP());
   }
   if (strip) {
     if (keep) placeDay(keep.d, keep.off);
@@ -711,7 +713,7 @@ function zoomTo(v, y) { // keep the time under y (screen position) in place whil
   const mb = document.getElementById('mbody'), col = mb?.querySelector('.col'); if (!col) return;
   const old = HP(), top = col.getBoundingClientRect().top, hrs = (y - top) / old;
   const nv = setHP(v); if (nv === old) return;
-  mb.scrollTop += hrs * (nv - old);
+  vScroller(mb).scrollTop += hrs * (nv - old);
   clearTimeout(zoomSave); zoomSave = setTimeout(() => lsSet(ZOOM_KEY, HP()), 300);
 }
 const inGrid = t => S.tab === 'plan' && S.mode === 'timed' && t instanceof Element && !!t.closest('#mbody .tw');
@@ -735,8 +737,7 @@ document.addEventListener('touchmove', e => {
   if (e.cancelable) { // otherwise the browser is already scrolling, so only zoom
     e.preventDefault();
     const mb = document.getElementById('mbody'), tw = mb?.querySelector('.tw');
-    if (mb) mb.scrollTop -= m.y - Z.m.y;
-    if (tw) tw.scrollLeft -= m.x - Z.m.x;
+    if (tw) { tw.scrollTop -= m.y - Z.m.y; tw.scrollLeft -= m.x - Z.m.x; }
   }
   Z.m = m;
   zoomTo(Z.hp * span(e.touches) / Math.max(Z.d, 1), m.y);
