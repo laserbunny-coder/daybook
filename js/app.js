@@ -447,6 +447,7 @@ function renderBoard(el) {
 const roadBtn = () => `<button class="ib q-only" data-act="road" aria-pressed="${roadShown()}" aria-label="Roadmap" title="Roadmap (R)">${ICON.road}</button>`;
 function renderRoad(el) {
   const first = !document.getElementById('rmsc');
+  if (first && client && user) client.auth.getUser().then(({ data }) => { const v = +data?.user?.user_metadata?.free_hours; if (v > 0 && v !== +S.free) { S.free = v; saveUI(); later(); } }).catch(() => {}); // set on another device, or by Claude
   const z = S.rmZoom in { 1: 1, 3: 1, 6: 1 } ? +S.rmZoom : 3, free = +S.free > 0 ? +S.free : 10;
   const head = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">Roadmap</span></button>` : ''}<header class="mh rm-mh">
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">Roadmap</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Earlier">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Later">${ICON.next}</button></div>${urBtns()}</div>
