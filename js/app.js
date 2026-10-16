@@ -38,6 +38,7 @@ const ICON = {
   rep: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12.6 6.2A4.9 4.9 0 0 0 3.7 5M3.4 9.8a4.9 4.9 0 0 0 8.9 1.2"/><path d="M3.4 2.4v2.9h2.9M12.6 13.6v-2.9H9.7"/></svg>',
   play: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 3.8v8.4a.5.5 0 0 0 .76.43l6.6-4.2a.5.5 0 0 0 0-.86l-6.6-4.2a.5.5 0 0 0-.76.43z"/></svg>',
   stop: '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="4.5" y="4.5" width="7" height="7" rx="1.5"/></svg>',
+  recS: '<svg class="ni rs-i" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-label="Recorded time"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/></svg>',
   repS: '<svg class="ni" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-label="Repeats"><path d="M12.6 6.2A4.9 4.9 0 0 0 3.7 5M3.4 9.8a4.9 4.9 0 0 0 8.9 1.2"/><path d="M3.4 2.4v2.9h2.9M12.6 13.6v-2.9H9.7"/></svg>',
 };
 
@@ -416,7 +417,7 @@ function blocksHTML(d) {
     const pos = `top:${hpx((s - H0 * 60) / 60)};height:max(${hpx((e - s) / 60)} - 2px, min(18px, ${hpx((below - s) / 60)} - 2px));left:${it.lane / it.lanes * 100}%;width:calc(${100 / it.lanes}% - 4px)`;
     const tm = `${fmtT(it.s)} – ${fmtT(it.s + it.m)}`;
     if (it.ev) return `<div class="ev" style="${pos}" title="${esc(it.ev.cal || '')}"><div class="b-in"><div class="b-t">${esc(it.ev.t)}</div><div class="b-time">${tm}</div></div></div>`;
-    if (it.sess) { const n = it.sess, live = !it.e.end; return `<div class="block sess${live ? ' live' : ''}" data-act="open" data-id="${n.id}" style="${pos};--pc:${colorOf(n)}" title="${live ? 'Recording now' : 'Time you worked on this'}"><div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${fmtT(it.s)} – ${live ? 'now' : fmtT(it.s + it.m)} · ${fmtDur(Math.max(1, track.mins(it.e)))}</div></div></div>`; }
+    if (it.sess) { const n = it.sess, live = !it.e.end; return `<div class="block sess${live ? ' live' : ''}${isDone(n) ? ' done' : ''}" data-act="open" data-id="${n.id}" style="${pos};--pc:${colorOf(n)}" title="${live ? 'Recording now' : isDone(n) ? 'Time you worked on this, now done' : 'Time you worked on this'}"><div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${ICON.recS}${fmtT(it.s)} – ${live ? 'now' : fmtT(it.s + it.m)} · ${fmtDur(Math.max(1, track.mins(it.e)))}</div></div></div>`; }
     const n = it.n, pr = hasKids(n.id) && progress(n.id); // a whole project in a block is a work session: show how far along it is
     return `<div class="block${isDone(n) ? ' done' : ''}${overdue(n) ? ' overdue' : ''}${track.isRec(n) ? ' planned' : ''}" data-drag data-id="${n.id}" style="${pos};--pc:${colorOf(n)}">${ckHTML(n)}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${n.rs ? ICON.repS : ''}${tm}${pr ? ` · ${pr.done}/${pr.total}` : ''}</div></div>${recBtn(n)}<div class="rs"></div></div>`;
   }).join('');
