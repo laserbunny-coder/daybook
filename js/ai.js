@@ -34,6 +34,10 @@ function plannerState() {
     if (n.s != null) o.start_min = n.s;
     o.duration_min = n.m || 60;
     if (n.due) o.due = n.due;
+    if (n.st) o.start = n.st;
+    if (n.ms) o.milestone = true;
+    if (n.hd) o.hard_deadline = true;
+    if (n.w && store.get(n.w)) o.waiting_on = n.w;
     if (n.notes) o.notes = n.notes.slice(0, 500);
     if (n.link) o.link = n.link;
     if (n.p == null && n.ar && areaIds.has(n.ar)) o.area_id = n.ar;
