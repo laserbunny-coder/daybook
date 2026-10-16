@@ -31,6 +31,10 @@ export type Row = {
   done_at?: string | null;
   /** How long a task really took, when someone filled it in. */
   actual_minutes?: number | null;
+  /** Time really worked on it, recorded in the app: ISO start and end (end null while recording). guess: filled in at check-off, not recorded. */
+  time_log?: { start: string; end: string | null; guess?: boolean }[] | null;
+  /** Where a task was planned before checking it off moved its block to when it was really done. */
+  planned?: { day: string | null; start_min: number | null; duration_min: number | null } | null;
   /** A repeating task (a series): how it repeats. Its day is the day it starts. */
   repeat_rule?: Rule | null;
   /** A stored repeat of a series: the series' id, and the date it was due. */
@@ -69,6 +73,7 @@ export const INSTRUCTIONS = `Daybook is this person's own task and calendar app.
 - The Roadmap shows each top-level project as a bar from its start date to its due date (sub-projects as thinner bars under it). Set start and due on projects and sub-projects to place them. A task marked milestone shows as a diamond on its due date (or its day); hard_deadline marks a milestone whose date can't move. waiting_on links an item to another item it waits on, such as "List footage" waiting on "NAS live".
 - The Roadmap's top strip weighs each week's scheduled task hours against the person's free hours per week (get_free_hours / set_free_hours), so over-planned weeks stand out. When planning a week, keep its scheduled hours within that number.
 - Checking off a task records when (done_at, in the person's local time); reopening clears it. If they say they finished something earlier, pass done_at with update_item to backdate it. actual_minutes is how long a task really took, next to its planned duration_minutes; fill it in when they tell you, or when it was far off. list_tasks with done_since lists what was finished since a date, to see their real pace.
+- Time tracking: the person records time in the app with a ▶ on a task or project (one at a time). time_log lists each stretch really worked (start, end, minutes; end is "recording now" while it runs). Checking a task off moves its block (day, start_time, duration_minutes) to when it was really done, and planned keeps where and how long it was planned, so compare planned with the real block and actual_minutes (the recorded total) to learn their pace. A stretch marked guessed wasn't recorded: it was checked off without the timer, so the app assumed it ended then and took as long as planned; don't read its length as real. Time on a project's steps is recorded on the project as a whole.
 - A task can repeat (daily, weekdays, weekly on chosen days, every N weeks, or monthly), with an optional last day: pass repeat to add_task or update_item. The task is then a series that starts on its day. Each repeat shows on its own day and is checked off on its own. list_tasks with from and to lists the repeats in that range: each has its own id (series id~date) and a series_id. To change one day's repeat (move it, check it off, rename it), use its id; to change every repeat, use the series_id. A repeat moved off the plan (day null) is skipped. repeat: null stops a series repeating. Repeating tasks count in each week's scheduled hours but have no bar on the Roadmap.
 - Say what you changed in plain words, since the person sees your reply, not the tool calls.`;
 
@@ -433,6 +438,11 @@ class Tree {
       if (r.done && r.done_at) o.done_at = localStamp(r.done_at, this.tz);
     }
     if (r.actual_minutes) o.actual_minutes = r.actual_minutes;
+    if (r.time_log?.length) o.time_log = r.time_log.map((e) => ({
+      start: localStamp(e.start, this.tz), end: e.end ? localStamp(e.end, this.tz) : "recording now",
+      minutes: Math.max(0, Math.round(((e.end ? Date.parse(e.end) : Date.now()) - Date.parse(e.start)) / 60000)), ...(e.guess ? { guessed: true } : {}),
+    }));
+    if (r.planned) o.planned = { day: r.planned.day, ...(r.planned.start_min != null ? { start_time: hhmm(r.planned.start_min) } : {}), duration_minutes: r.planned.duration_min };
     if (r.repeat_rule && r.day) {
       o.repeats = ruleText(r.repeat_rule, r.day); o.starts = r.day;
       o.repeat = { every: r.repeat_rule.every, ...(r.repeat_rule.every === "week" ? { days: (r.repeat_rule.days ?? []).map((d) => DAY_NAMES[d]), interval: r.repeat_rule.interval ?? 1 } : {}), ...(r.repeat_rule.until ? { until: r.repeat_rule.until } : {}) };

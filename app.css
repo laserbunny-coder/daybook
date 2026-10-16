@@ -756,3 +756,79 @@ body.rm-dragging,body.rm-dragging *{cursor:grabbing!important;user-select:none;-
 .rp-days button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
 @media (hover:hover){.rp-scope button:hover,.rp-k button:hover,.rp-days button:hover{border-color:var(--accent)}}
 @media (max-width:860px){.rp-scope,.rp-ed,.rp-note{margin-left:0}}
+
+/* Time tracking: a small ▶ on tasks and projects, the recording pill, recorded stretches in Time blocks, and the time log */
+.rec-b{flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;color:var(--muted);border:1px solid var(--edge);background:rgba(6,7,13,.25);transition:opacity .15s,color .15s,border-color .15s;align-self:center}
+.rec-b svg{width:10px;height:10px}
+.rec-b:not(.on) svg{margin-left:1px}
+.rec-b.on{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 60%,transparent);opacity:1}
+@media (hover:hover){
+  .rec-b:not(.on){opacity:0}
+  :is(.item,.tr,.block):hover>.rec-b,.rec-b:focus-visible{opacity:1}
+  .rec-b:hover{color:var(--fg);border-color:var(--muted)}
+}
+@media (hover:none){.rec-b:not(.on){opacity:.45}}
+.item.compact .rec-b{display:none}
+.tr .rec-b{width:22px;height:22px}
+.block>.rec-b{position:absolute;top:4px;right:4px;width:22px;height:22px}
+@container blk (max-height:37px){.block>.rec-b{top:50%;margin-top:-11px}}
+@container blk (max-height:25px){.block>.rec-b{width:16px;height:16px;margin-top:-8px;right:3px}.block>.rec-b svg{width:7px;height:7px}}
+@container blk (max-height:15px){.block>.rec-b:not(.on){display:none}}
+@container blk (max-width:90px){.block>.rec-b:not(.on){display:none}}
+.item.recording{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--danger) 70%,transparent),0 8px 24px -12px color-mix(in srgb,var(--danger) 60%,transparent)}
+/* While a task records, its planned block waits as a faint outline; the time really spent grows from the now line */
+.block.planned{background:none;border:1.5px dashed color-mix(in srgb,var(--pc) 45%,transparent);opacity:.7}
+.block.sess{cursor:pointer;background:color-mix(in srgb,var(--pc) 22%,transparent);border-style:solid;border-color:color-mix(in srgb,var(--pc) 45%,transparent)}
+.block.sess .b-t{font-weight:600}
+.block.sess.live{background:linear-gradient(160deg,color-mix(in srgb,var(--pc) 45%,transparent),color-mix(in srgb,var(--pc) 20%,transparent));border-color:color-mix(in srgb,var(--danger) 70%,transparent);box-shadow:0 6px 22px -10px color-mix(in srgb,var(--danger) 70%,transparent)}
+.block.sess.live::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--danger);animation:recpulse 1.6s ease-in-out infinite}
+@keyframes recpulse{50%{opacity:.3}}
+
+/* The pill */
+.rec{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(24px + env(safe-area-inset-bottom,0px));z-index:190;width:max-content;max-width:calc(100% - 32px);display:grid;gap:6px;justify-items:center}
+body.recording .toast{bottom:calc(80px + env(safe-area-inset-bottom,0px))}
+body.rec-open .toast{bottom:calc(124px + env(safe-area-inset-bottom,0px))}
+@media (max-width:860px){
+  .rec{bottom:calc(104px + env(safe-area-inset-bottom,0px))}
+  body.recording .toast{bottom:calc(160px + env(safe-area-inset-bottom,0px))}
+  body.quiet .rec{bottom:calc(30px + env(safe-area-inset-bottom,0px))}
+  body.quiet.recording .toast{bottom:calc(86px + env(safe-area-inset-bottom,0px))}
+  body.rec-open .toast{bottom:calc(204px + env(safe-area-inset-bottom,0px))}
+  body.quiet.rec-open .toast{bottom:calc(130px + env(safe-area-inset-bottom,0px))}
+  body[data-tab="ask"] .rec,body.dr-on .rec{display:none}
+}
+.rec-p{display:flex;align-items:center;gap:4px;max-width:100%;background:rgba(20,22,36,.88);border:1px solid var(--edge);border-radius:999px;padding:4px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:0 10px 30px -12px rgba(0,0,0,.8)}
+.rec .dot{width:8px;height:8px;border-radius:50%;background:var(--danger);flex:none;animation:recpulse 1.4s ease-in-out infinite}
+.rec-main{display:flex;align-items:center;gap:9px;min-width:0;padding:5px 8px 5px 12px;border-radius:999px;font-size:13px;font-weight:600}
+.rec-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;max-width:44vw}
+.rec-c{font:500 12px var(--f-mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.rec-i{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;flex:none;background:rgba(255,255,255,.08);color:var(--fg)}
+.rec-i svg{width:12px;height:12px}
+.rec-i.ok{background:color-mix(in srgb,var(--ok) 20%,transparent);color:var(--ok)}
+.rec-i.ok svg{width:15px;height:15px}
+.rec-p.ask{padding:4px 4px 4px 14px;gap:8px;font-size:13px;font-weight:600}
+.rec-q{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.rec-w{padding:7px 13px;border-radius:999px;background:rgba(255,255,255,.08);font-size:13px}
+.rec-w:first-of-type{color:var(--accent)}
+.rec-x{display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:center;background:rgba(20,22,36,.88);border:1px solid var(--edge);border-radius:999px;padding:4px 4px 4px 12px;font-size:12px;color:var(--muted);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
+.rec-x button{padding:5px 10px;border-radius:999px;border:1px solid var(--edge);font:500 12px var(--f-mono);color:var(--fg)}
+.rec-x button:last-child{font-family:var(--f-body);color:var(--accent);border-color:transparent}
+@media (hover:hover){.rec-main:hover,.rec-i:hover,.rec-w:hover,.rec-x button:hover{background:rgba(255,255,255,.12)}}
+
+/* In an opened task: Start, and the time log */
+.rec-chip{font-weight:600}
+.rec-chip svg{width:11px;height:11px}
+.rec-chip.on{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 55%,transparent);background:color-mix(in srgb,var(--danger) 12%,transparent)}
+.tl{display:grid;gap:2px}
+.tl-row{display:grid;grid-template-columns:minmax(80px,auto) 1fr auto;gap:12px;align-items:center;text-align:left;padding:8px 10px;border-radius:10px;font-size:13px;color:var(--muted)}
+.tl-row .tl-t{color:var(--fg);font-variant-numeric:tabular-nums}
+.tl-row .tl-m{font:500 12px var(--f-mono)}
+.tl-row.guess .tl-m{font-family:var(--f-body);font-style:italic;color:var(--faint)}
+.tl-row.live .tl-m{color:var(--danger)}
+@media (hover:hover){.tl-row:hover{background:var(--sunk)}}
+.tl-ed{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px;border-radius:10px;background:var(--sunk);font-size:13px;color:var(--muted)}
+.tl-ed input{background:var(--surface);border:1px solid var(--edge);border-radius:8px;padding:5px 7px;font-size:13px;color-scheme:dark}
+.tl-ed .tl-now{color:var(--danger)}
+.tl-add{justify-self:start;padding:8px 10px;font-size:13px;color:var(--faint)}
+@media (hover:hover){.tl-add:hover{color:var(--fg)}}
+@media (max-width:860px){.detail:not([hidden]) ~ .rec{display:none}}

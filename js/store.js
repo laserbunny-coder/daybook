@@ -15,7 +15,7 @@ let cursor = null;                // newest server updated_at we have seen
 let flushTimer = null, retryTimer = null;
 export const sync = { state: 'local', pending: 0 }; // local | syncing | saved | offline | error
 
-const ROW = { p: 'parent_id', t: 'title', notes: 'notes', done: 'done', d: 'day', s: 'start_min', m: 'duration_min', o: 'sort', c: 'color', due: 'due', link: 'link', a: 'after_min', ds: 'day_sort', k: 'kind', ar: 'area_id', st: 'start', ms: 'milestone', hd: 'hard_deadline', w: 'waits_on', am: 'actual_minutes', r: 'repeat_rule', rs: 'series_id', oc: 'occurs_on', x: 'deleted' };
+const ROW = { p: 'parent_id', t: 'title', notes: 'notes', done: 'done', d: 'day', s: 'start_min', m: 'duration_min', o: 'sort', c: 'color', due: 'due', link: 'link', a: 'after_min', ds: 'day_sort', k: 'kind', ar: 'area_id', st: 'start', ms: 'milestone', hd: 'hard_deadline', w: 'waits_on', am: 'actual_minutes', tl: 'time_log', pl: 'planned', r: 'repeat_rule', rs: 'series_id', oc: 'occurs_on', x: 'deleted' };
 const toRow = n => { const r = { id: n.id }; for (const [k, col] of Object.entries(ROW)) r[col] = n[k] ?? (k === 'done' || k === 'x' || k === 'ms' || k === 'hd' ? false : k === 'm' ? 60 : k === 'o' ? 0 : null); return r; };
 const fromRow = r => { const n = { id: r.id }; for (const [k, col] of Object.entries(ROW)) n[k] = r[col]; return n; };
 
@@ -27,6 +27,10 @@ export function onChange(f) { listeners.add(f); return () => listeners.delete(f)
 // A repeating task's stored occurrences are left out: they show on their days (occOn), not in the project tree
 export const all = () => [...nodes.values()].filter(n => !n.x && n.k !== 'area' && !n.rs);
 export const areas = () => [...nodes.values()].filter(n => !n.x && n.k === 'area').sort((a, b) => a.o - b.o);
+/** Whatever is recording right now (see track.js): at most one item has a stretch of time with no end. */
+export const recording = () => { for (const n of nodes.values()) if (!n.x && n.tl?.some(e => !e.end)) return n; return null; };
+/** Everything with recorded time, repeats included, to draw those stretches in Time blocks. */
+export const logged = () => [...nodes.values()].filter(n => !n.x && n.tl?.length);
 /** An item even if it's been deleted (to name it in Undo). */
 export const peek = id => nodes.get(id);
 export const get = id => { const n = nodes.get(id); return n && !n.x ? n : ghost(id); };
