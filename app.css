@@ -735,3 +735,24 @@ body.rm-dragging,body.rm-dragging *{cursor:grabbing!important;user-select:none;-
 .chip.took input{border:0;background:transparent;font:inherit;font-weight:600;color:inherit;outline:none;padding:0;width:3.2em;text-align:right;-moz-appearance:textfield;appearance:textfield}
 .chip.took input::-webkit-outer-spin-button,.chip.took input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .chip.took input::placeholder{color:var(--muted);font-weight:400}
+
+/* Repeating tasks: the series wears a repeat mark instead of a check circle; each repeat on the plan is checked off on its own */
+.ck.rp{border-color:transparent;color:var(--pc,var(--muted))}
+.ck.rp svg{width:14px;height:14px}
+.dt-head .ck.rp svg{width:20px;height:20px}
+.b-time .ni{margin-right:4px}
+.rp-scope{display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin:12px 0 0 36px;font-size:12px;color:var(--muted)}
+.rp-scope span{margin-right:4px}
+.rp-scope button,.rp-k button{padding:5px 11px;border-radius:999px;border:1px solid var(--edge);color:var(--muted);font-size:12px;font-weight:500}
+.rp-scope button[aria-pressed="true"],.rp-k button[aria-pressed="true"]{background:var(--accent-soft);border-color:transparent;color:var(--accent);font-weight:600}
+.rp-note{margin-left:36px}
+.rp-chip svg{flex:none}
+.rp-ed{display:flex;flex-direction:column;gap:10px;margin:12px 0 0 36px;padding:12px;border:1px solid var(--edge);border-radius:16px;background:rgba(255,255,255,.03)}
+.rp-ed .dt-note{margin:0}
+.rp-k,.rp-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.rp-row{gap:8px}
+.rp-days{display:flex;gap:4px}
+.rp-days button{width:30px;height:30px;border-radius:50%;border:1px solid var(--edge);font-size:12px;font-weight:600;color:var(--muted)}
+.rp-days button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+@media (hover:hover){.rp-scope button:hover,.rp-k button:hover,.rp-days button:hover{border-color:var(--accent)}}
+@media (max-width:860px){.rp-scope,.rp-ed,.rp-note{margin-left:0}}

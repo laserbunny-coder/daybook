@@ -21,7 +21,7 @@ export function init(ctx) { C = ctx; }
 function kidsMap() { const m = new Map(); for (const n of store.all()) if (n.p) { const k = m.get(n.p) || []; k.push(n); m.set(n.p, k); } return m; }
 function spanOf(n, K) {
   let lo = null, hi = null;
-  const walk = x => { if (x.d) { if (!lo || x.d < lo) lo = x.d; if (!hi || x.d > hi) hi = x.d; } (K.get(x.id) || []).forEach(walk); };
+  const walk = x => { if (x.d && !x.r) { if (!lo || x.d < lo) lo = x.d; if (!hi || x.d > hi) hi = x.d; } (K.get(x.id) || []).forEach(walk); };
   walk(n);
   let s = n.st || lo, e = n.due || hi;
   if (!s && !e) return null;
@@ -34,10 +34,11 @@ const subsOf = (id, K) => (K.get(id) || []).filter(c => (K.get(c.id) || []).leng
 const laneOf = n => (n.ar && store.get(n.ar) ? n.ar : '');
 const rootOf = n => { let r = n; while (r.p && store.get(r.p)) r = store.get(r.p); return r; };
 
-/* Hours of scheduled tasks in each week (Monday first) */
+/* Hours of scheduled tasks in each week (Monday first). A repeating task counts each of its repeats; it has no bar. */
 function weekHours(from, weeks) {
-  const h = new Array(weeks).fill(0);
-  for (const n of store.all()) if (n.d && n.d >= from) { const w = Math.floor(daysBetween(from, n.d) / 7); if (w < weeks) h[w] += (n.m || 60) / 60; }
+  const h = new Array(weeks).fill(0), count = n => { const w = Math.floor(daysBetween(from, n.d) / 7); if (w < weeks) h[w] += (n.m || 60) / 60; };
+  for (const n of store.all()) if (n.d && n.d >= from && !n.r) count(n);
+  for (let i = 0, d = from; i < weeks * 7; i++, d = add(d, 1)) store.occOn(d).forEach(count);
   return h;
 }
 
@@ -59,7 +60,7 @@ export function html(width) {
     for (const c of subsOf(p.id, K)) if (!isDone(c) && !spanOf(c, K)) tray.push(c);
   }
   for (const m of all) {
-    if (!m.ms || hasKids(m.id)) continue;
+    if (!m.ms || m.r || hasKids(m.id)) continue;
     const d = m.due || m.d; if (!d) continue;
     lane(laneOf(rootOf(m))).ms.push({ n: m, d }); seen(d, d);
   }

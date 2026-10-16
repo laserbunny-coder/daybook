@@ -3,6 +3,7 @@ import * as calendar from './calendar.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { initAI, ask, undo, renderMsgs, clearChat, breakDownLocal } from './ai.js';
 import * as roadmap from './roadmap.js';
+import { cleanRule, ruleText, splitOcc, WEEK } from './repeat.js';
 import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
 import { ancestors, children, colorOf, dayItems, glow, hasKids, isDone, isProj, leaves, node, PALETTE, progress, rootOf } from './tree.js';
 
@@ -33,11 +34,13 @@ const ICON = {
   road: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 6.5h8M8 12h10M6 17.5h7"/><path d="M15.5 4.5l2 2-2 2-2-2z" stroke-linejoin="round"/></svg>',
   ms: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 2.5L13.5 8 8 13.5 2.5 8z"/></svg>',
   wait: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4.5 2.5h7M4.5 13.5h7M5.5 2.5c0 3 5 3.5 5 5.5s-5 2.5-5 5.5M10.5 2.5c0 3-5 3.5-5 5.5s5 2.5 5 5.5"/></svg>',
+  rep: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12.6 6.2A4.9 4.9 0 0 0 3.7 5M3.4 9.8a4.9 4.9 0 0 0 8.9 1.2"/><path d="M3.4 2.4v2.9h2.9M12.6 13.6v-2.9H9.7"/></svg>',
+  repS: '<svg class="ni" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-label="Repeats"><path d="M12.6 6.2A4.9 4.9 0 0 0 3.7 5M3.4 9.8a4.9 4.9 0 0 0 8.9 1.2"/><path d="M3.4 2.4v2.9h2.9M12.6 13.6v-2.9H9.7"/></svg>',
 };
 
 /* View state (per device) */
 const UI_KEY = 'daybook-ui';
-const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), focus: false, pick: null, adding: null, new: null, drOpen: false, drAt: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, notesEdit: false, waitEdit: false, mcp: null };
+const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), focus: false, pick: null, adding: null, new: null, drOpen: false, drAt: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, notesEdit: false, waitEdit: false, rpEdit: false, scope: 'one', mcp: null };
 S.anchor = today();
 const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min, rmZoom: S.rmZoom, free: S.free });
 let client = null, user = null, configured = false, shown = today(), supaUrl = '';
@@ -63,6 +66,7 @@ const linkLabel = u => { const h = new URL(u).hostname.replace(/^www\./, ''); re
 
 /* Rendering */
 function ckHTML(n) {
+  if (n.r) { const t = esc(ruleText(n.r, n.d)); return `<button class="ck rp" data-act="open" data-id="${n.id}" title="${t}" aria-label="${esc(n.t)} repeats: ${t}">${ICON.rep}</button>`; } // a repeating task is checked off one repeat at a time, on the plan
   if (hasKids(n.id) || n.c) {
     const p = progress(n.id); const pct = p.total ? p.done / p.total : 0;
     return `<button class="ring" data-act="toggle" data-id="${n.id}" style="--p:${pct}" title="${p.done} of ${p.total} done" aria-label="${esc(n.t)}: ${p.done} of ${p.total} done"></button>`;
@@ -72,6 +76,7 @@ function ckHTML(n) {
 function chipHTML(n, o = {}) {
   const crumbs = ancestors(n).map(a => a.t); const meta = []; const kids = hasKids(n.id);
   if (!o.min) { // minimal list shows just the title
+    if (n.rs) meta.push(ICON.repS);
     if (n.notes) meta.push(ICON.note);
     if (n.link) meta.push(ICON.linkS);
     if (crumbs.length) meta.push(`<span class="pd"></span>${esc(crumbs.slice(-2).join(' › '))}`);
@@ -82,7 +87,7 @@ function chipHTML(n, o = {}) {
   }
   return `<div class="item${isDone(n) ? ' done' : ''}${overdue(n) ? ' overdue' : ''}${o.compact ? ' compact' : ''}" data-drag data-id="${n.id}" style="--pc:${colorOf(n)}">${ckHTML(n)}<div class="it-body"><div class="it-t">${esc(n.t || 'Untitled')}</div>${meta.length ? `<div class="it-m">${meta.join('<span>·</span>')}</div>` : ''}</div></div>`;
 }
-const whenLabel = n => dayShort(n.d) + (n.s != null ? ' ' + fmtT(n.s) : '');
+const whenLabel = n => n.r ? ruleText(n.r, n.d, false) + (n.s != null ? ' ' + fmtT(n.s) : '') : dayShort(n.d) + (n.s != null ? ' ' + fmtT(n.s) : '');
 function pickerHTML(n, dep) {
   const days = [...Array(7)].map((_, i) => add(today(), i));
   return `<div class="pick" style="--dep:${dep}">${days.map(d => `<button data-act="setday" data-id="${n.id}" data-d="${d}" class="${n.d === d ? 'on' : ''}">${d === today() ? 'Today' : DAYN[pd(d).getDay()] + ' ' + pd(d).getDate()}</button>`).join('')}<label class="pick-date"><span>Other day</span><input type="date" data-pickdate="${n.id}" value="${n.d || ''}"></label>${n.d ? `<button data-act="setday" data-id="${n.id}" data-d="">Unschedule</button>` : ''}</div>`;
@@ -94,7 +99,7 @@ function treeRows(n, dep) {
     ${isP ? `<button class="caret${S.col[n.id] ? ' shut' : ''}" data-act="fold" data-id="${n.id}" aria-label="Show or hide ${esc(n.t)}"></button>` : '<span class="caret-sp"></span>'}
     ${ckHTML(n)}<span class="tr-t">${esc(n.t || 'Untitled')}</span>${n.notes ? ICON.note : ''}
     <button class="plus${isP ? '' : ' leaf'}" data-act="add" data-id="${n.id}" aria-label="Add a step to ${esc(n.t)}" title="Add a step">+</button>
-    <button class="when${n.d ? ' set' : ''}" data-act="pick" data-id="${n.id}" aria-label="Schedule ${esc(n.t)}">${n.d ? whenLabel(n) : ICON.cal}</button></div>`;
+    <button class="when${n.d ? ' set' : ''}" data-act="${n.r ? 'open' : 'pick'}" data-id="${n.id}" aria-label="${n.r ? 'When ' + esc(n.t) + ' repeats' : 'Schedule ' + esc(n.t)}">${n.d ? whenLabel(n) : ICON.cal}</button></div>`;
   if (S.pick === n.id) h += pickerHTML(n, dep);
   const inner = (S.col[n.id] ? '' : kids.map(k => treeRows(k, dep + 1)).join('')) + addRow(n.id, dep + 1);
   return h + (isP ? `<div class="kids" data-drop="sib" data-g="p:${n.id}">${inner}</div>` : inner);
@@ -263,8 +268,9 @@ function weekLabel(d) {
   const name = w === 0 ? 'This week' : w === 1 ? 'Next week' : w === -1 ? 'Last week' : '';
   return `<span class="wkl">${name ? `<b>${name}</b><span>${range}</span>` : `<b>${range}</b>`}</span>`;
 }
-// Left unchecked on a day before today: wears a thin red outline until it's checked off or moved to today or later
-const overdue = n => !!n.d && n.d < today() && !isDone(n);
+// Left unchecked on a day before today: wears a thin red outline until it's checked off or moved to today or later.
+// A repeat doesn't: the next one is already on its way.
+const overdue = n => !!n.d && !n.rs && n.d < today() && !isDone(n);
 const dayCls = d => `${d === today() ? ' today' : ''}${d < today() ? ' past' : ''}${isMon(d) ? ' mon' : ''}`;
 function weekList(days) {
   return `<div class="wkx hscroll"><div class="wk" style="--n:${days.length}">${days.map(d => `<section class="wcol${dayCls(d)}" data-day="${d}">${isMon(d) ? weekLabel(d) : ''}
@@ -372,7 +378,7 @@ function layout(items) {
   return items;
 }
 function blocksHTML(d) {
-  const items = [...timedOn(d).map(e => ({ ev: e, s: e.s, m: e.m })), ...store.all().filter(n => n.d === d && n.s != null).map(n => ({ n, s: n.s, m: n.m || 60 }))];
+  const items = [...timedOn(d).map(e => ({ ev: e, s: e.s, m: e.m })), ...dayItems(d).filter(n => n.s != null).map(n => ({ n, s: n.s, m: n.m || 60 }))];
   layout(items);
   // A short block may grow to a readable 18px, but only into free space: never past the start of the next block beneath it
   const x0 = it => it.lane / it.lanes, x1 = it => (it.lane + 1) / it.lanes;
@@ -383,7 +389,7 @@ function blocksHTML(d) {
     const tm = `${fmtT(it.s)} – ${fmtT(it.s + it.m)}`;
     if (it.ev) return `<div class="ev" style="${pos}" title="${esc(it.ev.cal || '')}"><div class="b-in"><div class="b-t">${esc(it.ev.t)}</div><div class="b-time">${tm}</div></div></div>`;
     const n = it.n, pr = hasKids(n.id) && progress(n.id); // a whole project in a block is a work session: show how far along it is
-    return `<div class="block${isDone(n) ? ' done' : ''}${overdue(n) ? ' overdue' : ''}" data-drag data-id="${n.id}" style="${pos};--pc:${colorOf(n)}">${ckHTML(n)}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${tm}${pr ? ` · ${pr.done}/${pr.total}` : ''}</div></div><div class="rs"></div></div>`;
+    return `<div class="block${isDone(n) ? ' done' : ''}${overdue(n) ? ' overdue' : ''}" data-drag data-id="${n.id}" style="${pos};--pc:${colorOf(n)}">${ckHTML(n)}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${n.rs ? ICON.repS : ''}${tm}${pr ? ` · ${pr.done}/${pr.total}` : ''}</div></div><div class="rs"></div></div>`;
   }).join('');
 }
 function nowHTML(d) { if (d !== today()) return ''; const m = nowMin(); if (m < H0 * 60 || m > H1 * 60) return ''; return `<div class="now" style="top:${hpx((m - H0 * 60) / 60)}"></div>`; }
@@ -592,7 +598,8 @@ function stepHTML(k) {
 }
 const grow = t => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
 function renderDetail() {
-  const el = document.getElementById('detail'); const n = S.open && node(S.open);
+  const el = document.getElementById('detail'); let n = S.open && node(S.open);
+  if (!n && S.open) { const o = splitOcc(S.open); if (o && node(o[0])) { S.open = o[0]; n = node(o[0]); } } // a repeat that's gone (its rule changed): show its series
   if (!n) { S.open = null; el.hidden = true; el.innerHTML = ''; return; }
   const ae = document.activeElement;
   if (!el.hidden && el.contains(ae) && ae.matches('textarea,input') && el.querySelector('.dt-body')?.dataset.id === n.id && ae.id !== 'dt-add-in') return; // don't interrupt typing
@@ -603,41 +610,79 @@ function renderDetail() {
   const up = anc[anc.length - 1]; const durs = [5, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 480];
   if (!durs.includes(n.m || 60)) durs.push(n.m || 60);
   const count = leaves(n.id).length - (kids.length ? 0 : 1);
+  const ser = store.seriesOf(n)?.r ? store.seriesOf(n) : null, rp = !!ser || !!n.rs; // a repeating task, or one of its repeats
   el.innerHTML = `<div class="dt-back" data-act="close"></div>
   <section class="dt${same ? ' still' : ''}" role="dialog" aria-modal="true" aria-label="${esc(n.t)}" style="--pc:${colorOf(n)}">
     <div class="dt-top"><button class="dt-up" data-act="${up ? 'open' : 'close'}" data-id="${up ? up.id : ''}">${ICON.prev}<span>${up ? esc(up.t) : 'Back'}</span></button><button class="ib" data-act="close" aria-label="Close">${ICON.close}</button></div>
     <div class="dt-body vscroll" data-id="${n.id}">
       ${anc.length > 1 ? `<div class="dt-crumbs">${anc.map(a => `<button data-act="open" data-id="${a.id}">${esc(a.t)}</button>`).join('<span>›</span>')}</div>` : ''}
       <div class="dt-head">${ckHTML(n)}<textarea id="dt-title" class="dt-title" rows="1" aria-label="Title" placeholder="Name it" enterkeyhint="done">${esc(n.t)}</textarea></div>
+      ${ser && n.rs ? `<div class="rp-scope" role="group" aria-label="Changes apply to"><span>Changes apply to</span><button data-act="scope" data-v="one" aria-pressed="${S.scope !== 'all'}">This one</button><button data-act="scope" data-v="all" aria-pressed="${S.scope === 'all'}">All repeats</button></div>` : ''}
+      ${n.r ? '<div class="dt-note rp-note">Changes here go to every repeat. Check off each one on its day.</div>' : ''}
       ${kids.length ? `<div class="dt-prog"><div class="bar"><i style="width:${pct}%"></i></div><span>${pr.done} of ${pr.total} done</span></div>` : ''}
       <div class="dt-meta">
-        <button class="chip${n.d ? ' set' : ''}" data-act="dtpick">${ICON.cal}<span>${n.d ? whenLabel(n) : 'Add to a day'}</span></button>
+        ${n.r ? '' : `<button class="chip${n.d ? ' set' : ''}" data-act="dtpick">${ICON.cal}<span>${n.d ? whenLabel(n) : 'Add to a day'}</span></button>`}
+        ${kids.length || n.c ? '' : `<button class="chip rp-chip${ser ? ' set' : ''}" data-act="rpedit" aria-expanded="${S.rpEdit}">${ICON.rep}<span>${ser ? esc(ruleText(ser.r, ser.d)) : 'Repeat'}</span></button>`}
         ${kids.length || n.c ? '' : `<label class="chip"><span class="k">Takes about</span><select id="dt-dur">${durs.sort((a, b) => a - b).map(m => `<option value="${m}"${(n.m || 60) === m ? ' selected' : ''}>${fmtDur(m)}</option>`).join('')}</select></label>`}
         ${!kids.length && !n.c && (n.done || n.am) ? `<label class="chip took${n.am ? ' set' : ''}"><span class="k">Took</span><input type="number" id="dt-took" inputmode="numeric" min="1" max="10080" placeholder="${n.m || 60}" value="${n.am || ''}" aria-label="Minutes it really took"><span class="k">min</span></label>` : ''}
         ${kids.length || n.c ? `<label class="chip${n.st ? ' set' : ''}"><span class="k">Starts</span><input type="date" id="dt-start" value="${n.st || ''}"${n.due ? ` max="${n.due}"` : ''}></label>` : ''}
         ${kids.length || n.c || n.due || n.ms ? `<label class="chip${n.due ? ' set' : ''}"><span class="k">Due</span><input type="date" id="dt-due" value="${n.due || ''}"${n.st ? ` min="${n.st}"` : ''}></label>` : ''}
-        ${kids.length || n.c ? '' : `<button class="chip ms-chip${n.ms ? ' set' : ''}" data-act="ms" aria-pressed="${!!n.ms}">${ICON.ms}<span>Milestone</span></button>`}
-        ${n.ms && !kids.length && !n.c ? `<button class="chip hd-chip${n.hd ? ' set' : ''}" data-act="hd" aria-pressed="${!!n.hd}" title="A date that can't move">Hard deadline</button>` : ''}
+        ${kids.length || n.c || rp ? '' : `<button class="chip ms-chip${n.ms ? ' set' : ''}" data-act="ms" aria-pressed="${!!n.ms}">${ICON.ms}<span>Milestone</span></button>`}
+        ${n.ms && !kids.length && !n.c && !rp ? `<button class="chip hd-chip${n.hd ? ' set' : ''}" data-act="hd" aria-pressed="${!!n.hd}" title="A date that can't move">Hard deadline</button>` : ''}
         ${waitHTML(n)}
         ${linkHTML(n)}
-        ${n.p == null ? `<label class="chip"><span class="k">Area</span><select id="dt-area">${store.areas().map(a => `<option value="${a.id}"${areaOf(n) === a.id ? ' selected' : ''}>${esc(a.t || 'Untitled area')}</option>`).join('')}<option value=""${areaOf(n) ? '' : ' selected'}>No area</option></select></label>` : ''}
+        ${n.p == null && !n.rs ? `<label class="chip"><span class="k">Area</span><select id="dt-area">${store.areas().map(a => `<option value="${a.id}"${areaOf(n) === a.id ? ' selected' : ''}>${esc(a.t || 'Untitled area')}</option>`).join('')}<option value=""${areaOf(n) ? '' : ' selected'}>No area</option></select></label>` : ''}
       </div>
-      ${S.dtpick ? pickerHTML(n, 0) : ''}
+      ${S.dtpick && !n.r ? pickerHTML(n, 0) : ''}
+      ${S.rpEdit ? repeatHTML(n) : ''}
       ${S.waitEdit ? waitPickHTML(n) : ''}
       ${n.p == null && isProj(n) ? swatchesHTML(n) : ''}
       <div class="dt-sec">Notes</div>
       ${n.notes && !S.notesEdit ? `<div class="dt-notes dt-notes-view" data-act="editnotes" role="button" tabindex="0" aria-label="Notes, tap to edit">${linkify(n.notes)}</div>` : `<textarea id="dt-notes" class="dt-notes" placeholder="Thoughts, links, where to start. These will be here when you sit down to do it." aria-label="Notes">${esc(n.notes || '')}</textarea>`}
       <div class="dt-saved" id="dt-saved" aria-live="polite"></div>
-      <div class="dt-sec">Steps${kids.length ? `<small>${pr.done}/${pr.total}</small>` : ''}</div>
+      ${rp ? '' : `<div class="dt-sec">Steps${kids.length ? `<small>${pr.done}/${pr.total}</small>` : ''}</div>
       <div class="dt-steps" data-drop="sib" data-g="p:${n.id}">${kids.map(stepHTML).join('')}
-        <form class="dt-add" data-form="step" data-p="${n.id}"><span class="plus-i" aria-hidden="true">+</span><input id="dt-add-in" placeholder="Add a step" autocomplete="off" aria-label="Add a step" enterkeyhint="done"></form></div>
+        <form class="dt-add" data-form="step" data-p="${n.id}"><span class="plus-i" aria-hidden="true">+</span><input id="dt-add-in" placeholder="Add a step" autocomplete="off" aria-label="Add a step" enterkeyhint="done"></form></div>`}
       <div class="dt-foot">
-        <button class="dt-ask" data-act="dtbreak">✦ ${kids.length ? 'Ask Claude what else this needs' : 'Ask Claude to break this into steps'}</button>
-        ${S.confirmDel ? `<div class="confirm"><span>Delete ${esc(n.t || 'this')}${count > 0 ? ` and its ${count} step${count > 1 ? 's' : ''}` : ''}?</span><button class="danger" data-act="delete">Delete</button><button data-act="nodelete">Cancel</button></div>` : `<button class="dt-del" data-act="askdelete">Delete</button>`}
+        ${rp ? '<span></span>' : `<button class="dt-ask" data-act="dtbreak">✦ ${kids.length ? 'Ask Claude what else this needs' : 'Ask Claude to break this into steps'}</button>`}
+        ${!S.confirmDel ? `<button class="dt-del" data-act="askdelete">Delete</button>`
+          : ser && n.rs ? `<div class="confirm"><span>Delete ${esc(n.t || 'this')}?</span><button class="danger" data-act="delete">This one</button><button class="danger" data-act="delete-all">All repeats</button><button data-act="nodelete">Cancel</button></div>`
+          : `<div class="confirm"><span>Delete ${esc(n.t || 'this')}${n.r ? ' and all its repeats' : count > 0 ? ` and its ${count} step${count > 1 ? 's' : ''}` : ''}?</span><button class="danger" data-act="delete">Delete</button><button data-act="nodelete">Cancel</button></div>`}
       </div>
     </div></section>`;
   el.querySelectorAll('textarea').forEach(grow); el.querySelector('.dt-body').scrollTop = prevSc;
 }
+/* Repeating. The Repeat chip opens a small editor: how often, which days, every how many weeks, and an
+   optional end. A repeat opened from the plan edits its whole series' rule here. */
+function repeatHTML(n) {
+  const s = store.seriesOf(n), r = s?.r, start = r ? s.d : n.d || today();
+  const kinds = [['day', 'Daily'], ['weekday', 'Weekdays'], ['week', 'Weekly'], ['month', 'Monthly']];
+  let h = `<div class="rp-ed"><div class="rp-k" role="group" aria-label="Repeats">${kinds.map(([v, t]) => `<button data-act="rp-every" data-v="${v}" aria-pressed="${r?.every === v}">${t}</button>`).join('')}</div>`;
+  if (r?.every === 'week') {
+    const days = r.days?.length ? r.days : [pd(start).getDay()];
+    h += `<div class="rp-row"><div class="rp-days" role="group" aria-label="On these days">${WEEK.map(d => `<button data-act="rp-day" data-v="${d}" aria-pressed="${days.includes(d)}" aria-label="${DAYL[d]}" title="${DAYL[d]}">${DAYN[d][0]}</button>`).join('')}</div>
+      <label class="chip"><span class="k">Every</span><select id="rp-int" aria-label="Every how many weeks">${[1, 2, 3, 4, 6, 8, 12].map(i => `<option value="${i}"${(r.interval || 1) === i ? ' selected' : ''}>${i === 1 ? 'week' : i + ' weeks'}</option>`).join('')}</select></label></div>`;
+  }
+  if (r) h += `<div class="rp-row"><label class="chip"><span class="k">Starts</span><input type="date" id="rp-start" value="${s.d}"${r.until ? ` max="${r.until}"` : ''}></label>
+    <label class="chip${r.until ? ' set' : ''}"><span class="k">Ends</span><input type="date" id="rp-until" value="${r.until || ''}" min="${s.d}" aria-label="Last day it repeats"></label>
+    <button class="chip-edit" data-act="rp-off">Don't repeat</button></div>`;
+  else h += `<div class="dt-note">Starts ${start === today() ? 'today' : fmtShort(start)}. Each repeat shows on its day and is checked off on its own.</div>`;
+  return h + '</div>';
+}
+// Sets how a task repeats. A plain task becomes the series itself, starting on its day (or today).
+function setRepeat(patch) {
+  const n = node(S.open); if (!n) return;
+  const s = store.seriesOf(n);
+  if (s?.r) store.update(s.id, { r: cleanRule({ ...s.r, ...patch }, s.d) });
+  else { const d = n.d || today(); store.update(n.id, { r: cleanRule(patch, d), d, done: false }); }
+}
+// In an open repeat, a change goes to it alone or to its whole series, as picked at the top of the panel
+function edit(id, patch, quiet) {
+  const n = node(id);
+  if (S.open === id && S.scope === 'all' && n?.rs && store.seriesOf(n)?.r) store.seriesEdit(id, patch);
+  else store.update(id, patch, quiet);
+}
+
 /* Colour choices. A project in an area can follow the area's colour (the ringed swatch) or have its own. */
 function swatchesHTML(n) {
   const area = n.k !== 'area' && areaOf(n) && store.get(n.ar);
@@ -696,10 +741,11 @@ function saveLink() {
   const v = i.value.trim(); S.linkEdit = false; i.blur();
   const u = v ? safeLink(v) || safeLink('https://' + v) : null;
   if (v && !u) toast("That doesn't look like a web address");
-  else if (S.open && (node(S.open)?.link || null) !== u) store.update(S.open, { link: u });
+  else if (S.open && (node(S.open)?.link || null) !== u) edit(S.open, { link: u });
   renderDetail();
 }
 function openItem(id, focusTitle = false) {
+  if (S.open !== id) { S.scope = 'one'; S.rpEdit = false; }
   S.open = id; S.dtpick = false; S.confirmDel = false; S.linkEdit = false; S.notesEdit = false; S.waitEdit = false; renderDetail();
   if (focusTitle) { const t = document.getElementById('dt-title'); t.focus(); t.select(); }
 }
@@ -719,10 +765,10 @@ const later = () => { if (!raf) raf = requestAnimationFrame(render); };
 
 /* Actions */
 let toastT, toastMsg = '', toastAt = 0;
-function toast(msg, acts = '') {
+function toast(msg, acts = '', ms = 0) {
   const t = document.getElementById('toast'); toastMsg = msg; toastAt = performance.now();
   t.innerHTML = `<span>${esc(msg)}</span>${acts}`; t.classList.toggle('act', !!acts); t.classList.add('show');
-  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show', 'act'), acts ? 5000 : 2600);
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show', 'act'), ms || (acts ? 5000 : 2600));
 }
 
 /* Undo and redo: Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y) on a computer. Every change shows a
@@ -738,6 +784,7 @@ function describe(st) {
   if (b.x === true) return `Added ${t}`;
   if ('done' in b) return n > 1 ? `${a.done ? 'Checked off' : 'Unchecked'} ${n} steps` : `${a.done ? 'Checked off' : 'Unchecked'} ${t}`;
   if ('c' in b) return `Changed the color of ${t}`;
+  if ('r' in b) return !a.r ? `${t} no longer repeats` : b.r ? `Changed how ${t} repeats` : `Made ${t} repeat`;
   if ('d' in b || 's' in b || 'ar' in b || 'a' in b) return `Moved ${t}`;
   if ('m' in b) return `Changed the length of ${t}`;
   if ('st' in b && 'due' in b) return `Moved ${t} on the roadmap`;
@@ -768,16 +815,21 @@ function urBtns() {
 function urSync() { const h = document.querySelector('#main .mh-l'); if (!h) return; h.querySelector('.ur')?.remove(); if (!boardShown()) h.insertAdjacentHTML('beforeend', urBtns()); }
 function doUndo() { const st = store.undo(); toast(st ? `Undone: ${lower(describe(st))}` : 'Nothing to undo', st ? urActs() : ''); }
 function doRedo() { const st = store.redo(); toast(st ? `Redone: ${lower(describe(st))}` : 'Nothing to redo', st ? urActs() : ''); }
+// A change to one repeat on the plan (moved, resized) goes to that one, and the pill offers to make it for every repeat
+let occOffer = null, occAll = null;
 // A new step: offer Undo, keeping any message the change just showed (like a project's progress)
 function onStep(st) {
   urSync();
+  const off = occOffer; occOffer = null;
   if (!st || st.text) return; // typing a name or notes: the box is right there, no pill needed
+  if (off && st.ch.some(c => c[0] === off.id)) { occAll = off; toast(`${describe(st)}, just this one`, `<button data-act="occ-all">${ICON.rep}All repeats</button>${urActs(true)}`, 8000); return; }
   if (st.ch.length === 1 && st.ch[0][1].x === true && !store.peek(st.ch[0][0])?.t.trim()) return; // a new project or area, about to be named
   toast(performance.now() - toastAt < 100 ? toastMsg : describe(st), urActs(true));
 }
 function toggle(id) {
-  const n = node(id); const anc = ancestors(n); const before = anc.map(isDone);
-  if (hasKids(id) || n.c) { const all = isDone(n); store.updateMany(leaves(id).filter(l => !l.c).map(l => [l.id, { done: !all }])); }
+  const n = node(id); if (n.rs) { store.update(id, { done: !n.done }); return; } // a repeat is checked off on its own
+  const anc = ancestors(n); const before = anc.map(isDone);
+  if (hasKids(id) || n.c) { const all = isDone(n); store.updateMany(leaves(id).filter(l => !l.c && !l.r).map(l => [l.id, { done: !all }])); }
   else store.update(id, { done: !n.done });
   const fin = anc.filter((a, i) => !before[i] && isDone(a));
   if (fin.length) { const a = fin[fin.length - 1]; const r = rootOf(n); const p = progress(r.id); toast(r === a ? `${a.t} is complete.` : `${a.t} is done. ${r.t} is now ${Math.round(p.done / p.total * 100)}% complete.`); }
@@ -833,7 +885,7 @@ function placeAmong(n, t, at, patch) {
   list.splice(i < 0 ? list.length : i, 0, n);
   store.updateMany(list.map((x, j) => [x.id, x.id === n.id ? { ...patch, o: j } : { o: j }]).filter(([id, p]) => id === n.id || node(id).o !== p.o));
 }
-function setDay(id, d) { const n = node(id); const patch = { d: d || null, ds: Date.now() / 1000 }; if (n.d !== d) { patch.s = null; patch.a = null; } S.pick = null; S.dtpick = false; store.update(id, patch); if (d) toast(`${n.t} → ${d === today() ? 'today' : DAYL[pd(d).getDay()] + ' ' + fmtShort(d)}`); }
+function setDay(id, d) { const n = node(id); const patch = { d: d || null, ds: Date.now() / 1000 }; if (n.d !== d) { patch.s = null; patch.a = null; } S.pick = null; S.dtpick = false; edit(id, patch); if (d) toast(`${n.t} → ${d === today() ? 'today' : DAYL[pd(d).getDay()] + ' ' + fmtShort(d)}`); }
 function makeProject(t, ar) {
   // In an area a new project wears the area's colour; with no area it gets a colour of its own
   const used = new Set(store.all().filter(n => n.p == null && n.c && n.c !== 'area').map(n => glow(n.c)));
@@ -869,11 +921,22 @@ document.addEventListener('click', e => {
     }
     case 'editlink': S.linkEdit = true; renderDetail(); document.getElementById('dt-link')?.focus(); break;
     case 'dtpick': S.dtpick = !S.dtpick; renderDetail(); break;
+    case 'scope': S.scope = b.dataset.v; renderDetail(); break;
+    case 'rpedit': S.rpEdit = !S.rpEdit; renderDetail(); break;
+    case 'rp-every': setRepeat({ every: b.dataset.v }); break;
+    case 'rp-day': {
+      const s = store.seriesOf(node(S.open)); if (!s?.r) break;
+      const d = +b.dataset.v, days = s.r.days?.length ? s.r.days : [pd(s.d).getDay()];
+      if (days.includes(d) && days.length === 1) break; // keeps at least one day
+      setRepeat({ days: days.includes(d) ? days.filter(x => x !== d) : [...days, d] }); break;
+    }
+    case 'rp-off': { const t = store.stopRepeat(S.open); if (t) { S.open = t; S.rpEdit = false; S.scope = 'one'; toast(`${short(node(t).t)} no longer repeats`); } break; }
+    case 'occ-all': if (occAll) { const o = occAll; occAll = null; const t = short(node(o.id)?.t); store.seriesEdit(o.id, o.patch); toast(`Changed every repeat of ${t}`); } break;
     case 'ms': { const n = node(S.open); store.update(n.id, n.ms ? { ms: false, hd: false } : { ms: true }); break; }
     case 'hd': { const n = node(S.open); store.update(n.id, { hd: !n.hd }); break; }
     case 'waitedit': S.waitEdit = true; renderDetail(); document.getElementById('dt-wait')?.focus(); break;
-    case 'setwait': S.waitEdit = false; document.activeElement?.blur(); store.update(S.open, { w: id }); break;
-    case 'unwait': store.update(S.open, { w: null }); break;
+    case 'setwait': S.waitEdit = false; document.activeElement?.blur(); edit(S.open, { w: id }); break;
+    case 'unwait': edit(S.open, { w: null }); break;
     case 'dtbreak': {
       const n = node(S.open);
       if (user) { const q = hasKids(n.id) ? `Look at "${n.t}" and its steps. What's missing? Add any steps it still needs.` : `Break "${n.t}" into steps.`; S.open = null; renderDetail(); openAI(); ask(q); }
@@ -882,7 +945,8 @@ document.addEventListener('click', e => {
     }
     case 'askdelete': S.confirmDel = true; renderDetail(); break;
     case 'nodelete': S.confirmDel = false; renderDetail(); break;
-    case 'delete': { const n = node(S.open); S.open = n.p && node(n.p) ? n.p : null; S.confirmDel = false; store.remove(n.id); toast(`Deleted ${n.t || 'item'}`); break; }
+    case 'delete': { const n = node(S.open); S.open = n.p && node(n.p) && !n.rs ? n.p : null; S.confirmDel = false; store.remove(n.id); const on = n.d || n.oc; toast(n.rs ? `Deleted ${n.t || 'item'} on ${on === today() ? 'today' : DAYN[pd(on).getDay()] + ' ' + fmtShort(on)}` : `Deleted ${n.t || 'item'}`); break; }
+    case 'delete-all': { const s = store.seriesOf(node(S.open)); S.open = null; S.confirmDel = false; if (s) { store.remove(s.id); toast(`Deleted ${s.t || 'item'} and all its repeats`); } break; }
     case 'color': store.update(S.open, { c: b.dataset.c }); break;
     case 'toggle': toggle(id); break;
     case 'fold': S.col[id] = !S.col[id]; render(); break;
@@ -947,7 +1011,7 @@ document.addEventListener('submit', e => {
   if (f.id === 'askf') { const q = document.getElementById('askq'); if (q.value.trim()) { ask(q.value.trim()); q.value = ''; } return; }
   const inp = f.querySelector('input'); const v = inp.value.trim();
   if (f.dataset.form === 'link') { saveLink(); return; }
-  if (f.dataset.form === 'wait') { const o = f.querySelector('.wait-opt'); if (o) { S.waitEdit = false; document.activeElement?.blur(); store.update(S.open, { w: o.dataset.id }); } return; }
+  if (f.dataset.form === 'wait') { const o = f.querySelector('.wait-opt'); if (o) { S.waitEdit = false; document.activeElement?.blur(); edit(S.open, { w: o.dataset.id }); } return; }
   if (f.dataset.form === 'area-project') { if (v) { makeProject(v, f.dataset.area); inp.value = ''; renderDetail(); document.getElementById('dt-add-in')?.focus(); } return; }
   if (f.dataset.form === 'step') { if (v) { store.create({ t: v, p: f.dataset.p, m: 30 }); S.col[f.dataset.p] = false; inp.value = ''; renderDetail(); document.getElementById('dt-add-in')?.focus(); } return; }
   if (f.dataset.form === 'new') {
@@ -1001,8 +1065,8 @@ document.addEventListener('change', e => {
 let savedT;
 document.addEventListener('input', e => {
   const t = e.target, n = S.open && node(S.open); if (!n) return;
-  if (t.id === 'dt-notes') { store.update(n.id, { notes: t.value || null }, true); grow(t); const m = document.getElementById('dt-saved'); m.textContent = 'Saved'; clearTimeout(savedT); savedT = setTimeout(() => m.textContent = '', 1200); }
-  if (t.id === 'dt-title') { store.update(n.id, { t: t.value.replace(/\n/g, ' ') }, true); grow(t); }
+  if (t.id === 'dt-notes') { edit(n.id, { notes: t.value || null }, true); grow(t); const m = document.getElementById('dt-saved'); m.textContent = 'Saved'; clearTimeout(savedT); savedT = setTimeout(() => m.textContent = '', 1200); }
+  if (t.id === 'dt-title') { edit(n.id, { t: t.value.replace(/\n/g, ' ') }, true); grow(t); }
   if (t.id === 'dt-wait') document.getElementById('wait-list').innerHTML = waitListHTML(n, t.value);
 });
 document.addEventListener('change', e => {
@@ -1010,10 +1074,13 @@ document.addEventListener('change', e => {
   if (t.dataset.pickdate) { if (t.value) setDay(t.dataset.pickdate, t.value); return; }
   if (t.id === 'rm-free') { setFree(t.value); return; }
   const n = S.open && node(S.open); if (!n) return;
-  if (t.id === 'dt-title') { if (!n.t.trim()) store.update(n.id, { t: n.k === 'area' ? 'New area' : n.c ? 'New project' : 'Untitled' }); else store.updateMany([]); }
+  if (t.id === 'dt-title') { if (!n.t.trim()) edit(n.id, { t: n.k === 'area' ? 'New area' : n.c ? 'New project' : 'Untitled' }); else store.updateMany([]); }
   if (t.id === 'dt-area') store.update(n.id, { ar: t.value || null });
   if (t.id === 'dt-notes') store.updateMany([]);
-  if (t.id === 'dt-dur') store.update(n.id, { m: +t.value });
+  if (t.id === 'dt-dur') edit(n.id, { m: +t.value });
+  if (t.id === 'rp-int') setRepeat({ interval: +t.value });
+  if (t.id === 'rp-until') { const s = store.seriesOf(n); if (s?.r && (!t.value || t.value >= s.d)) setRepeat({ until: t.value || null }); else renderDetail(); }
+  if (t.id === 'rp-start') { const s = store.seriesOf(n); if (s?.r && t.value && (!s.r.until || t.value <= s.r.until)) store.update(s.id, { d: t.value }); else renderDetail(); }
   if (t.id === 'dt-due') store.update(n.id, { due: t.value || null });
   if (t.id === 'dt-start') store.update(n.id, { st: t.value || null });
   if (t.id === 'dt-took') { const v = Math.round(+t.value); store.update(n.id, { am: v >= 1 && v <= 10080 ? v : null }); }
@@ -1086,6 +1153,7 @@ function endDrag() {
   if (!n) return render();
   if (d.kind === 'resize') { if (d.newM) store.update(n.id, { m: d.newM }); else render(); return; }
   if (!d.t) return render();
+  if (n.r && ['col', 'tray', 'list'].includes(d.t.dataset.drop)) { toast(`${short(n.t)} is already on your plan, ${lower(ruleText(n.r, n.d))}`); return render(); }
   if (d.at) return placeAmong(n, d.t, d.at, d.list ? {} : { d: null, s: null, a: null }); // dragged back here from the plan, it comes off the plan
   const type = d.t.dataset.drop, date = d.t.dataset.date || null;
   if (type === 'col') store.update(n.id, { d: date, s: d.min, m: n.m || 60 });
@@ -1307,7 +1375,7 @@ async function enterCloud(u) {
   await store.useCloud(client, u);
   calendar.ensure(add(today(), -7), add(today(), 28), true);
 }
-store.onChange((kind, st) => { if (kind === 'step') return onStep(st); if (kind === 'sync') { if (!D) later(); return; } if (!D) later(); });
+store.onChange((kind, st) => { if (kind === 'occ') { if (!S.open) occOffer = occOffer || st; return; } if (kind === 'step') return onStep(st); if (kind === 'sync') { if (!D) later(); return; } if (!D) later(); });
 calendar.onCalendarChange(() => { if (!D) later(); });
 initAI({ anchor: () => S.anchor, showPlan, render: later });
 setInterval(() => { if (today() !== shown) { shown = today(); if (S.anchor === add(today(), -1)) S.anchor = today(); later(); } else if (S.mode === 'timed' && !D) { document.querySelectorAll('.now').forEach(n => n.style.top = hpx((nowMin() - H0 * 60) / 60)); } }, 60e3);

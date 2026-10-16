@@ -1,7 +1,7 @@
 // Keeps the app opening instantly and working offline. Data requests to
 // Supabase and Google always go to the network.
 const VERSION = 'daybook-v1';
-const SHELL = ['./', 'index.html', 'app.css', 'manifest.webmanifest', 'js/app.js', 'js/store.js', 'js/calendar.js', 'js/ai.js', 'js/tree.js', 'js/util.js', 'js/roadmap.js', 'js/vendor/supabase.js', 'icons/icon-192.png'];
+const SHELL = ['./', 'index.html', 'app.css', 'manifest.webmanifest', 'js/app.js', 'js/store.js', 'js/calendar.js', 'js/ai.js', 'js/tree.js', 'js/util.js', 'js/roadmap.js', 'js/repeat.js', 'js/vendor/supabase.js', 'icons/icon-192.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));

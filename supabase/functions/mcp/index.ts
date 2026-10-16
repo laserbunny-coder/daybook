@@ -4,7 +4,7 @@
 import { admin, cors } from "../_shared/common.ts";
 import { type Db, handle, type Row } from "./tools.ts";
 
-const COLS = "id,parent_id,title,notes,done,day,start_min,after_min,duration_min,sort,day_sort,color,due,link,kind,area_id,start,milestone,hard_deadline,waits_on,done_at,actual_minutes,deleted";
+const COLS = "id,parent_id,title,notes,done,day,start_min,after_min,duration_min,sort,day_sort,color,due,link,kind,area_id,start,milestone,hard_deadline,waits_on,done_at,actual_minutes,repeat_rule,series_id,occurs_on,deleted";
 
 const headers = {
   ...cors,
@@ -31,7 +31,7 @@ function dbFor(userId: string): Db {
     async load() {
       const rows: Row[] = [];
       for (let from = 0; ; from += 1000) {
-        const { data, error } = await sb.from("items").select(COLS).eq("user_id", userId).eq("deleted", false).order("id").range(from, from + 999);
+        const { data, error } = await sb.from("items").select(COLS).eq("user_id", userId).or("deleted.eq.false,occurs_on.not.is.null").order("id").range(from, from + 999);
         if (error) throw error;
         rows.push(...(data as Row[]));
         if (data.length < 1000) return rows;

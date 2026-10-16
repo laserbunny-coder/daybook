@@ -9,7 +9,7 @@ export function leaves(id) { const k = children(id); return k.length ? k.flatMap
 export function progress(id) {
   const k = children(id); const n = node(id);
   if (!k.length) return { done: n.done ? 1 : 0, total: n.c ? 0 : 1 };
-  const L = leaves(id); return { done: L.filter(l => l.done).length, total: L.length };
+  const L = leaves(id).filter(l => !l.r); return { done: L.filter(l => l.done).length, total: L.length }; // a repeating task never finishes, so it doesn't count
 }
 export function isDone(n) { if (!hasKids(n.id)) return n.done; const p = progress(n.id); return p.total > 0 && p.done === p.total; }
 export function ancestors(n) { const a = []; let p = n.p && node(n.p); while (p) { a.unshift(p); p = p.p && node(p.p); } return a; }
@@ -20,8 +20,9 @@ export const glow = c => (c && GLOW[c.toUpperCase()]) || c;
 /* A project's colour is its own, or 'area' to wear its area's colour. Tasks wear their project's; a task right in an area wears the area's. */
 export const projColor = p => (p.c === 'area' || (!p.c && p.ar) ? store.get(p.ar)?.c : glow(p.c)) || '#B9BCD0';
 export const colorOf = n => projColor(rootOf(n));
-/* Order in a day's list (ds) is kept apart from order among a project's steps (o). */
-export const dayItems = d => store.all().filter(n => n.d === d).sort((a, b) => (a.ds ?? a.o) - (b.ds ?? b.o));
+/* Order in a day's list (ds) is kept apart from order among a project's steps (o).
+   A repeating task shows as its repeats on their days (store.occOn), never as itself. */
+export const dayItems = d => store.all().filter(n => n.d === d && !n.r).concat(store.occOn(d)).sort((a, b) => (a.ds ?? a.o) - (b.ds ?? b.o));
 /* A step with no day of its own rides along with the nearest scheduled project above it. */
 export const heldBy = n => { let p = n.p && node(n.p); while (p) { if (p.d) return p; p = p.p && node(p.p); } return null; };
 export const riders = id => children(id).filter(c => !c.d).flatMap(c => hasKids(c.id) ? riders(c.id) : [c]);

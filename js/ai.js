@@ -4,6 +4,7 @@ import * as store from './store.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { add, DAYL, dayShort, esc, fmtDur, fmtT, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
 import { children, dayItems, hasKids, heldBy, isDone, leaves, node, PALETTE, progress, rootOf, unscheduled } from './tree.js';
+import { ruleText } from './repeat.js';
 
 let ctx = { cloud: false, client: null, anchor: () => today(), showPlan: () => {}, render: () => {} };
 const MSGS = lsGet('daybook-chat', []).filter(m => !m.typing).map(m => ({ ...m, u: null }));
@@ -29,7 +30,8 @@ function plannerState() {
   const items = store.all().map(n => {
     const o = { id: n.id, title: n.t, parent_id: n.p, done: !!n.done };
     if (hasKids(n.id) || n.c) { const p = progress(n.id); o.progress = `${p.done}/${p.total}`; }
-    if (n.d) o.day = n.d;
+    if (n.r) { o.repeats = ruleText(n.r, n.d); o.starts = n.d; } // a repeating task: on each of those days, not on one
+    else if (n.d) o.day = n.d;
     else { const h = heldBy(n); if (h) o.scheduled_with = h.id; }
     if (n.s != null) o.start_min = n.s;
     o.duration_min = n.m || 60;
@@ -107,7 +109,7 @@ function applyActions(actions) {
 }
 
 /* Scripted replies for sample mode */
-function busy(d) { return [...timedOn(d).map(e => [e.s, e.s + e.m]), ...store.all().filter(n => n.d === d && n.s != null && !isDone(n)).map(n => [n.s, n.s + (n.m || 60)])].sort((a, b) => a[0] - b[0]); }
+function busy(d) { return [...timedOn(d).map(e => [e.s, e.s + e.m]), ...dayItems(d).filter(n => n.s != null && !isDone(n)).map(n => [n.s, n.s + (n.m || 60)])].sort((a, b) => a[0] - b[0]); }
 function findSlot(d, dur, from = 540, to = 1080) { if (d === today()) from = Math.max(from, Math.ceil(nowMin() / 15) * 15); let t = from; for (const [s, e] of busy(d)) { if (e <= t) continue; if (s >= t + dur) return t; t = Math.max(t, Math.ceil(e / 15) * 15); } return t + dur <= to ? t : null; }
 function freeMin(d) { let f = 0, t = 540; for (const [s, e] of busy(d)) { if (e <= t) continue; if (s > t) f += Math.min(s, 1080) - t; t = Math.max(t, e); } return f + Math.max(0, 1080 - t); }
 function weekDays() { const T = today(); const a = ctx.anchor(); const ws = weekStart(a < T ? T : a); return [...Array(7)].map((_, i) => add(ws, i)).filter(d => d >= T); }
@@ -142,7 +144,7 @@ export function breakDownLocal(q) {
 }
 function risks() {
   const out = [];
-  for (const d of weekDays()) { const t = dayItems(d).filter(n => !isDone(n) && !hasKids(n.id)).reduce((a, n) => a + (n.m || 60), 0); const f = freeMin(d) + store.all().filter(n => n.d === d && n.s != null && !isDone(n) && n.s >= 540 && n.s < 1080).reduce((a, n) => a + (n.m || 60), 0); if (t > f) out.push(`<li><b>${dayShort(d)}</b> has ${fmtDur(t)} of tasks but about ${fmtDur(f)} of open time between 9 and 6.</li>`); }
+  for (const d of weekDays()) { const t = dayItems(d).filter(n => !isDone(n) && !hasKids(n.id)).reduce((a, n) => a + (n.m || 60), 0); const f = freeMin(d) + dayItems(d).filter(n => n.s != null && !isDone(n) && n.s >= 540 && n.s < 1080).reduce((a, n) => a + (n.m || 60), 0); if (t > f) out.push(`<li><b>${dayShort(d)}</b> has ${fmtDur(t)} of tasks but about ${fmtDur(f)} of open time between 9 and 6.</li>`); }
   for (const p of store.all().filter(n => n.p == null && n.due)) { const pr = progress(p.id); if (!pr.total) continue; const left = Math.round((pd(p.due) - pd(today())) / 864e5); const open = leaves(p.id).filter(n => !n.done); const un = open.filter(n => !n.d).length; if (pr.done / pr.total < .5 && left < 30) out.push(`<li><b>${esc(p.t)}</b> is ${Math.round(pr.done / pr.total * 100)}% done with ${left} days left, and ${un} of its ${open.length} open tasks have no day yet.</li>`); }
   return { h: out.length ? `<p>A few things to watch:</p><ul>${out.join('')}</ul>` : '<p>This week looks manageable. Every day fits in your open time.</p>', follow: true };
 }
