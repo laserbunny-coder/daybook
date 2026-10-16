@@ -2,6 +2,7 @@ import * as store from './store.js';
 import * as calendar from './calendar.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { initAI, ask, undo, renderMsgs, clearChat, breakDownLocal } from './ai.js';
+import * as roadmap from './roadmap.js';
 import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
 import { ancestors, children, colorOf, dayItems, glow, hasKids, isDone, isProj, leaves, node, PALETTE, progress, rootOf } from './tree.js';
 
@@ -12,6 +13,8 @@ const hpx = h => `calc(var(--hp) * ${+h.toFixed(4)})`;
 const phone = () => matchMedia('(max-width:860px)').matches;
 // On a computer the main pane shows either the plan or a full Projects board; a phone uses its tab bar instead.
 const boardShown = () => !phone() && S.page === 'projects';
+// The Roadmap is a page of its own on a computer and a tab on a phone, and it can open inside Quiet too
+const roadShown = () => phone() ? S.tab === 'roadmap' : S.page === 'roadmap';
 const ICON = {
   prev: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 3L5 8l5 5"/></svg>',
   next: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3l5 5-5 5"/></svg>',
@@ -27,6 +30,7 @@ const ICON = {
   board: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1.3"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1.3"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1.3"/><rect x="9" y="9" width="4.5" height="4.5" rx="1.3"/></svg>',
   min: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4.5h10M3 8h10M3 11.5h6"/></svg>',
   close: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
+  road: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 6.5h8M8 12h10M6 17.5h7"/><path d="M15.5 4.5l2 2-2 2-2-2z" stroke-linejoin="round"/></svg>',
   ms: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 2.5L13.5 8 8 13.5 2.5 8z"/></svg>',
   wait: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4.5 2.5h7M4.5 13.5h7M5.5 2.5c0 3 5 3.5 5 5.5s-5 2.5-5 5.5M10.5 2.5c0 3-5 3.5-5 5.5s5 2.5 5 5.5"/></svg>',
 };
@@ -35,7 +39,7 @@ const ICON = {
 const UI_KEY = 'daybook-ui';
 const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), focus: false, pick: null, adding: null, new: null, drOpen: false, drAt: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, notesEdit: false, waitEdit: false, mcp: null };
 S.anchor = today();
-const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min });
+const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min, rmZoom: S.rmZoom, free: S.free });
 let client = null, user = null, configured = false, shown = today(), supaUrl = '';
 
 /* Links on items, such as the Thymer page a task came from */
@@ -275,9 +279,17 @@ const quiet = () => !!S.min;
 // On a phone the full Projects screen opens inside Quiet, with the same faint name on top; Back (or the grid button) returns to the plan
 const quietLook = quiet;
 let qVisit = false, qSkip = false;
-function quietProjects() { setStrip(false); S.tab = 'projects'; S.drOpen = false; document.body.classList.remove('dr-on'); if (!qVisit) { qVisit = true; history.pushState({ qVisit: 1 }, ''); } render(); }
+function quietProjects(tab = 'projects') { setStrip(false); S.tab = tab; S.drOpen = false; document.body.classList.remove('dr-on'); if (!qVisit) { qVisit = true; history.pushState({ qVisit: 1 }, ''); } render(); }
 function quietPlan() { if (S.tab === 'plan') return; setStrip(false); S.tab = 'plan'; W = null; if (qVisit) { qVisit = false; qSkip = true; history.back(); } }
 const qProjects = () => quiet() && phone() && S.tab === 'projects';
+// The roadmap button (or R) goes to the Roadmap and back to the plan
+function toggleRoad() {
+  setStrip(false);
+  if (phone()) { if (S.tab === 'roadmap') { if (quiet()) quietPlan(); else S.tab = 'plan'; } else if (quiet()) { quietProjects('roadmap'); return; } else { S.tab = 'roadmap'; S.drOpen = false; document.body.classList.remove('dr-on'); } }
+  else S.page = S.page === 'roadmap' ? 'plan' : 'roadmap';
+  render();
+}
+function leaveRoad() { if (!phone() && S.page === 'roadmap') S.page = 'plan'; quietPlan(); }
 let qSide = false, qPin = false, qT = 0;
 function setStrip(on) { S.qstrip = on; document.body.classList.toggle('q-strip', quiet() && on); document.querySelector('.qh')?.setAttribute('aria-expanded', on); }
 function setQSide(on) { qSide = on && quiet() && !phone(); if (!qSide) qPin = false; document.body.classList.toggle('q-side', qSide); document.body.classList.toggle('q-pin', qPin); if (!phone()) document.querySelector('.mh [data-act="qproj"]')?.setAttribute('aria-pressed', qPin); if (qSide) setStrip(false); }
@@ -294,8 +306,8 @@ function setQuiet(on) {
 function quietKey(e) {
   const k = e.key.toLowerCase(), click = a => document.querySelector(`#main [data-act="${a}"]`)?.click();
   if (k === 'arrowleft') click('prev'); else if (k === 'arrowright') click('next');
-  else if (k === 'd' || k === 'w') { const v = k === 'd' ? 'day' : 'week'; if (S.view !== v) { S.view = v; W = null; render(); } }
-  else if (k === 't') setMode(S.mode === 'list' ? 'timed' : 'list');
+  else if (k === 'd' || k === 'w') { const v = k === 'd' ? 'day' : 'week'; const away = roadShown(); leaveRoad(); if (S.view !== v || away) { S.view = v; W = null; render(); } }
+  else if (k === 't') { if (roadShown()) { leaveRoad(); render(); } else setMode(S.mode === 'list' ? 'timed' : 'list'); }
   else if (k === 'p') setQPin(!qPin);
   else if (k === '/') { openAI(); setTimeout(() => document.getElementById('askq')?.focus(), 50); }
   else return false;
@@ -419,7 +431,7 @@ function setDrawer(open) {
   const d = document.getElementById('drawer'); if (!d) return;
   d.classList.toggle('on', open); d.inert = !open; d.previousElementSibling.classList.toggle('on', open);
 }
-const pageSeg = () => `<div class="seg page-seg" role="group" aria-label="Page"><button data-act="page" data-v="plan" aria-pressed="${!boardShown()}">Plan</button><button data-act="page" data-v="projects" aria-pressed="${boardShown()}">Projects</button></div>`;
+const pageSeg = () => `<div class="seg page-seg" role="group" aria-label="Page"><button data-act="page" data-v="plan" aria-pressed="${!boardShown() && !roadShown()}">Plan</button><button data-act="page" data-v="projects" aria-pressed="${boardShown()}">Projects</button><button data-act="page" data-v="roadmap" aria-pressed="${roadShown()}">Roadmap</button></div>`;
 function renderBoard(el) {
   const old = document.getElementById('board'); const hs = old?.scrollLeft || 0, vs = old ? [...old.querySelectorAll('.bcol-b')].map(c => c.scrollTop) : [];
   const { groups, loose } = areaGroups();
@@ -431,12 +443,37 @@ function renderBoard(el) {
       <form class="qa" data-form="inbox"><input id="qa-in" placeholder="+ Add a task" autocomplete="off" aria-label="Add a task to the inbox" enterkeyhint="done"></form></div></section></div>`;
   const b = document.getElementById('board'); b.scrollLeft = hs; b.querySelectorAll('.bcol-b').forEach((c, i) => c.scrollTop = vs[i] || 0);
 }
+/* The Roadmap page (js/roadmap.js draws the timeline) */
+const roadBtn = () => `<button class="ib q-only" data-act="road" aria-pressed="${roadShown()}" aria-label="Roadmap" title="Roadmap (R)">${ICON.road}</button>`;
+function renderRoad(el) {
+  const first = !document.getElementById('rmsc');
+  const z = S.rmZoom in { 1: 1, 3: 1, 6: 1 } ? +S.rmZoom : 3, free = +S.free > 0 ? +S.free : 10;
+  const head = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">Roadmap</span></button>` : ''}<header class="mh rm-mh">
+    <div class="mh-l">${pageSeg()}<h1 id="mtitle">Roadmap</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Earlier">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Later">${ICON.next}</button></div>${urBtns()}</div>
+    <div class="mh-r"><div class="seg rm-zoom" role="group" aria-label="Zoom">${[1, 3, 6].map(m => `<button data-act="rm-zoom" data-v="${m}" aria-pressed="${z === m}">${m} mo</button>`).join('')}</div>
+    <label class="chip rm-free" title="How many hours a week you have for planned tasks. Weeks with more scheduled than this stand out."><input id="rm-free" type="number" inputmode="numeric" min="1" max="168" step="1" value="${free}" aria-label="Free hours per week"><span class="k">h free a week</span></label>
+    <div class="mh-i"><button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
+    <button class="ib q-only" data-act="qproj" aria-pressed="${qProjects() || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
+    <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>`;
+  const box = document.getElementById('rmsc'); const width = (box ? box.clientWidth : el.clientWidth) || innerWidth;
+  el.innerHTML = head + `<div class="mbody rm" id="mbody" data-k="roadmap">${roadmap.html(width)}</div>`;
+  roadmap.mounted(first);
+}
+// Free hours per week follow the person to every device (kept with their account); before sign-in, on this device
+function setFree(v) {
+  v = Math.round(+v); if (!(v > 0 && v <= 168) || v === +S.free) return;
+  S.free = v; saveUI(); if (client && user) client.auth.updateUser({ data: { free_hours: v } }).catch(() => {});
+  later();
+}
+roadmap.init({ S, saveUI, render: () => render(), toast: (...a) => toast(...a) });
+addEventListener('resize', () => { if (roadShown()) later(); });
 // Time blocks scrolls both ways in one box, so one finger can go sideways and up/down in the same swipe, and the day names stay pinned on top
 const vScroller = mb => (mb?.classList.contains('timed') && mb.querySelector('.tw')) || mb;
 function renderMain() {
   const el = document.getElementById('main');
   document.body.classList.toggle('quiet', quietLook()); document.body.classList.toggle('q-strip', quiet() && !!S.qstrip);
   if (boardShown()) return renderBoard(el);
+  if (roadShown()) return renderRoad(el);
   const strip = S.view === 'week';
   const prev = document.getElementById('mbody'); const key = S.view + S.mode + (strip ? '' : S.anchor);
   const same = prev && prev.dataset.k === key; const sc = same ? vScroller(prev).scrollTop : null;
@@ -455,7 +492,7 @@ function renderMain() {
     <div class="mh-r"><div class="seg" role="group" aria-label="Range"><button data-act="view" data-v="day" ${P('view', 'day')}>Day</button><button data-act="view" data-v="week" ${P('view', 'week')}>Week</button></div>
     <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button></div>
     <div class="mh-i"><button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
-    <button class="ib q-only" data-act="qproj" aria-pressed="${qp || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button></div>
+    <button class="ib q-only" data-act="qproj" aria-pressed="${qp || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
   <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
     ${S.tip ? `<div class="tip"><span>Tap a task to open it and add notes. Tap an empty time, or the + under a day, to add one. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
@@ -540,11 +577,11 @@ function stripGo(d, smooth) {
   s.el.scrollBy({ [s.x ? 'left' : 'top']: delta, behavior: smooth ? 'smooth' : 'auto' });
 }
 function renderTabs() {
-  const t = [['plan', 'Plan', ICON.plan], ['projects', 'Projects', ICON.proj], ['ask', 'Ask Claude', ICON.ask]];
+  const t = [['plan', 'Plan', ICON.plan], ['projects', 'Projects', ICON.proj], ['roadmap', 'Roadmap', ICON.road], ['ask', 'Ask Claude', ICON.ask]];
   const nav = document.getElementById('tabs'); nav.dataset.drop = 'inbox';
   nav.innerHTML = t.map(([k, l, i]) => `<button data-act="tab" data-v="${k}" aria-current="${S.tab === k}">${i}<span>${l}</span></button>`).join('')
     + (S.tab === 'plan' ? `<button class="tab-grab" data-act="drawer" aria-label="${S.drOpen ? 'Hide' : 'Show'} projects to schedule" aria-expanded="${S.drOpen}"></button>` : '');
-  document.body.dataset.tab = S.tab; document.body.dataset.page = boardShown() ? 'projects' : 'plan';
+  document.body.dataset.tab = S.tab; document.body.dataset.page = boardShown() ? 'projects' : roadShown() ? 'roadmap' : 'plan';
 }
 
 /* Zoomed-in view of one item */
@@ -701,6 +738,7 @@ function describe(st) {
   if ('c' in b) return `Changed the color of ${t}`;
   if ('d' in b || 's' in b || 'ar' in b || 'a' in b) return `Moved ${t}`;
   if ('m' in b) return `Changed the length of ${t}`;
+  if ('st' in b && 'due' in b) return `Moved ${t} on the roadmap`;
   if ('due' in b) return `Changed the due date of ${t}`;
   if ('st' in b) return `Changed the start date of ${t}`;
   if ('ms' in b) return a.ms ? `Made ${t} a milestone` : `Made ${t} a plain task`;
@@ -853,12 +891,16 @@ document.addEventListener('click', e => {
     case 'new-area': newArea(); break;
     case 'page': if (quiet() && b.dataset.v === 'projects') setQuiet(false); // the full Projects board is its own page, outside Quiet
       S.page = b.dataset.v; S.pick = null; S.adding = null; render(); break;
-    case 'view': quietPlan(); S.view = b.dataset.v; W = null; render(); break;
-    case 'mode': quietPlan(); setMode(b.dataset.v); break;
+    case 'road': toggleRoad(); break;
+    case 'rm-zoom': roadmap.setZoom(+b.dataset.v); break;
+    case 'rm-fold': S.col['rm:' + id] = !S.col['rm:' + id]; saveUI(); render(); break;
+    case 'rm-week': S.anchor = b.dataset.d; S.view = 'week'; W = null; leaveRoad(); render(); break;
+    case 'view': leaveRoad(); S.view = b.dataset.v; W = null; render(); break;
+    case 'mode': leaveRoad(); setMode(b.dataset.v); break;
     case 'min': setQuiet(!S.min); break;
     case 'qstrip': setStrip(!S.qstrip); break;
     case 'qproj': if (!phone()) setQPin(!qPin); else if (qProjects()) { quietPlan(); render(); } else quietProjects(); break;
-    case 'prev': case 'next': if (qProjects()) { quietPlan(); render(); break; } {
+    case 'prev': case 'next': if (roadShown()) { roadmap.go(a === 'prev' ? -1 : 1); break; } if (qProjects()) { quietPlan(); render(); break; } {
       const dir = a === 'prev' ? -1 : 1;
       if (S.view !== 'week' || !W) { S.anchor = add(S.anchor, dir * (S.view === 'week' ? 7 : 1)); render(); break; }
       const f = visibleDays()[0] || S.anchor, ws = weekStart(f); // a computer lines weeks up on Monday; a phone steps a week from where you are
@@ -868,7 +910,7 @@ document.addEventListener('click', e => {
       if (grew) renderMain();
       stripGo(to, true); break;
     }
-    case 'today': if (qProjects()) { quietPlan(); S.anchor = today(); render(); break; } if (S.view === 'week' && W) { stripGo(phone() ? today() : weekStart(today()), true); break; } S.anchor = today(); render(); break;
+    case 'today': if (roadShown()) { roadmap.goToday(); break; } if (qProjects()) { quietPlan(); S.anchor = today(); render(); break; } if (S.view === 'week' && W) { stripGo(phone() ? today() : weekStart(today()), true); break; } S.anchor = today(); render(); break;
     case 'goday': S.anchor = b.dataset.d; S.view = 'day'; W = null; render(); break;
     case 'tip': S.tip = false; render(); break;
     case 'tab': S.tab = b.dataset.v; S.drOpen = false; document.body.classList.remove('dr-on'); render(); break;
@@ -928,6 +970,8 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { if (S.adding) { S.adding = null; render(); } else if (S.open) { S.open = null; renderDetail(); } else if (quiet() && !D) quietAway(); }
   // Q turns Quiet on and off, anywhere outside a text box
   if (key === 'q' && !D && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); if (S.open) { S.open = null; renderDetail(); } setQuiet(!S.min); return; }
+  // R opens the Roadmap and goes back, anywhere outside a text box
+  if (key === 'r' && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); toggleRoad(); return; }
   if (quiet() && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])') && quietKey(e)) { e.preventDefault(); return; }
   if (e.key === 'Enter' && e.target.id === 'dt-title') { e.preventDefault(); e.target.blur(); }
   if (e.key === 'Enter' && e.target.matches('.dt-notes-view')) { e.preventDefault(); e.target.click(); }
@@ -961,6 +1005,7 @@ document.addEventListener('input', e => {
 document.addEventListener('change', e => {
   const t = e.target;
   if (t.dataset.pickdate) { if (t.value) setDay(t.dataset.pickdate, t.value); return; }
+  if (t.id === 'rm-free') { setFree(t.value); return; }
   const n = S.open && node(S.open); if (!n) return;
   if (t.id === 'dt-title') { if (!n.t.trim()) store.update(n.id, { t: n.k === 'area' ? 'New area' : n.c ? 'New project' : 'Untitled' }); else store.updateMany([]); }
   if (t.id === 'dt-area') store.update(n.id, { ar: t.value || null });
@@ -1250,7 +1295,7 @@ function enterDemo() {
   initAI({ cloud: false, client: null }); render();
 }
 async function enterCloud(u) {
-  user = u; S.demo = false; saveUI(); showWelcome(false);
+  user = u; S.demo = false; if (u.user_metadata?.free_hours) S.free = u.user_metadata.free_hours; saveUI(); showWelcome(false);
   calendar.useGoogle(client, u.id); initAI({ cloud: true, client });
   render();
   await store.useCloud(client, u);
