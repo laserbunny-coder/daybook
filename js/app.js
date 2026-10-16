@@ -3,6 +3,7 @@ import * as calendar from './calendar.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { initAI, ask, undo, renderMsgs, clearChat, breakDownLocal } from './ai.js';
 import * as roadmap from './roadmap.js';
+import * as track from './track.js';
 import { cleanRule, ruleText, splitOcc, WEEK } from './repeat.js';
 import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
 import { ancestors, children, colorOf, dayItems, glow, hasKids, isDone, isProj, leaves, node, PALETTE, progress, rootOf } from './tree.js';
@@ -35,6 +36,8 @@ const ICON = {
   ms: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 2.5L13.5 8 8 13.5 2.5 8z"/></svg>',
   wait: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4.5 2.5h7M4.5 13.5h7M5.5 2.5c0 3 5 3.5 5 5.5s-5 2.5-5 5.5M10.5 2.5c0 3-5 3.5-5 5.5s5 2.5 5 5.5"/></svg>',
   rep: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12.6 6.2A4.9 4.9 0 0 0 3.7 5M3.4 9.8a4.9 4.9 0 0 0 8.9 1.2"/><path d="M3.4 2.4v2.9h2.9M12.6 13.6v-2.9H9.7"/></svg>',
+  play: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 3.8v8.4a.5.5 0 0 0 .76.43l6.6-4.2a.5.5 0 0 0 0-.86l-6.6-4.2a.5.5 0 0 0-.76.43z"/></svg>',
+  stop: '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="4.5" y="4.5" width="7" height="7" rx="1.5"/></svg>',
   repS: '<svg class="ni" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-label="Repeats"><path d="M12.6 6.2A4.9 4.9 0 0 0 3.7 5M3.4 9.8a4.9 4.9 0 0 0 8.9 1.2"/><path d="M3.4 2.4v2.9h2.9M12.6 13.6v-2.9H9.7"/></svg>',
 };
 
@@ -73,6 +76,18 @@ function ckHTML(n) {
   }
   return `<button class="ck${n.done ? ' on' : ''}" data-act="toggle" data-id="${n.id}" aria-label="Mark ${esc(n.t)} ${n.done ? 'not done' : 'done'}"></button>`;
 }
+/* Time tracking (track.js): a small ▶ on every open task and project starts recording it; ■ stops it */
+const canRec = n => !!n && !n.r && n.k !== 'area' && !isDone(n);
+function recBtn(n) {
+  if (!canRec(n)) return '';
+  const on = track.isRec(n);
+  return `<button class="rec-b${on ? ' on' : ''}" data-act="rec" data-id="${n.id}" aria-label="${on ? 'Stop recording' : 'Record time on'} ${esc(n.t || 'this')}" title="${on ? 'Stop recording' : 'Record time'}">${on ? ICON.stop : ICON.play}</button>`;
+}
+// Inside a project that's recording, its steps show that it is, with a way to stop it
+function recUp(n) {
+  const r = track.running(), up = r && ancestors(n).find(a => a.id === r.id);
+  return up ? `<button class="chip rec-chip on" data-act="rec" data-id="${up.id}">${ICON.stop}<span>Recording ${esc(short(up.t))} · Stop</span></button>` : '';
+}
 function chipHTML(n, o = {}) {
   const crumbs = ancestors(n).map(a => a.t); const meta = []; const kids = hasKids(n.id);
   if (!o.min) { // minimal list shows just the title
@@ -85,7 +100,7 @@ function chipHTML(n, o = {}) {
     if (n.m && !kids) meta.push(fmtDur(n.m));
     if (kids) { const p = progress(n.id); meta.push(`${p.done}/${p.total} done`); }
   }
-  return `<div class="item${isDone(n) ? ' done' : ''}${overdue(n) ? ' overdue' : ''}${o.compact ? ' compact' : ''}" data-drag data-id="${n.id}" style="--pc:${colorOf(n)}">${ckHTML(n)}<div class="it-body"><div class="it-t">${esc(n.t || 'Untitled')}</div>${meta.length ? `<div class="it-m">${meta.join('<span>·</span>')}</div>` : ''}</div></div>`;
+  return `<div class="item${isDone(n) ? ' done' : ''}${overdue(n) ? ' overdue' : ''}${track.isRec(n) ? ' recording' : ''}${o.compact ? ' compact' : ''}" data-drag data-id="${n.id}" style="--pc:${colorOf(n)}">${ckHTML(n)}<div class="it-body"><div class="it-t">${esc(n.t || 'Untitled')}</div>${meta.length ? `<div class="it-m">${meta.join('<span>·</span>')}</div>` : ''}</div>${o.compact ? '' : recBtn(n)}</div>`;
 }
 const whenLabel = n => n.r ? ruleText(n.r, n.d, false) + (n.s != null ? ' ' + fmtT(n.s) : '') : dayShort(n.d) + (n.s != null ? ' ' + fmtT(n.s) : '');
 function pickerHTML(n, dep) {
@@ -98,7 +113,7 @@ function treeRows(n, dep) {
   let h = `<div class="tr${isDone(n) ? ' done' : ''}" style="--dep:${dep};--pc:${colorOf(n)}" data-drag data-id="${n.id}">
     ${isP ? `<button class="caret${S.col[n.id] ? ' shut' : ''}" data-act="fold" data-id="${n.id}" aria-label="Show or hide ${esc(n.t)}"></button>` : '<span class="caret-sp"></span>'}
     ${ckHTML(n)}<span class="tr-t">${esc(n.t || 'Untitled')}</span>${n.notes ? ICON.note : ''}
-    <button class="plus${isP ? '' : ' leaf'}" data-act="add" data-id="${n.id}" aria-label="Add a step to ${esc(n.t)}" title="Add a step">+</button>
+    ${n.p == null ? recBtn(n) : ''}<button class="plus${isP ? '' : ' leaf'}" data-act="add" data-id="${n.id}" aria-label="Add a step to ${esc(n.t)}" title="Add a step">+</button>
     <button class="when${n.d ? ' set' : ''}" data-act="${n.r ? 'open' : 'pick'}" data-id="${n.id}" aria-label="${n.r ? 'When ' + esc(n.t) + ' repeats' : 'Schedule ' + esc(n.t)}">${n.d ? whenLabel(n) : ICON.cal}</button></div>`;
   if (S.pick === n.id) h += pickerHTML(n, dep);
   const inner = (S.col[n.id] ? '' : kids.map(k => treeRows(k, dep + 1)).join('')) + addRow(n.id, dep + 1);
@@ -377,8 +392,21 @@ function layout(items) {
   for (const c of cl) { const lanes = []; for (const it of c) { let i = lanes.findIndex(e => e <= it.s); if (i < 0) { i = lanes.length; lanes.push(0); } lanes[i] = it.s + it.m; it.lane = i; } c.forEach(it => it.lanes = lanes.length); }
   return items;
 }
+/* Recorded time shows where it happened: a stretch on the day it started, and the one recording now growing with the clock.
+   A finished task's block already sits on its last stretch, so that one isn't drawn twice; guesses only place the block. */
+function sessionsOn(d) {
+  const out = [], now = track.local(Date.now());
+  for (const n of store.logged()) for (const e of n.tl) {
+    if (e.guess) continue;
+    const a = track.local(e.start); if (a.d !== d) continue;
+    const b = e.end ? track.local(e.end) : now, end = b.d === d ? b.m : 1440;
+    if (e.end && n.d === d && n.s === a.m) continue;
+    out.push({ sess: n, e, s: a.m, m: Math.max(1, end - a.m) });
+  }
+  return out;
+}
 function blocksHTML(d) {
-  const items = [...timedOn(d).map(e => ({ ev: e, s: e.s, m: e.m })), ...dayItems(d).filter(n => n.s != null).map(n => ({ n, s: n.s, m: n.m || 60 }))];
+  const items = [...timedOn(d).map(e => ({ ev: e, s: e.s, m: e.m })), ...dayItems(d).filter(n => n.s != null).map(n => ({ n, s: n.s, m: n.m || 60 })), ...sessionsOn(d)];
   layout(items);
   // A short block may grow to a readable 18px, but only into free space: never past the start of the next block beneath it
   const x0 = it => it.lane / it.lanes, x1 = it => (it.lane + 1) / it.lanes;
@@ -388,8 +416,9 @@ function blocksHTML(d) {
     const pos = `top:${hpx((s - H0 * 60) / 60)};height:max(${hpx((e - s) / 60)} - 2px, min(18px, ${hpx((below - s) / 60)} - 2px));left:${it.lane / it.lanes * 100}%;width:calc(${100 / it.lanes}% - 4px)`;
     const tm = `${fmtT(it.s)} – ${fmtT(it.s + it.m)}`;
     if (it.ev) return `<div class="ev" style="${pos}" title="${esc(it.ev.cal || '')}"><div class="b-in"><div class="b-t">${esc(it.ev.t)}</div><div class="b-time">${tm}</div></div></div>`;
+    if (it.sess) { const n = it.sess, live = !it.e.end; return `<div class="block sess${live ? ' live' : ''}" data-act="open" data-id="${n.id}" style="${pos};--pc:${colorOf(n)}" title="${live ? 'Recording now' : 'Time you worked on this'}"><div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${fmtT(it.s)} – ${live ? 'now' : fmtT(it.s + it.m)} · ${fmtDur(Math.max(1, track.mins(it.e)))}</div></div></div>`; }
     const n = it.n, pr = hasKids(n.id) && progress(n.id); // a whole project in a block is a work session: show how far along it is
-    return `<div class="block${isDone(n) ? ' done' : ''}${overdue(n) ? ' overdue' : ''}" data-drag data-id="${n.id}" style="${pos};--pc:${colorOf(n)}">${ckHTML(n)}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${n.rs ? ICON.repS : ''}${tm}${pr ? ` · ${pr.done}/${pr.total}` : ''}</div></div><div class="rs"></div></div>`;
+    return `<div class="block${isDone(n) ? ' done' : ''}${overdue(n) ? ' overdue' : ''}${track.isRec(n) ? ' planned' : ''}" data-drag data-id="${n.id}" style="${pos};--pc:${colorOf(n)}">${ckHTML(n)}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${n.rs ? ICON.repS : ''}${tm}${pr ? ` · ${pr.done}/${pr.total}` : ''}</div></div>${recBtn(n)}<div class="rs"></div></div>`;
   }).join('');
 }
 function nowHTML(d) { if (d !== today()) return ''; const m = nowMin(); if (m < H0 * 60 || m > H1 * 60) return ''; return `<div class="now" style="top:${hpx((m - H0 * 60) / 60)}"></div>`; }
@@ -621,10 +650,11 @@ function renderDetail() {
       ${n.r ? '<div class="dt-note rp-note">Changes here go to every repeat. Check off each one on its day.</div>' : ''}
       ${kids.length ? `<div class="dt-prog"><div class="bar"><i style="width:${pct}%"></i></div><span>${pr.done} of ${pr.total} done</span></div>` : ''}
       <div class="dt-meta">
+        ${canRec(n) && (n.p == null || n.d || track.isRec(n)) ? `<button class="chip rec-chip${track.isRec(n) ? ' on' : ''}" data-act="rec" data-id="${n.id}">${track.isRec(n) ? ICON.stop : ICON.play}<span>${track.isRec(n) ? 'Recording · Stop' : 'Start'}</span></button>` : recUp(n)}
         ${n.r ? '' : `<button class="chip${n.d ? ' set' : ''}" data-act="dtpick">${ICON.cal}<span>${n.d ? whenLabel(n) : 'Add to a day'}</span></button>`}
         ${kids.length || n.c ? '' : `<button class="chip rp-chip${ser ? ' set' : ''}" data-act="rpedit" aria-expanded="${S.rpEdit}">${ICON.rep}<span>${ser ? esc(ruleText(ser.r, ser.d)) : 'Repeat'}</span></button>`}
         ${kids.length || n.c ? '' : `<label class="chip"><span class="k">Takes about</span><select id="dt-dur">${durs.sort((a, b) => a - b).map(m => `<option value="${m}"${(n.m || 60) === m ? ' selected' : ''}>${fmtDur(m)}</option>`).join('')}</select></label>`}
-        ${!kids.length && !n.c && (n.done || n.am) ? `<label class="chip took${n.am ? ' set' : ''}"><span class="k">Took</span><input type="number" id="dt-took" inputmode="numeric" min="1" max="10080" placeholder="${n.m || 60}" value="${n.am || ''}" aria-label="Minutes it really took"><span class="k">min</span></label>` : ''}
+        ${!kids.length && !n.c && (n.done || n.am) && !track.real(n).length ? `<label class="chip took${n.am ? ' set' : ''}"><span class="k">Took</span><input type="number" id="dt-took" inputmode="numeric" min="1" max="10080" placeholder="${n.m || 60}" value="${n.am || ''}" aria-label="Minutes it really took"><span class="k">min</span></label>` : ''}
         ${kids.length || n.c ? `<label class="chip${n.st ? ' set' : ''}"><span class="k">Starts</span><input type="date" id="dt-start" value="${n.st || ''}"${n.due ? ` max="${n.due}"` : ''}></label>` : ''}
         ${kids.length || n.c || n.due || n.ms ? `<label class="chip${n.due ? ' set' : ''}"><span class="k">Due</span><input type="date" id="dt-due" value="${n.due || ''}"${n.st ? ` min="${n.st}"` : ''}></label>` : ''}
         ${kids.length || n.c || rp ? '' : `<button class="chip ms-chip${n.ms ? ' set' : ''}" data-act="ms" aria-pressed="${!!n.ms}">${ICON.ms}<span>Milestone</span></button>`}
@@ -640,6 +670,7 @@ function renderDetail() {
       <div class="dt-sec">Notes</div>
       ${n.notes && !S.notesEdit ? `<div class="dt-notes dt-notes-view" data-act="editnotes" role="button" tabindex="0" aria-label="Notes, tap to edit">${linkify(n.notes)}</div>` : `<textarea id="dt-notes" class="dt-notes" placeholder="Thoughts, links, where to start. These will be here when you sit down to do it." aria-label="Notes">${esc(n.notes || '')}</textarea>`}
       <div class="dt-saved" id="dt-saved" aria-live="polite"></div>
+      ${timeHTML(n)}
       ${rp ? '' : `<div class="dt-sec">Steps${kids.length ? `<small>${pr.done}/${pr.total}</small>` : ''}</div>
       <div class="dt-steps" data-drop="sib" data-g="p:${n.id}">${kids.map(stepHTML).join('')}
         <form class="dt-add" data-form="step" data-p="${n.id}"><span class="plus-i" aria-hidden="true">+</span><input id="dt-add-in" placeholder="Add a step" autocomplete="off" aria-label="Add a step" enterkeyhint="done"></form></div>`}
@@ -652,6 +683,31 @@ function renderDetail() {
     </div></section>`;
   el.querySelectorAll('textarea').forEach(grow); el.querySelector('.dt-body').scrollTop = prevSc;
 }
+/* The time log: every stretch of time recorded on it, each one tap away from being corrected */
+const dayWord = d => d === today() ? 'Today' : d === add(today(), -1) ? 'Yesterday' : `${DAYN[pd(d).getDay()]} ${pd(d).getDate()}`;
+const hhmm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+function timeHTML(n) {
+  if (n.r || n.k === 'area' || (n.p != null && !n.d && !n.tl?.length)) return ''; // a step's time goes to its project
+  const t = track.total(n), plan = hasKids(n.id) || n.c ? null : n.pl?.duration_min ?? n.m;
+  const rows = (n.tl || []).map((e, i) => {
+    const a = track.local(e.start), b = e.end && track.local(e.end);
+    if (S.tlEdit === i) return `<div class="tl-ed"><input type="date" id="tl-day" value="${a.d}" max="${today()}" aria-label="Day"><input type="time" id="tl-s" value="${hhmm(a.m)}" aria-label="Started"><span>–</span>${b ? `<input type="time" id="tl-e" value="${hhmm(b.m)}" aria-label="Ended">` : '<span class="tl-now">now</span>'}<button class="chip-edit" data-act="tl-del" data-i="${i}">Delete</button><button class="chip-edit" data-act="tl-close">Done</button></div>`;
+    return `<button class="tl-row${e.guess ? ' guess' : ''}${b ? '' : ' live'}" data-act="tl-edit" data-i="${i}" title="Tap to correct"><span>${dayWord(a.d)}</span><span class="tl-t">${fmtT(a.m)} – ${b ? fmtT(b.m) : 'now'}</span><span class="tl-m">${e.guess ? 'guessed' : fmtDur(Math.max(1, track.mins(e)))}</span></button>`;
+  }).join('');
+  const sum = t ? `${fmtDur(t)} recorded${plan ? ` · planned ${fmtDur(plan)}` : ''}` : '';
+  return `<div class="dt-sec">Time${sum ? `<small>${sum}</small>` : ''}</div><div class="tl">${rows}<button class="tl-add" data-act="tl-add">+ Add time I forgot</button></div>`;
+}
+// Saves the stretch being corrected. An end before the start means it ran past midnight.
+function saveStretch() {
+  const n = S.open && node(S.open), i = S.tlEdit, e = n?.tl?.[i]; if (!e) return;
+  const day = document.getElementById('tl-day')?.value, s = document.getElementById('tl-s')?.value, f = document.getElementById('tl-e')?.value;
+  if (!day || !s || (e.end && !f)) return;
+  const a = new Date(`${day}T${s}`); let b = null;
+  if (e.end) { b = new Date(`${day}T${f}`); if (b <= a) b.setDate(b.getDate() + 1); }
+  const err = track.edit(n.id, i, a.toISOString(), b && b.toISOString());
+  if (err) toast(err === 'future' ? "That's still to come. Pick a time that has passed." : err === 'order' ? 'The end has to come after the start' : "That time didn't work");
+}
+
 /* Repeating. The Repeat chip opens a small editor: how often, which days, every how many weeks, and an
    optional end. A repeat opened from the plan edits its whole series' rule here. */
 function repeatHTML(n) {
@@ -746,7 +802,7 @@ function saveLink() {
 }
 function openItem(id, focusTitle = false) {
   if (S.open !== id) { S.scope = 'one'; S.rpEdit = false; }
-  S.open = id; S.dtpick = false; S.confirmDel = false; S.linkEdit = false; S.notesEdit = false; S.waitEdit = false; renderDetail();
+  S.open = id; S.tlEdit = null; S.dtpick = false; S.confirmDel = false; S.linkEdit = false; S.notesEdit = false; S.waitEdit = false; renderDetail();
   if (focusTitle) { const t = document.getElementById('dt-title'); t.focus(); t.select(); }
 }
 
@@ -756,12 +812,38 @@ function render() {
   cancelAnimationFrame(raf); raf = 0;
   const ae = document.activeElement; const fid = ae && ae.id && !document.getElementById('detail').contains(ae) ? ae.id : null;
   const val = fid ? ae.value : null;
-  renderSide(); renderMain(); renderTabs(); renderDetail(); renderMsgs(); saveUI();
+  renderSide(); renderMain(); renderTabs(); renderDetail(); renderRec(); renderMsgs(); saveUI();
   if (S.view === 'week' && W?.jump && placeDay(W.jump, 0)) { W.jump = null; stripTitle(); } // a phone only lays the plan out once its tab is set
   if (S.adding) { const i = document.getElementById('add-in'); if (i) { if (fid === 'add-in') i.value = val; i.focus({ preventScroll: true }); } }
   else if (fid && fid !== 'askq') { const i = document.getElementById(fid); if (i) { if (val != null && 'value' in i) i.value = val; i.focus({ preventScroll: true }); } }
 }
 const later = () => { if (!raf) raf = requestAnimationFrame(render); };
+
+/* The recording pill: what's recording and for how long, floating above the bottom of the screen.
+   Tap it to open the task or say it started earlier; after three hours untouched it asks if you're still on it. */
+const recEl = document.createElement('div'); recEl.id = 'rec'; recEl.className = 'rec'; recEl.hidden = true; document.body.appendChild(recEl);
+const ICON_OK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>';
+const REC_OK = 'daybook-rec-ok', REC_ASK = 3 * 3600e3;
+const pad = v => String(v).padStart(2, '0');
+function recClock(e) { const t = Math.max(0, Math.floor((Date.now() - Date.parse(e.start)) / 1000)), h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60; return (h ? h + ':' + pad(m) : m) + ':' + pad(t % 60); }
+function recAsk(e) { const ok = lsGet(REC_OK, {}); return Date.now() - Math.max(Date.parse(e.start), ok.start === e.start ? ok.at : 0) >= REC_ASK; }
+function recAck() { const e = track.openOf(track.running()); if (e) lsSet(REC_OK, { start: e.start, at: Date.now() }); renderRec(); }
+function renderRec() {
+  const r = track.running(), e = track.openOf(r); document.body.classList.toggle('recording', !!e); document.body.classList.remove('rec-open');
+  if (!e) { recEl.hidden = true; recEl.innerHTML = ''; delete recEl.dataset.id; S.recOpen = false; return; }
+  if (recEl.dataset.id !== r.id) { recEl.dataset.id = r.id; S.recOpen = false; } // something else started: the extras fold away
+  recEl.hidden = false; recEl.style.setProperty('--pc', colorOf(r));
+  if (recAsk(e)) { recEl.dataset.ask = 1; recEl.innerHTML = `<div class="rec-p ask"><span class="dot"></span><span class="rec-q">Still on ${esc(short(r.t))}?</span><button class="rec-w" data-act="rec-yes">Yes</button><button class="rec-w" data-act="rec-stop">Stop</button></div>`; return; }
+  delete recEl.dataset.ask;
+  const proj = hasKids(r.id) || !!r.c; document.body.classList.toggle('rec-open', !!S.recOpen);
+  recEl.innerHTML = `<div class="rec-p"><button class="rec-main" data-act="rec-open" aria-expanded="${!!S.recOpen}" title="Started earlier? Tap to change"><span class="dot"></span><span class="rec-t">${esc(r.t || 'Untitled')}</span><span class="rec-c" id="rec-c">${recClock(e)}</span></button><button class="rec-i" data-act="rec-stop" aria-label="Stop recording" title="Stop">${ICON.stop}</button>${proj ? '' : `<button class="rec-i ok" data-act="rec-done" aria-label="Check off ${esc(r.t)}" title="Done">${ICON_OK}</button>`}</div>`
+    + (S.recOpen ? `<div class="rec-x"><span>Started ${fmtT(track.local(e.start).m)}</span><button data-act="rec-nudge" data-v="-15">−15</button><button data-act="rec-nudge" data-v="-5">−5</button><button data-act="rec-nudge" data-v="5">+5</button><button data-act="rec-task">Open</button></div>` : '');
+}
+setInterval(() => {
+  const e = track.openOf(track.running()); if (!e) return;
+  if (!!recEl.dataset.ask !== recAsk(e)) { renderRec(); return; }
+  const c = document.getElementById('rec-c'); if (c) c.textContent = recClock(e);
+}, 1000);
 
 /* Actions */
 let toastT, toastMsg = '', toastAt = 0;
@@ -782,9 +864,12 @@ function describe(st) {
   const t = short(store.peek(id)?.t), k = Object.keys(b), n = st.ch.length;
   if (a.x === true) return `Deleted ${t}`;
   if (b.x === true) return `Added ${t}`;
+  const live = l => (l || []).some(e => !e.end), began = st.ch.find(c => 'tl' in c[1] && !('done' in c[1]) && live(c[2].tl) && !live(c[1].tl));
+  if (began) return `Recording ${short(store.peek(began[0])?.t)}`;
   if ('done' in b) return n > 1 ? `${a.done ? 'Checked off' : 'Unchecked'} ${n} steps` : `${a.done ? 'Checked off' : 'Unchecked'} ${t}`;
   if ('c' in b) return `Changed the color of ${t}`;
   if ('r' in b) return !a.r ? `${t} no longer repeats` : b.r ? `Changed how ${t} repeats` : `Made ${t} repeat`;
+  if ('tl' in b) return live(b.tl) && !live(a.tl) ? `Stopped recording ${t}` : `Changed the time on ${t}`;
   if ('d' in b || 's' in b || 'ar' in b || 'a' in b) return `Moved ${t}`;
   if ('m' in b) return `Changed the length of ${t}`;
   if ('st' in b && 'due' in b) return `Moved ${t} on the roadmap`;
@@ -826,14 +911,22 @@ function onStep(st) {
   if (st.ch.length === 1 && st.ch[0][1].x === true && !store.peek(st.ch[0][0])?.t.trim()) return; // a new project or area, about to be named
   toast(performance.now() - toastAt < 100 ? toastMsg : describe(st), urActs(true));
 }
+// Checking off one task stops its recording and moves its block to when it was really done (track.js); reopening puts it back
+// A step of a project that isn't on the plan itself stays off it: its project's recording holds the time
+const check = n => store.update(n.id, n.done ? track.undonePatch(n) : track.donePatch(n, !!n.d || n.p == null));
+function placedText(id) {
+  const n = node(id); if (!n?.done || n.s == null) return '';
+  return ` · ${fmtT(n.s)}–${fmtT(n.s + (n.m || 60))}${n.tl?.[n.tl.length - 1]?.guess ? ', as planned' : ''}`;
+}
 function toggle(id) {
-  const n = node(id); if (n.rs) { store.update(id, { done: !n.done }); return; } // a repeat is checked off on its own
+  const n = node(id); if (n.rs) { check(n); if (node(id)?.done) toast(`${short(n.t)} done${placedText(id)}`); return; } // a repeat is checked off on its own
   const anc = ancestors(n); const before = anc.map(isDone);
   if (hasKids(id) || n.c) { const all = isDone(n); store.updateMany(leaves(id).filter(l => !l.c && !l.r).map(l => [l.id, { done: !all }])); }
-  else store.update(id, { done: !n.done });
-  const fin = anc.filter((a, i) => !before[i] && isDone(a));
+  else check(n);
+  const fin = anc.filter((a, i) => !before[i] && isDone(a)), when = hasKids(id) || n.c ? '' : placedText(id);
   if (fin.length) { const a = fin[fin.length - 1]; const r = rootOf(n); const p = progress(r.id); toast(r === a ? `${a.t} is complete.` : `${a.t} is done. ${r.t} is now ${Math.round(p.done / p.total * 100)}% complete.`); }
-  else if (!hasKids(id) && node(id).done && anc.length) { const r = rootOf(n), p = progress(r.id); toast(`${r.t}: ${p.done} of ${p.total} done`); }
+  else if (!hasKids(id) && node(id).done && anc.length) { const r = rootOf(n), p = progress(r.id); toast(`${r.t}: ${p.done} of ${p.total} done${when}`); }
+  else if (when) toast(`${short(n.t)} done${when}`);
 }
 // A day's list keeps its own order (ds), apart from the order of a project's steps (o)
 function reorder(date, id, idx, patch, more = {}) {
@@ -949,6 +1042,20 @@ document.addEventListener('click', e => {
     case 'delete-all': { const s = store.seriesOf(node(S.open)); S.open = null; S.confirmDel = false; if (s) { store.remove(s.id); toast(`Deleted ${s.t || 'item'} and all its repeats`); } break; }
     case 'color': store.update(S.open, { c: b.dataset.c }); break;
     case 'toggle': toggle(id); break;
+    case 'rec': if (track.isRec(node(id))) track.stop(id); else track.start(id); break;
+    case 'rec-stop': { const r = track.running(); if (r) track.stop(r.id); break; }
+    case 'rec-done': { const r = track.running(); if (r) toggle(r.id); break; }
+    case 'rec-open': S.recOpen = !S.recOpen; renderRec(); break;
+    case 'rec-task': { const r = track.running(); S.recOpen = false; if (r) openItem(r.id); renderRec(); break; }
+    case 'rec-nudge': { const r = track.running(); if (r) track.nudge(r.id, +b.dataset.v); break; }
+    case 'rec-yes': recAck(); break;
+    case 'tl-edit': S.tlEdit = +b.dataset.i; renderDetail(); break;
+    case 'tl-close': S.tlEdit = null; renderDetail(); break;
+    case 'tl-del': { const i = +b.dataset.i; S.tlEdit = null; track.remove(S.open, i); break; }
+    case 'tl-add': {
+      track.addTime(S.open); const tl = node(S.open)?.tl || [];
+      S.tlEdit = tl.reduce((k, e, i) => e.end && (k < 0 || Date.parse(e.end) >= Date.parse(tl[k].end)) ? i : k, -1); renderDetail(); break; // open the one just added, to set its times
+    }
     case 'fold': S.col[id] = !S.col[id]; render(); break;
     case 'pick': S.pick = S.pick === id ? null : id; render(); break;
     case 'setday': setDay(id, b.dataset.d || null); break;
@@ -1073,6 +1180,7 @@ document.addEventListener('change', e => {
   const t = e.target;
   if (t.dataset.pickdate) { if (t.value) setDay(t.dataset.pickdate, t.value); return; }
   if (t.id === 'rm-free') { setFree(t.value); return; }
+  if (t.id === 'tl-day' || t.id === 'tl-s' || t.id === 'tl-e') { saveStretch(); return; }
   const n = S.open && node(S.open); if (!n) return;
   if (t.id === 'dt-title') { if (!n.t.trim()) edit(n.id, { t: n.k === 'area' ? 'New area' : n.c ? 'New project' : 'Untitled' }); else store.updateMany([]); }
   if (t.id === 'dt-area') store.update(n.id, { ar: t.value || null });
@@ -1375,10 +1483,11 @@ async function enterCloud(u) {
   await store.useCloud(client, u);
   calendar.ensure(add(today(), -7), add(today(), 28), true);
 }
-store.onChange((kind, st) => { if (kind === 'occ') { if (!S.open) occOffer = occOffer || st; return; } if (kind === 'step') return onStep(st); if (kind === 'sync') { if (!D) later(); return; } if (!D) later(); });
+store.onChange((kind, st) => { if (kind === 'occ') { if (!S.open && !('done' in st.patch) && !('tl' in st.patch)) occOffer = occOffer || st; return; } if (kind === 'step') return onStep(st); if (kind === 'sync') { if (!D) later(); return; } if (!D) later(); });
 calendar.onCalendarChange(() => { if (!D) later(); });
 initAI({ anchor: () => S.anchor, showPlan, render: later });
-setInterval(() => { if (today() !== shown) { shown = today(); if (S.anchor === add(today(), -1)) S.anchor = today(); later(); } else if (S.mode === 'timed' && !D) { document.querySelectorAll('.now').forEach(n => n.style.top = hpx((nowMin() - H0 * 60) / 60)); } }, 60e3);
+setInterval(() => { if (today() !== shown) { shown = today(); if (S.anchor === add(today(), -1)) S.anchor = today(); later(); } else if (track.running() && !D) later(); // what's recording grows in Time blocks
+  else if (S.mode === 'timed' && !D) { document.querySelectorAll('.now').forEach(n => n.style.top = hpx((nowMin() - H0 * 60) / 60)); } }, 60e3);
 if (!matchMedia('(min-width:1500px)').matches) document.body.classList.add('ai-off');
 if (S.min) { document.body.classList.add('ai-off'); S.page = 'plan'; S.tab = 'plan'; }
 
