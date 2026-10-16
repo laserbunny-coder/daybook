@@ -4,7 +4,7 @@
 import { admin, cors } from "../_shared/common.ts";
 import { type Db, handle, type Row } from "./tools.ts";
 
-const COLS = "id,parent_id,title,notes,done,day,start_min,after_min,duration_min,sort,day_sort,color,due,link,kind,area_id,start,milestone,hard_deadline,waits_on,deleted";
+const COLS = "id,parent_id,title,notes,done,day,start_min,after_min,duration_min,sort,day_sort,color,due,link,kind,area_id,start,milestone,hard_deadline,waits_on,done_at,actual_minutes,deleted";
 
 const headers = {
   ...cors,
@@ -38,8 +38,13 @@ function dbFor(userId: string): Db {
       }
     },
     async save(rows) {
-      const { error } = await sb.from("items").upsert(rows.map((r) => ({ ...r, user_id: userId })));
-      if (error) throw error;
+      // Rows that set done_at on purpose go apart from the rest: an upsert fills a missing
+      // column with null, and done_at left out is what lets the database stamp check-offs
+      for (const part of [rows.filter((r) => r.done_at !== undefined), rows.filter((r) => r.done_at === undefined)]) {
+        if (!part.length) continue;
+        const { error } = await sb.from("items").upsert(part.map((r) => ({ ...r, user_id: userId })));
+        if (error) throw error;
+      }
     },
     // Free hours live with the account (user_metadata.free_hours), where the app keeps them too
     async getFreeHours() {
@@ -47,6 +52,12 @@ function dbFor(userId: string): Db {
       if (error) throw error;
       const v = Number(data.user?.user_metadata?.free_hours);
       return v > 0 ? v : null;
+    },
+    async timeZone() {
+      const { data, error } = await sb.auth.admin.getUserById(userId);
+      if (error) throw error;
+      const tz = data.user?.user_metadata?.tz;
+      return typeof tz === "string" && tz ? tz : null;
     },
     async setFreeHours(hours) {
       const { data, error } = await sb.auth.admin.getUserById(userId);

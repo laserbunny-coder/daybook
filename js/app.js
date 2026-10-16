@@ -613,6 +613,7 @@ function renderDetail() {
       <div class="dt-meta">
         <button class="chip${n.d ? ' set' : ''}" data-act="dtpick">${ICON.cal}<span>${n.d ? whenLabel(n) : 'Add to a day'}</span></button>
         ${kids.length || n.c ? '' : `<label class="chip"><span class="k">Takes about</span><select id="dt-dur">${durs.sort((a, b) => a - b).map(m => `<option value="${m}"${(n.m || 60) === m ? ' selected' : ''}>${fmtDur(m)}</option>`).join('')}</select></label>`}
+        ${!kids.length && !n.c && (n.done || n.am) ? `<label class="chip took${n.am ? ' set' : ''}"><span class="k">Took</span><input type="number" id="dt-took" inputmode="numeric" min="1" max="10080" placeholder="${n.m || 60}" value="${n.am || ''}" aria-label="Minutes it really took"><span class="k">min</span></label>` : ''}
         ${kids.length || n.c ? `<label class="chip${n.st ? ' set' : ''}"><span class="k">Starts</span><input type="date" id="dt-start" value="${n.st || ''}"${n.due ? ` max="${n.due}"` : ''}></label>` : ''}
         ${kids.length || n.c || n.due || n.ms ? `<label class="chip${n.due ? ' set' : ''}"><span class="k">Due</span><input type="date" id="dt-due" value="${n.due || ''}"${n.st ? ` min="${n.st}"` : ''}></label>` : ''}
         ${kids.length || n.c ? '' : `<button class="chip ms-chip${n.ms ? ' set' : ''}" data-act="ms" aria-pressed="${!!n.ms}">${ICON.ms}<span>Milestone</span></button>`}
@@ -742,6 +743,7 @@ function describe(st) {
   if ('st' in b && 'due' in b) return `Moved ${t} on the roadmap`;
   if ('due' in b) return `Changed the due date of ${t}`;
   if ('st' in b) return `Changed the start date of ${t}`;
+  if ('am' in b) return `Changed how long ${t} took`;
   if ('ms' in b) return a.ms ? `Made ${t} a milestone` : `Made ${t} a plain task`;
   if ('hd' in b) return a.hd ? `Made ${t} a hard deadline` : `Made ${t}'s date movable`;
   if ('w' in b) return a.w ? `Set what ${t} waits on` : `${t} no longer waits on anything`;
@@ -1014,6 +1016,7 @@ document.addEventListener('change', e => {
   if (t.id === 'dt-dur') store.update(n.id, { m: +t.value });
   if (t.id === 'dt-due') store.update(n.id, { due: t.value || null });
   if (t.id === 'dt-start') store.update(n.id, { st: t.value || null });
+  if (t.id === 'dt-took') { const v = Math.round(+t.value); store.update(n.id, { am: v >= 1 && v <= 10080 ? v : null }); }
 });
 
 /* Drag and drop: mouse uses pointer events, touch uses press-and-hold */
@@ -1297,6 +1300,8 @@ function enterDemo() {
 }
 async function enterCloud(u) {
   user = u; S.demo = false; if (u.user_metadata?.free_hours) S.free = u.user_metadata.free_hours; saveUI(); showWelcome(false);
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; // so Claude reads and writes finish times in local time
+  if (tz && u.user_metadata?.tz !== tz) client.auth.updateUser({ data: { tz } }).catch(() => {});
   calendar.useGoogle(client, u.id); initAI({ cloud: true, client });
   render();
   await store.useCloud(client, u);

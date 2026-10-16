@@ -731,3 +731,7 @@ body.rm-dragging,body.rm-dragging *{cursor:grabbing!important;user-select:none;-
   body.quiet .mh .rm-free{grid-area:l;justify-self:end}
   body.quiet[data-tab="roadmap"] .main{display:flex}
 }
+/* "Took … min" on a finished task: how long it really took */
+.chip.took input{border:0;background:transparent;font:inherit;font-weight:600;color:inherit;outline:none;padding:0;width:3.2em;text-align:right;-moz-appearance:textfield;appearance:textfield}
+.chip.took input::-webkit-outer-spin-button,.chip.took input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.chip.took input::placeholder{color:var(--muted);font-weight:400}
