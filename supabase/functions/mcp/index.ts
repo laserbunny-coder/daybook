@@ -41,6 +41,19 @@ function dbFor(userId: string): Db {
       const { error } = await sb.from("items").upsert(rows.map((r) => ({ ...r, user_id: userId })));
       if (error) throw error;
     },
+    // Free hours live with the account (user_metadata.free_hours), where the app keeps them too
+    async getFreeHours() {
+      const { data, error } = await sb.auth.admin.getUserById(userId);
+      if (error) throw error;
+      const v = Number(data.user?.user_metadata?.free_hours);
+      return v > 0 ? v : null;
+    },
+    async setFreeHours(hours) {
+      const { data, error } = await sb.auth.admin.getUserById(userId);
+      if (error) throw error;
+      const { error: e2 } = await sb.auth.admin.updateUserById(userId, { user_metadata: { ...(data.user?.user_metadata ?? {}), free_hours: hours } });
+      if (e2) throw e2;
+    },
   };
 }
 

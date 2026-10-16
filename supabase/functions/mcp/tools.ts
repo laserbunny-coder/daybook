@@ -35,7 +35,13 @@ export type Db = {
   load(): Promise<Row[]>;
   /** Inserts or replaces these items. */
   save(rows: Row[]): Promise<void>;
+  /** The Roadmap's free hours per week, null when never set. */
+  getFreeHours(): Promise<number | null>;
+  setFreeHours(hours: number): Promise<void>;
 };
+
+/** What the Roadmap assumes until free hours are set (the app shows the same). */
+const FREE_DEFAULT = 10;
 
 const PALETTE = ["#4B6CB7", "#2E8B6E", "#B7791F", "#9B5BA5", "#C0564B", "#3E8E9E", "#7A7F2E", "#B0567F"];
 const VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -47,6 +53,7 @@ export const INSTRUCTIONS = `Daybook is this person's own task and calendar app.
 - Any item can carry a link back to where its notes live, often a Thymer page. When you make a task from something in Thymer, set its link to that page and put a short summary in notes, so the person can glance at it and tap through for the rest. A Thymer page link looks like https://NAME.thymer.com/?open=WORKSPACE.PAGEID; if you can't tell the address, look at the links on existing tasks for the pattern, or ask.
 - Dates are the person's local dates as YYYY-MM-DD, and times are 24-hour HH:MM.
 - The Roadmap shows each top-level project as a bar from its start date to its due date (sub-projects as thinner bars under it). Set start and due on projects and sub-projects to place them. A task marked milestone shows as a diamond on its due date (or its day); hard_deadline marks a milestone whose date can't move. waiting_on links an item to another item it waits on, such as "List footage" waiting on "NAS live".
+- The Roadmap's top strip weighs each week's scheduled task hours against the person's free hours per week (get_free_hours / set_free_hours), so over-planned weeks stand out. When planning a week, keep its scheduled hours within that number.
 - Say what you changed in plain words, since the person sees your reply, not the tool calls.`;
 
 const str = (description: string) => ({ type: "string", description });
@@ -145,6 +152,19 @@ export const TOOLS = [
         },
       },
     },
+  },
+  {
+    name: "get_free_hours",
+    title: "Free hours per week",
+    description: "How many hours a week the person has for the tasks in Daybook. The Roadmap compares each week's scheduled task hours with this, so over-planned weeks stand out. Also gives the scheduled hours for this week and the next three.",
+    inputSchema: { type: "object", properties: {} },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "set_free_hours",
+    title: "Set free hours per week",
+    description: "Sets how many hours a week the person has for the tasks in Daybook (1 to 168). Only change it when they tell you their number.",
+    inputSchema: { type: "object", required: ["hours"], properties: { hours: { type: ["integer", "string"], description: "Whole hours per week, 1 to 168." } } },
   },
   {
     name: "update_item",
@@ -307,9 +327,34 @@ function roadmapArgs(t: Tree, args: Record<string, unknown>, r: Partial<Row> & {
 
 const has = (o: Record<string, unknown>, k: string) => Object.prototype.hasOwnProperty.call(o, k) && o[k] !== undefined;
 
+function hoursArg(v: unknown): number {
+  const n = typeof v === "string" && /^\s*\d+\s*$/.test(v) ? Number(v) : v;
+  if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > 168) throw new Bad("hours must be a whole number from 1 to 168.");
+  return n;
+}
+const ymd = (d: Date) => d.toISOString().slice(0, 10);
+/** Scheduled task hours in each of the next weeks (Monday first), as the Roadmap counts them. */
+function weekLoad(rows: Row[], free: number, today = new Date(), weeks = 4) {
+  const mon = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+  mon.setUTCDate(mon.getUTCDate() - (mon.getUTCDay() + 6) % 7);
+  return Array.from({ length: weeks }, (_, i) => {
+    const a = new Date(mon); a.setUTCDate(a.getUTCDate() + i * 7);
+    const b = new Date(a); b.setUTCDate(b.getUTCDate() + 6);
+    const from = ymd(a), to = ymd(b);
+    const h = rows.filter((r) => r.kind !== "area" && r.day && r.day >= from && r.day <= to).reduce((s, r) => s + (r.duration_min || 60) / 60, 0);
+    const hours = Math.round(h * 2) / 2;
+    return { week_of: from, scheduled_hours: hours, ...(hours > free ? { over_by: Math.round((hours - free) * 2) / 2 } : {}) };
+  });
+}
+
 export async function runTool(name: string, args: Record<string, unknown>, db: Db): Promise<unknown> {
+  if (name === "set_free_hours") { const h = hoursArg(args.hours); await db.setFreeHours(h); return { free_hours_per_week: h }; }
   const t = new Tree(await db.load());
   switch (name) {
+    case "get_free_hours": {
+      const set = await db.getFreeHours(), free = set ?? FREE_DEFAULT;
+      return { free_hours_per_week: free, ...(set == null ? { note: `Not set yet; the Roadmap assumes ${FREE_DEFAULT}.` } : {}), weeks: weekLoad([...t.byId.values()], free) };
+    }
     case "list_tasks": {
       const from = has(args, "from") ? dayArg(args.from, "from") : null;
       const to = has(args, "to") ? dayArg(args.to, "to") : null;
