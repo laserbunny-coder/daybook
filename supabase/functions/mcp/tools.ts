@@ -27,6 +27,10 @@ export type Row = {
   hard_deadline?: boolean;
   /** Roadmap: the id of the item this one is waiting on. */
   waits_on?: string | null;
+  /** When a task was checked off (ISO timestamp). The database stamps it; only sent when set on purpose. */
+  done_at?: string | null;
+  /** How long a task really took, when someone filled it in. */
+  actual_minutes?: number | null;
   deleted: boolean;
 };
 
@@ -38,6 +42,8 @@ export type Db = {
   /** The Roadmap's free hours per week, null when never set. */
   getFreeHours(): Promise<number | null>;
   setFreeHours(hours: number): Promise<void>;
+  /** The person's time zone (the app records it), such as Europe/Berlin; null if unknown. */
+  timeZone(): Promise<string | null>;
 };
 
 /** What the Roadmap assumes until free hours are set (the app shows the same). */
@@ -54,6 +60,7 @@ export const INSTRUCTIONS = `Daybook is this person's own task and calendar app.
 - Dates are the person's local dates as YYYY-MM-DD, and times are 24-hour HH:MM.
 - The Roadmap shows each top-level project as a bar from its start date to its due date (sub-projects as thinner bars under it). Set start and due on projects and sub-projects to place them. A task marked milestone shows as a diamond on its due date (or its day); hard_deadline marks a milestone whose date can't move. waiting_on links an item to another item it waits on, such as "List footage" waiting on "NAS live".
 - The Roadmap's top strip weighs each week's scheduled task hours against the person's free hours per week (get_free_hours / set_free_hours), so over-planned weeks stand out. When planning a week, keep its scheduled hours within that number.
+- Checking off a task records when (done_at, in the person's local time); reopening clears it. If they say they finished something earlier, pass done_at with update_item to backdate it. actual_minutes is how long a task really took, next to its planned duration_minutes; fill it in when they tell you, or when it was far off. list_tasks with done_since lists what was finished since a date, to see their real pace.
 - Say what you changed in plain words, since the person sees your reply, not the tool calls.`;
 
 const str = (description: string) => ({ type: "string", description });
@@ -73,6 +80,7 @@ export const TOOLS = [
         project_id: str("Only tasks anywhere under this project."),
         query: str("Only tasks whose title contains these words."),
         include_done: { type: "boolean", description: "Include tasks already checked off." },
+        done_since: str("Only tasks checked off on or after this local date, YYYY-MM-DD (includes done tasks)."),
       },
     },
     annotations: { readOnlyHint: true },
@@ -179,7 +187,9 @@ export const TOOLS = [
         day: orNull("string", "New day, YYYY-MM-DD, or null to unschedule."),
         start_time: orNull("string", "New start time, HH:MM 24-hour, or null for 'sometime that day'."),
         duration_minutes: { type: "integer", description: "How long it takes, 5 to 1440." },
-        done: { type: "boolean", description: "Check off (true) or reopen (false). On a project this applies to every step under it." },
+        done: { type: "boolean", description: "Check off (true) or reopen (false). On a project this applies to every step under it. Checking off records the time in done_at; reopening clears it." },
+        done_at: str("When it was really finished, to backdate a check-off: YYYY-MM-DD HH:MM in the person's local time (or just YYYY-MM-DD, read as noon), or ISO 8601 with an offset. The item must be done, or pass done: true too. Not in the future."),
+        actual_minutes: { type: ["integer", "string", "null"], description: "How long it really took, in minutes (1 to 10080), or null to clear." },
         notes: orNull("string", "Replaces the notes. null clears them."),
         link: orNull("string", "Replaces the link. null removes it."),
         due: orNull("string", "Due date, YYYY-MM-DD, or null."),
@@ -229,6 +239,8 @@ const now = () => Date.now() / 1000;
 /** The person's items as a tree, with the lookups the tools need. */
 class Tree {
   byId = new Map<string, Row>();
+  /** The person's time zone, for showing done_at; UTC when unknown. */
+  tz: string | null = null;
   kids = new Map<string, Row[]>();
   /** Areas (Business, Personal…) are rows too, kept apart from the items. */
   areas: Row[];
@@ -283,7 +295,11 @@ class Tree {
     const area = this.areaOf(this.ancestors(r)[0] ?? r);
     if (area) o.area = area.title;
     if (this.children(r.id).length) { const p = this.progress(r); o.progress = `${p.done}/${p.total} done`; }
-    else o.done = r.done;
+    else {
+      o.done = r.done;
+      if (r.done && r.done_at) o.done_at = localStamp(r.done_at, this.tz);
+    }
+    if (r.actual_minutes) o.actual_minutes = r.actual_minutes;
     if (r.day) o.day = r.day;
     if (r.start_min != null) o.start_time = hhmm(r.start_min);
     if (!this.isProject(r)) o.duration_minutes = r.duration_min;
@@ -325,6 +341,49 @@ function roadmapArgs(t: Tree, args: Record<string, unknown>, r: Partial<Row> & {
   if (r.start && r.due && r.start > r.due) throw new Bad(`start (${r.start}) is after due (${r.due}). Change both together, or pass the other one too.`);
 }
 
+/** The wall-clock parts of an instant in a time zone, and that zone's offset from UTC in minutes. */
+function zoned(ms: number, tz: string | null) {
+  let p: Record<string, string>;
+  try {
+    p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: tz ?? "UTC", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      .formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+  } catch { return zoned(ms, null); } // an unknown zone name
+  const wall = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+  return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}`, off: Math.round((wall - Math.floor(ms / 1000) * 1000) / 60000) };
+}
+/** done_at as the person reads it: local time with its offset, such as 2026-10-16T14:05+02:00. */
+function localStamp(iso: string, tz: string | null): string {
+  const ms = Date.parse(iso);
+  if (isNaN(ms)) return iso;
+  const z = zoned(ms, tz), a = Math.abs(z.off);
+  return `${z.date}T${z.time}${z.off ? (z.off < 0 ? "-" : "+") + String(Math.floor(a / 60)).padStart(2, "0") + ":" + String(a % 60).padStart(2, "0") : "Z"}`;
+}
+/** A finish time from Claude: local wall time (in tz), a bare date (noon), or ISO 8601 with an offset. */
+function doneAtArg(v: unknown, tz: string | null, nowMs = Date.now()): string {
+  const m = typeof v === "string" ? /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i.exec(v.trim()) : null;
+  if (!m) throw new Bad("done_at must be a local time like 2026-10-14 16:30, a date like 2026-10-14, or ISO 8601 with an offset.");
+  const [, y, mo, d, h = "12", mi = "00", sec = "00", zone] = m;
+  dayArg(`${y}-${mo}-${d}`, "done_at");
+  if (+h > 23) throw new Bad("done_at's hour must be 0 to 23.");
+  const wall = Date.UTC(+y, +mo - 1, +d, +h, +mi, +sec);
+  let ms: number;
+  if (zone) {
+    const z = zone.toUpperCase() === "Z" ? 0 : (zone[0] === "-" ? -1 : 1) * (+zone.slice(1, 3) * 60 + +zone.slice(-2));
+    ms = wall - z * 60000;
+  } else {
+    ms = wall - zoned(wall, tz).off * 60000;
+    ms = wall - zoned(ms, tz).off * 60000; // settle the offset near a clock change
+  }
+  if (ms > nowMs + 5 * 60000) throw new Bad("done_at can't be in the future.");
+  if (ms < Date.UTC(2000, 0, 1)) throw new Bad("done_at is too far back.");
+  return new Date(ms).toISOString();
+}
+function minutesArg(v: unknown): number {
+  const n = typeof v === "string" && /^\s*\d+\s*$/.test(v) ? Number(v) : v;
+  if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > 10080) throw new Bad("actual_minutes must be a whole number of minutes from 1 to 10080.");
+  return n;
+}
+
 const has = (o: Record<string, unknown>, k: string) => Object.prototype.hasOwnProperty.call(o, k) && o[k] !== undefined;
 
 function hoursArg(v: unknown): number {
@@ -350,6 +409,7 @@ function weekLoad(rows: Row[], free: number, today = new Date(), weeks = 4) {
 export async function runTool(name: string, args: Record<string, unknown>, db: Db): Promise<unknown> {
   if (name === "set_free_hours") { const h = hoursArg(args.hours); await db.setFreeHours(h); return { free_hours_per_week: h }; }
   const t = new Tree(await db.load());
+  if (["list_tasks", "list_projects", "get_item", "update_item"].includes(name)) t.tz = await db.timeZone();
   switch (name) {
     case "get_free_hours": {
       const set = await db.getFreeHours(), free = set ?? FREE_DEFAULT;
@@ -361,13 +421,16 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       const under = has(args, "project_id") ? t.get(args.project_id) : null;
       const words = typeof args.query === "string" ? args.query.toLowerCase().split(/\s+/).filter(Boolean) : [];
       let rows = [...t.byId.values()].filter((r) => !t.isProject(r));
-      if (!args.include_done) rows = rows.filter((r) => !r.done);
+      const since = has(args, "done_since") ? dayArg(args.done_since, "done_since") : null;
+      if (since) rows = rows.filter((r) => r.done && r.done_at && zoned(Date.parse(r.done_at), t.tz).date >= since);
+      else if (!args.include_done) rows = rows.filter((r) => !r.done);
       if (args.unscheduled) rows = rows.filter((r) => !r.day && !t.ancestors(r).some((a) => a.day));
       if (from) rows = rows.filter((r) => r.day && r.day >= from);
       if (to) rows = rows.filter((r) => r.day && r.day <= to);
       if (under) rows = rows.filter((r) => t.ancestors(r).includes(under));
       if (words.length) rows = rows.filter((r) => words.every((w) => r.title.toLowerCase().includes(w)));
-      rows.sort((a, b) => (a.day ?? "9999").localeCompare(b.day ?? "9999") || (a.start_min ?? 1e4) - (b.start_min ?? 1e4) || (a.day_sort ?? a.sort) - (b.day_sort ?? b.sort));
+      if (since) rows.sort((a, b) => (a.done_at ?? "").localeCompare(b.done_at ?? ""));
+      else rows.sort((a, b) => (a.day ?? "9999").localeCompare(b.day ?? "9999") || (a.start_min ?? 1e4) - (b.start_min ?? 1e4) || (a.day_sort ?? a.sort) - (b.day_sort ?? b.sort));
       const out = rows.slice(0, 300).map((r) => t.describe(r));
       return rows.length > 300 ? { tasks: out, note: `Showing 300 of ${rows.length}. Narrow it down with dates or a project.` } : { tasks: out };
     }
@@ -453,16 +516,28 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
         if (args.area === null && r.color === "area") r.color = t.areaOf(r)?.color ?? null; // keep the colour it had
         r.area_id = args.area === null ? null : t.area(args.area).id;
       }
-      if (has(args, "done")) {
-        if (typeof args.done !== "boolean") throw new Bad("done must be true or false.");
-        const k = t.children(r.id);
-        if (k.length) {
-          for (const l of t.leaves(r)) if (l.done !== args.done) changed.push({ ...l, done: args.done });
-        } else r.done = args.done;
+      // done_at isn't sent unless set on purpose, so the database stamps check-offs itself
+      const k = t.children(r.id);
+      delete r.done_at;
+      if (has(args, "actual_minutes")) {
+        if (k.length) throw new Bad("actual_minutes is for a task; set it on the steps.");
+        r.actual_minutes = args.actual_minutes === null || args.actual_minutes === "" ? null : minutesArg(args.actual_minutes);
       }
+      const at = has(args, "done_at") ? doneAtArg(args.done_at, t.tz) : undefined;
+      if (has(args, "done")) {
+        const done = boolArg(args.done, "done");
+        if (at && !done) throw new Bad("done_at is for a finished item; it can't go with done: false.");
+        if (k.length) {
+          for (const l of t.leaves(r)) if (l.done !== done || at) { const c: Row = { ...l, done }; delete c.done_at; if (at) c.done_at = at; changed.push(c); }
+        } else r.done = done;
+      } else if (at && (k.length ? !t.isDone(r) : !r.done)) throw new Bad("This isn't checked off yet; pass done: true with done_at.");
+      else if (at && k.length) for (const l of t.leaves(r)) { const c: Row = { ...l }; c.done_at = at; changed.push(c); }
+      if (at && !k.length) r.done_at = at;
       changed.unshift(r);
       await db.save(changed);
+      for (const c of changed) if (c.done_at === undefined) { const o = t.byId.get(c.id); c.done_at = !c.done ? null : o?.done ? o.done_at ?? null : new Date().toISOString(); } // what the database stamped
       const after = new Tree([...t.areas, ...[...t.byId.values()].map((x) => changed.find((c) => c.id === x.id) ?? x)]);
+      after.tz = t.tz;
       return { updated: after.describe(after.get(r.id)), ...(changed.length > 1 ? { steps_changed: changed.length - 1 } : {}) };
     }
   }
