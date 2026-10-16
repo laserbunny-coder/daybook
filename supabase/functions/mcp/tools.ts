@@ -31,11 +31,19 @@ export type Row = {
   done_at?: string | null;
   /** How long a task really took, when someone filled it in. */
   actual_minutes?: number | null;
+  /** A repeating task (a series): how it repeats. Its day is the day it starts. */
+  repeat_rule?: Rule | null;
+  /** A stored repeat of a series: the series' id, and the date it was due. */
+  series_id?: string | null;
+  occurs_on?: string | null;
   deleted: boolean;
 };
 
+/** How a series repeats. days: 0 is Sunday. dom: day of the month. until: its last day. */
+export type Rule = { every: "day" | "weekday" | "week" | "month"; days?: number[]; interval?: number; dom?: number; until?: string };
+
 export type Db = {
-  /** Every item this person has that isn't deleted. */
+  /** Every item this person has that isn't deleted, plus skipped repeats (deleted, with occurs_on). */
   load(): Promise<Row[]>;
   /** Inserts or replaces these items. */
   save(rows: Row[]): Promise<void>;
@@ -61,16 +69,28 @@ export const INSTRUCTIONS = `Daybook is this person's own task and calendar app.
 - The Roadmap shows each top-level project as a bar from its start date to its due date (sub-projects as thinner bars under it). Set start and due on projects and sub-projects to place them. A task marked milestone shows as a diamond on its due date (or its day); hard_deadline marks a milestone whose date can't move. waiting_on links an item to another item it waits on, such as "List footage" waiting on "NAS live".
 - The Roadmap's top strip weighs each week's scheduled task hours against the person's free hours per week (get_free_hours / set_free_hours), so over-planned weeks stand out. When planning a week, keep its scheduled hours within that number.
 - Checking off a task records when (done_at, in the person's local time); reopening clears it. If they say they finished something earlier, pass done_at with update_item to backdate it. actual_minutes is how long a task really took, next to its planned duration_minutes; fill it in when they tell you, or when it was far off. list_tasks with done_since lists what was finished since a date, to see their real pace.
+- A task can repeat (daily, weekdays, weekly on chosen days, every N weeks, or monthly), with an optional last day: pass repeat to add_task or update_item. The task is then a series that starts on its day. Each repeat shows on its own day and is checked off on its own. list_tasks with from and to lists the repeats in that range: each has its own id (series id~date) and a series_id. To change one day's repeat (move it, check it off, rename it), use its id; to change every repeat, use the series_id. A repeat moved off the plan (day null) is skipped. repeat: null stops a series repeating. Repeating tasks count in each week's scheduled hours but have no bar on the Roadmap.
 - Say what you changed in plain words, since the person sees your reply, not the tool calls.`;
 
 const str = (description: string) => ({ type: "string", description });
+const REPEAT = {
+  type: "object",
+  description: "Makes it a repeating task that starts on its day (today if it has none). every: day, weekday (Monday to Friday), week or month. For week: days, such as [\"mon\", \"thu\"] (defaults to the start day's weekday), and interval for every 2, 3… weeks. A monthly task repeats on its start day's date. until: its last day, YYYY-MM-DD (optional).",
+  properties: {
+    every: { type: "string", enum: ["day", "weekday", "week", "month"] },
+    days: { type: "array", items: { type: "string", enum: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] } },
+    interval: { type: "integer", description: "Weeks between repeats, 1 to 12. Defaults to 1." },
+    until: { type: ["string", "null"], description: "Last day it repeats, YYYY-MM-DD." },
+  },
+  required: ["every"],
+};
 const orNull = (type: string, description: string) => ({ type: [type, "null"], description });
 
 export const TOOLS = [
   {
     name: "list_tasks",
     title: "List tasks",
-    description: "Lists tasks (items with no steps under them), with their project, day, time, duration and link. Filter by a date range, by project, by words in the title, or ask for unscheduled ones. Done tasks are left out unless include_done is true.",
+    description: "Lists tasks (items with no steps under them), with their project, day, time, duration and link. Filter by a date range, by project, by words in the title, or ask for unscheduled ones. With from and/or to, a repeating task is listed as each of its repeats in that range (up to a year); without dates, once, with how it repeats. Done tasks are left out unless include_done is true.",
     inputSchema: {
       type: "object",
       properties: {
@@ -120,6 +140,7 @@ export const TOOLS = [
         milestone: { type: ["boolean", "string"], enum: [true, false, "true", "false"], description: "Mark it as a milestone: a diamond on the Roadmap on its due date (or its day)." },
         hard_deadline: { type: ["boolean", "string"], enum: [true, false, "true", "false"], description: "A milestone whose date can't move (drawn red). Makes it a milestone too." },
         waiting_on: str("Id of another item this one waits on."),
+        repeat: REPEAT,
       },
     },
   },
@@ -177,7 +198,7 @@ export const TOOLS = [
   {
     name: "update_item",
     title: "Change an item",
-    description: "Changes a task or project: move it to another day or time, unschedule it, check it off, rename it, change its notes or link, set its start and due dates, mark it a milestone or hard deadline, set what it's waiting on, or move it under another project. Only the fields you pass change; pass null to clear one. Changing the day without a start_time makes it 'sometime that day'.",
+    description: "Changes a task or project: move it to another day or time, unschedule it, check it off, rename it, change its notes or link, set its start and due dates, mark it a milestone or hard deadline, set what it's waiting on, move it under another project, or make it repeat. Only the fields you pass change; pass null to clear one. Changing the day without a start_time makes it 'sometime that day'. For a repeating task: a repeat's id (series id~date) changes only that day's repeat (day null skips it); the series_id changes every repeat (its day is the day the series starts).",
     inputSchema: {
       type: "object",
       required: ["id"],
@@ -199,6 +220,7 @@ export const TOOLS = [
         waiting_on: orNull("string", "Id of the item this one waits on, or null to clear."),
         project_id: orNull("string", "Move under this project, or null to move to the inbox."),
         area: orNull("string", "For a top-level project or task: move it to this area, by name, or null for no area (a task goes back to the inbox)."),
+        repeat: { ...REPEAT, type: ["object", "null"], description: REPEAT.description + " On a series (or one of its repeats) this changes how the whole series repeats; null stops it repeating, leaving it a plain task on its next day." },
       },
     },
   },
@@ -236,6 +258,76 @@ function textArg(v: unknown, name: string, max: number): string {
 const hhmm = (m: number) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
 const now = () => Date.now() / 1000;
 
+/* Repeating tasks, worked out the same way as the app (js/repeat.js). A series' repeats aren't stored;
+   one is only stored once it's changed, checked off or skipped: id "<series id>~<date>". */
+const utc = (s: string) => new Date(s + "T00:00:00Z");
+const addDays = (s: string, n: number) => { const d = utc(s); d.setUTCDate(d.getUTCDate() + n); return ymd(d); };
+const dow = (s: string) => utc(s).getUTCDay();
+const mondayOf = (s: string) => addDays(s, -((dow(s) + 6) % 7));
+const between = (a: string, b: string) => Math.round((utc(b).getTime() - utc(a).getTime()) / 864e5);
+const DAY_NAMES = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const DAY_TEXT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+export function repeatsOn(r: Rule | null | undefined, start: string | null, d: string): boolean {
+  if (!r || !start || d < start || (r.until && d > r.until)) return false;
+  const w = dow(d);
+  switch (r.every) {
+    case "day": return true;
+    case "weekday": return w >= 1 && w <= 5;
+    case "week": {
+      if (!(r.days?.length ? r.days : [dow(start)]).includes(w)) return false;
+      const n = Math.max(1, r.interval || 1);
+      return n === 1 || (between(mondayOf(start), mondayOf(d)) / 7) % n === 0;
+    }
+    case "month": {
+      const x = utc(d), last = new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth() + 1, 0)).getUTCDate();
+      return x.getUTCDate() === Math.min(r.dom || utc(start).getUTCDate(), last);
+    }
+  }
+  return false;
+}
+function ruleText(r: Rule, start: string): string {
+  let t = "";
+  if (r.every === "day") t = "every day";
+  else if (r.every === "weekday") t = "weekdays";
+  else if (r.every === "week") {
+    const days = r.days?.length ? r.days : [dow(start)], n = r.interval || 1;
+    const names = [1, 2, 3, 4, 5, 6, 0].filter((d) => days.includes(d)).map((d) => DAY_TEXT[d]).join(", ");
+    t = n > 1 ? `every ${n} weeks on ${names}` : `every ${names}`;
+  } else t = `monthly on day ${r.dom || utc(start).getUTCDate()}`;
+  return t + (r.until ? ` until ${r.until}` : "");
+}
+/** A repeat rule from Claude: an object (or the same as JSON text). */
+function repeatArg(v: unknown, start: string): Rule {
+  let o = v;
+  if (typeof o === "string") { try { o = JSON.parse(o); } catch { o = { every: o.trim().toLowerCase() }; } }
+  if (!o || typeof o !== "object") throw new Bad("repeat must be an object such as {\"every\": \"week\", \"days\": [\"mon\"]}.");
+  const a = o as Record<string, unknown>;
+  const every = String(a.every ?? "").trim().toLowerCase().replace(/^(daily|days)$/, "day").replace(/^(weekdays)$/, "weekday").replace(/^(weekly|weeks)$/, "week").replace(/^(monthly|months)$/, "month");
+  if (!["day", "weekday", "week", "month"].includes(every)) throw new Bad("repeat.every must be day, weekday, week or month.");
+  const r: Rule = { every: every as Rule["every"] };
+  if (every === "week") {
+    const raw = a.days == null ? [] : Array.isArray(a.days) ? a.days : [a.days];
+    const days = raw.map((d) => {
+      const i = typeof d === "number" ? d : DAY_NAMES.indexOf(String(d).trim().toLowerCase().slice(0, 3));
+      if (!Number.isInteger(i) || i < 0 || i > 6) throw new Bad(`repeat.days: ${JSON.stringify(d)} isn't a weekday. Use mon, tue, wed, thu, fri, sat or sun.`);
+      return i;
+    });
+    r.days = [...new Set(days.length ? days : [dow(start)])].sort((x, y) => x - y);
+    const n = a.interval == null ? 1 : Number(a.interval);
+    if (!Number.isInteger(n) || n < 1 || n > 12) throw new Bad("repeat.interval must be a whole number of weeks from 1 to 12.");
+    r.interval = n;
+  } else if (a.days != null || (a.interval != null && Number(a.interval) !== 1)) throw new Bad("repeat.days and repeat.interval are only for every: week.");
+  if (every === "month") r.dom = utc(start).getUTCDate();
+  if (a.until != null && a.until !== "") {
+    r.until = dayArg(a.until, "repeat.until");
+    if (r.until < start) throw new Bad(`repeat.until (${r.until}) is before the day it starts (${start}).`);
+  }
+  return r;
+}
+// What a stored repeat shares with its series, and what a change to the series hands down to them
+const SHARED: (keyof Row)[] = ["parent_id", "title", "notes", "start_min", "after_min", "duration_min", "sort", "day_sort", "color", "link", "area_id", "waits_on"];
+const FOLLOW: (keyof Row)[] = ["parent_id", "title", "notes", "start_min", "duration_min", "color", "link", "waits_on", "area_id"];
+
 /** The person's items as a tree, with the lookups the tools need. */
 class Tree {
   byId = new Map<string, Row>();
@@ -244,9 +336,20 @@ class Tree {
   kids = new Map<string, Row[]>();
   /** Areas (Business, Personal…) are rows too, kept apart from the items. */
   areas: Row[];
+  /** Stored repeats of each series by the date they were due (skipped ones too), and the ones still on the plan. */
+  occ = new Map<string, Map<string, Row>>();
+  occLive = new Map<string, Row>();
+  series: Row[] = [];
+  raw: Row[];
   constructor(all: Row[]) {
-    this.areas = all.filter((r) => r.kind === "area").sort((a, b) => a.sort - b.sort);
-    const rows = all.filter((r) => r.kind !== "area");
+    this.raw = all;
+    this.areas = all.filter((r) => r.kind === "area" && !r.deleted).sort((a, b) => a.sort - b.sort);
+    for (const r of all) if (r.series_id) {
+      if (r.occurs_on) { const m = this.occ.get(r.series_id) ?? new Map(); m.set(r.occurs_on, r); this.occ.set(r.series_id, m); }
+      if (!r.deleted) this.occLive.set(r.id, r);
+    }
+    const rows = all.filter((r) => r.kind !== "area" && !r.deleted && !r.series_id);
+    this.series = rows.filter((r) => r.repeat_rule);
     for (const r of rows) this.byId.set(r.id, r);
     for (const r of rows) if (r.parent_id && this.byId.has(r.parent_id)) {
       const k = this.kids.get(r.parent_id) ?? [];
@@ -256,9 +359,39 @@ class Tree {
     for (const k of this.kids.values()) k.sort((a, b) => a.sort - b.sort);
   }
   get(id: unknown): Row {
-    const r = typeof id === "string" ? this.byId.get(id) : undefined;
+    const r = typeof id === "string" ? this.byId.get(id) ?? this.occLive.get(id) ?? this.ghost(id) : undefined;
     if (!r) throw new Bad(`No item with id ${JSON.stringify(id)}. Use list_tasks or list_projects to find ids.`);
     return r;
+  }
+  /** A repeat that isn't stored, worked out from its series (not saved until it's changed). */
+  ghost(id: string): Row | undefined {
+    const m = /^(.+)~(\d{4}-\d{2}-\d{2})$/.exec(id);
+    const s = m ? this.byId.get(m[1]) : undefined;
+    if (!m || !s?.repeat_rule || !repeatsOn(s.repeat_rule, s.day, m[2]) || this.occ.get(s.id)?.has(m[2])) return undefined;
+    return this.virt(s, m[2]);
+  }
+  virt(s: Row, d: string): Row {
+    const r = newRow({ id: `${s.id}~${d}`, day: d, series_id: s.id, occurs_on: d, repeat_rule: null });
+    for (const k of SHARED) (r as Record<string, unknown>)[k] = s[k] ?? null;
+    return r;
+  }
+  /** Every repeat on day d: stored ones on it, and worked-out ones due that day. */
+  occOn(d: string): Row[] {
+    const out = [...this.occLive.values()].filter((r) => r.day === d);
+    for (const s of this.series) if (repeatsOn(s.repeat_rule, s.day, d) && !this.occ.get(s.id)?.has(d)) out.push(this.virt(s, d));
+    return out;
+  }
+  occBetween(from: string, to: string): Row[] {
+    const out: Row[] = [];
+    for (let d = from, i = 0; d <= to && i < 400; d = addDays(d, 1), i++) out.push(...this.occOn(d));
+    return out;
+  }
+  /** This tree with some rows changed or added. */
+  with(changed: Row[]) {
+    const ids = new Set(changed.map((c) => c.id));
+    const t = new Tree([...this.raw.filter((r) => !ids.has(r.id)), ...changed]);
+    t.tz = this.tz;
+    return t;
   }
   children = (id: string) => this.kids.get(id) ?? [];
   areaOf = (r: Row) => (r.parent_id == null && r.area_id ? this.areas.find((a) => a.id === r.area_id) : undefined);
@@ -274,7 +407,7 @@ class Tree {
     return k.length ? k.flatMap((c) => this.leaves(c)) : [r];
   }
   progress(r: Row) {
-    const L = this.children(r.id).length ? this.leaves(r) : [];
+    const L = this.children(r.id).length ? this.leaves(r).filter((l) => !l.repeat_rule) : []; // a repeating task never finishes
     return { done: L.filter((l) => l.done).length, total: L.length };
   }
   isDone(r: Row) {
@@ -300,7 +433,12 @@ class Tree {
       if (r.done && r.done_at) o.done_at = localStamp(r.done_at, this.tz);
     }
     if (r.actual_minutes) o.actual_minutes = r.actual_minutes;
-    if (r.day) o.day = r.day;
+    if (r.repeat_rule && r.day) {
+      o.repeats = ruleText(r.repeat_rule, r.day); o.starts = r.day;
+      o.repeat = { every: r.repeat_rule.every, ...(r.repeat_rule.every === "week" ? { days: (r.repeat_rule.days ?? []).map((d) => DAY_NAMES[d]), interval: r.repeat_rule.interval ?? 1 } : {}), ...(r.repeat_rule.until ? { until: r.repeat_rule.until } : {}) };
+      delete o.done;
+    } else if (r.day) o.day = r.day;
+    if (r.series_id) { o.series_id = r.series_id; const s = this.byId.get(r.series_id); if (s?.repeat_rule && s.day) o.repeats = ruleText(s.repeat_rule, s.day); }
     if (r.start_min != null) o.start_time = hhmm(r.start_min);
     if (!this.isProject(r)) o.duration_minutes = r.duration_min;
     if (r.start) o.start = r.start;
@@ -392,15 +530,16 @@ function hoursArg(v: unknown): number {
   return n;
 }
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
-/** Scheduled task hours in each of the next weeks (Monday first), as the Roadmap counts them. */
-function weekLoad(rows: Row[], free: number, today = new Date(), weeks = 4) {
+/** Scheduled task hours in each of the next weeks (Monday first), as the Roadmap counts them: every repeat counts. */
+function weekLoad(t: Tree, free: number, today = new Date(), weeks = 4) {
+  const rows = [...t.byId.values()].filter((r) => !r.repeat_rule);
   const mon = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
   mon.setUTCDate(mon.getUTCDate() - (mon.getUTCDay() + 6) % 7);
   return Array.from({ length: weeks }, (_, i) => {
     const a = new Date(mon); a.setUTCDate(a.getUTCDate() + i * 7);
     const b = new Date(a); b.setUTCDate(b.getUTCDate() + 6);
     const from = ymd(a), to = ymd(b);
-    const h = rows.filter((r) => r.kind !== "area" && r.day && r.day >= from && r.day <= to).reduce((s, r) => s + (r.duration_min || 60) / 60, 0);
+    const h = [...rows.filter((r) => r.day && r.day >= from && r.day <= to), ...t.occBetween(from, to)].reduce((s, r) => s + (r.duration_min || 60) / 60, 0);
     const hours = Math.round(h * 2) / 2;
     return { week_of: from, scheduled_hours: hours, ...(hours > free ? { over_by: Math.round((hours - free) * 2) / 2 } : {}) };
   });
@@ -409,11 +548,12 @@ function weekLoad(rows: Row[], free: number, today = new Date(), weeks = 4) {
 export async function runTool(name: string, args: Record<string, unknown>, db: Db): Promise<unknown> {
   if (name === "set_free_hours") { const h = hoursArg(args.hours); await db.setFreeHours(h); return { free_hours_per_week: h }; }
   const t = new Tree(await db.load());
-  if (["list_tasks", "list_projects", "get_item", "update_item"].includes(name)) t.tz = await db.timeZone();
+  if (["list_tasks", "list_projects", "get_item", "update_item", "add_task"].includes(name)) t.tz = await db.timeZone();
+  const today = () => zoned(Date.now(), t.tz).date;
   switch (name) {
     case "get_free_hours": {
       const set = await db.getFreeHours(), free = set ?? FREE_DEFAULT;
-      return { free_hours_per_week: free, ...(set == null ? { note: `Not set yet; the Roadmap assumes ${FREE_DEFAULT}.` } : {}), weeks: weekLoad([...t.byId.values()], free) };
+      return { free_hours_per_week: free, ...(set == null ? { note: `Not set yet; the Roadmap assumes ${FREE_DEFAULT}.` } : {}), weeks: weekLoad(t, free) };
     }
     case "list_tasks": {
       const from = has(args, "from") ? dayArg(args.from, "from") : null;
@@ -422,6 +562,11 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       const words = typeof args.query === "string" ? args.query.toLowerCase().split(/\s+/).filter(Boolean) : [];
       let rows = [...t.byId.values()].filter((r) => !t.isProject(r));
       const since = has(args, "done_since") ? dayArg(args.done_since, "done_since") : null;
+      // With dates, a repeating task is each of its repeats in the range; without, the series itself
+      if (from || to) {
+        const lo = from ?? (to! < today() ? to! : today()), hi = to ?? addDays(lo, 31);
+        rows = rows.filter((r) => !r.repeat_rule).concat(hi >= lo ? t.occBetween(lo, hi < addDays(lo, 366) ? hi : addDays(lo, 366)) : []);
+      } else if (since) rows = rows.concat([...t.occLive.values()].filter((r) => r.done));
       if (since) rows = rows.filter((r) => r.done && r.done_at && zoned(Date.parse(r.done_at), t.tz).date >= since);
       else if (!args.include_done) rows = rows.filter((r) => !r.done);
       if (args.unscheduled) rows = rows.filter((r) => !r.day && !t.ancestors(r).some((a) => a.day));
@@ -455,9 +600,14 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       if (has(args, "link")) f.link = linkArg(args.link);
       if (has(args, "due")) f.due = dayArg(args.due, "due");
       roadmapArgs(t, args, f);
+      if (has(args, "repeat")) {
+        if (f.milestone) throw new Bad("A repeating task can't be a milestone.");
+        if (!f.day) f.day = today();
+        f.repeat_rule = repeatArg(args.repeat, f.day);
+      }
       const r = newRow(f);
       await db.save([r]);
-      return { added: { ...new Tree([...t.areas, ...t.byId.values(), r]).describe(r) } };
+      return { added: t.with([r]).describe(r) };
     }
     case "add_project": {
       const used = new Set([...t.byId.values()].filter((r) => r.parent_id == null && r.color).map((r) => r.color));
@@ -474,6 +624,7 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
     }
     case "add_steps": {
       const p = t.get(args.parent_id);
+      if (p.repeat_rule || p.series_id) throw new Bad("A repeating task can't have steps.");
       if (!Array.isArray(args.steps) || !args.steps.length || args.steps.length > 50) throw new Bad("steps must list 1 to 50 steps.");
       const base = Math.max(now(), ...t.children(p.id).map((c) => c.sort));
       const rows = args.steps.map((s: Record<string, unknown>, i: number) => {
@@ -487,10 +638,25 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
     case "update_item": {
       const r = { ...t.get(args.id) };
       const changed: Row[] = [];
+      const occ = !!r.series_id, series = !!r.repeat_rule, before = { ...r };
+      if (occ) {
+        // One day's repeat: changing it stores it. How it repeats, and where it sits, belong to the series.
+        if (has(args, "repeat")) {
+          if (Object.keys(args).some((k) => k !== "id" && k !== "repeat" && has(args, k))) throw new Bad(`repeat changes the whole series; pass it on its own, or use the series_id (${r.series_id}).`);
+          return runTool(name, { id: r.series_id, repeat: args.repeat }, db);
+        }
+        for (const k of ["project_id", "area", "start", "due", "milestone", "hard_deadline"]) if (has(args, k)) throw new Bad(`${k} belongs to the whole series; pass its series_id (${r.series_id}) instead.`);
+      }
+      if (series) {
+        if (has(args, "done") || has(args, "done_at") || has(args, "actual_minutes")) throw new Bad("Check off one day's repeat, not the whole series: list_tasks with from and to gives each repeat's id.");
+        if (has(args, "day") && args.day === null) throw new Bad("A repeating task needs the day it starts. To stop it repeating, pass repeat: null.");
+        if (args.milestone === true || args.hard_deadline === true) throw new Bad("A repeating task can't be a milestone.");
+      }
       if (has(args, "title")) { r.title = textArg(args.title, "title", 500).trim(); if (!r.title) throw new Bad("title can't be empty."); }
       if (has(args, "day")) {
         const d = args.day === null ? null : dayArg(args.day, "day");
-        if (d !== r.day) { r.day = d; r.start_min = null; r.after_min = null; r.day_sort = now(); }
+        if (d !== r.day && series) r.day = d; // the day the series starts; its time stays
+        else if (d !== r.day) { r.day = d; r.start_min = null; r.after_min = null; r.day_sort = now(); }
       }
       if (has(args, "start_time")) {
         if (args.start_time === null) r.start_min = null;
@@ -533,12 +699,41 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       } else if (at && (k.length ? !t.isDone(r) : !r.done)) throw new Bad("This isn't checked off yet; pass done: true with done_at.");
       else if (at && k.length) for (const l of t.leaves(r)) { const c: Row = { ...l }; c.done_at = at; changed.push(c); }
       if (at && !k.length) r.done_at = at;
+      if (has(args, "repeat")) {
+        if (args.repeat === null) {
+          if (series) { // a plain task again, on its next repeat's day; its stored repeats that aren't done go
+            const next = t.occBetween(today() > r.day! ? today() : r.day!, addDays(today() > r.day! ? today() : r.day!, 400)).find((o) => o.series_id === r.id && !o.done);
+            r.repeat_rule = null; r.day = next?.day ?? r.day; r.done = false;
+            if (next) for (const k of SHARED) (r as Record<string, unknown>)[k] = next[k] ?? null;
+            for (const o of t.occLive.values()) if (o.series_id === r.id && !o.done) changed.push({ ...o, deleted: true, occurs_on: null });
+          }
+        } else {
+          if (k.length) throw new Bad("A project can't repeat; make one of its tasks repeat instead.");
+          if (!series && (r.milestone || r.hard_deadline)) throw new Bad("A milestone can't repeat.");
+          if (!r.day) r.day = today();
+          r.repeat_rule = repeatArg(args.repeat, r.day);
+          r.done = false;
+        }
+      }
+      if (r.repeat_rule && r.repeat_rule.until && r.day && r.repeat_rule.until < r.day) throw new Bad(`The series would end (${r.repeat_rule.until}) before it starts (${r.day}).`);
+      if (series && r.repeat_rule) {
+        // A change to the series goes to its stored repeats that were still the same as the series (not done ones),
+        // and those no longer on its days (a new rule, start or end) go
+        for (const o0 of t.occLive.values()) {
+          if (o0.series_id !== r.id || o0.done) continue;
+          const o = { ...o0 }; let ch = false;
+          for (const key of FOLLOW) if ((r[key] ?? null) !== (before[key] ?? null) && (o[key] ?? null) === (before[key] ?? null)) { (o as Record<string, unknown>)[key] = r[key]; ch = true; }
+          if (!repeatsOn(r.repeat_rule, r.day, o.occurs_on!)) { o.deleted = true; o.occurs_on = null; ch = true; }
+          if (ch) changed.push(o);
+        }
+      }
+      if (occ && !r.day) { r.deleted = true; r.start_min = null; r.day = before.day; } // a repeat taken off the plan is skipped
       changed.unshift(r);
       await db.save(changed);
-      for (const c of changed) if (c.done_at === undefined) { const o = t.byId.get(c.id); c.done_at = !c.done ? null : o?.done ? o.done_at ?? null : new Date().toISOString(); } // what the database stamped
-      const after = new Tree([...t.areas, ...[...t.byId.values()].map((x) => changed.find((c) => c.id === x.id) ?? x)]);
-      after.tz = t.tz;
-      return { updated: after.describe(after.get(r.id)), ...(changed.length > 1 ? { steps_changed: changed.length - 1 } : {}) };
+      if (r.deleted) return { skipped: { id: r.id, title: r.title, day: r.occurs_on, series_id: r.series_id } };
+      for (const c of changed) if (c.done_at === undefined) { const o = t.byId.get(c.id) ?? t.occLive.get(c.id); c.done_at = !c.done ? null : o?.done ? o.done_at ?? null : new Date().toISOString(); } // what the database stamped
+      const after = t.with(changed);
+      return { updated: after.describe(after.get(r.id)), ...(changed.length > 1 ? { [series ? "stored_repeats_changed" : "steps_changed"]: changed.length - 1 } : {}) };
     }
   }
   throw new Bad(`Unknown tool ${name}.`);

@@ -4,6 +4,7 @@
 // Changes are applied locally at once, cached on the device, and synced to
 // Supabase in the background so the phone and computer stay in step.
 import { add, lsGet, lsSet, today, uid } from './util.js';
+import { nextOn, occId, repeatsOn, shiftRule, splitOcc } from './repeat.js';
 
 const nodes = new Map();          // id -> node (deleted ones kept as tombstones)
 const listeners = new Set();
@@ -14,7 +15,7 @@ let cursor = null;                // newest server updated_at we have seen
 let flushTimer = null, retryTimer = null;
 export const sync = { state: 'local', pending: 0 }; // local | syncing | saved | offline | error
 
-const ROW = { p: 'parent_id', t: 'title', notes: 'notes', done: 'done', d: 'day', s: 'start_min', m: 'duration_min', o: 'sort', c: 'color', due: 'due', link: 'link', a: 'after_min', ds: 'day_sort', k: 'kind', ar: 'area_id', st: 'start', ms: 'milestone', hd: 'hard_deadline', w: 'waits_on', am: 'actual_minutes', x: 'deleted' };
+const ROW = { p: 'parent_id', t: 'title', notes: 'notes', done: 'done', d: 'day', s: 'start_min', m: 'duration_min', o: 'sort', c: 'color', due: 'due', link: 'link', a: 'after_min', ds: 'day_sort', k: 'kind', ar: 'area_id', st: 'start', ms: 'milestone', hd: 'hard_deadline', w: 'waits_on', am: 'actual_minutes', r: 'repeat_rule', rs: 'series_id', oc: 'occurs_on', x: 'deleted' };
 const toRow = n => { const r = { id: n.id }; for (const [k, col] of Object.entries(ROW)) r[col] = n[k] ?? (k === 'done' || k === 'x' || k === 'ms' || k === 'hd' ? false : k === 'm' ? 60 : k === 'o' ? 0 : null); return r; };
 const fromRow = r => { const n = { id: r.id }; for (const [k, col] of Object.entries(ROW)) n[k] = r[col]; return n; };
 
@@ -23,13 +24,103 @@ function saveCache() { if (cacheKey) lsSet(cacheKey, { nodes: [...nodes.values()
 function setSync(state) { sync.state = state; sync.pending = dirty.size; for (const f of listeners) f('sync'); }
 
 export function onChange(f) { listeners.add(f); return () => listeners.delete(f); }
-export const all = () => [...nodes.values()].filter(n => !n.x && n.k !== 'area');
+// A repeating task's stored occurrences are left out: they show on their days (occOn), not in the project tree
+export const all = () => [...nodes.values()].filter(n => !n.x && n.k !== 'area' && !n.rs);
 export const areas = () => [...nodes.values()].filter(n => !n.x && n.k === 'area').sort((a, b) => a.o - b.o);
 /** An item even if it's been deleted (to name it in Undo). */
 export const peek = id => nodes.get(id);
-export const get = id => { const n = nodes.get(id); return n && !n.x ? n : null; };
+export const get = id => { const n = nodes.get(id); return n && !n.x ? n : ghost(id); };
 
-function touch(n) { nodes.set(n.id, n); if (sb) { dirty.add(n.id); scheduleFlush(); } }
+function touch(n) { nodes.set(n.id, n); IX = null; if (sb) { dirty.add(n.id); scheduleFlush(); } }
+
+/* Repeating tasks (see repeat.js). A series' repeats are worked out from its rule; the ones that were
+   changed, checked off or skipped are stored, and those stand in for the worked-out ones on their dates. */
+let IX = null; // series, and stored occurrences by series and date and by the day they're on; rebuilt after any change
+function index() {
+  if (IX) return IX;
+  IX = { series: [], bySeries: new Map(), byDay: new Map() };
+  for (const n of nodes.values()) {
+    if (n.rs) {
+      if (n.oc) { let m = IX.bySeries.get(n.rs); if (!m) IX.bySeries.set(n.rs, m = new Map()); m.set(n.oc, n); }
+      if (!n.x && n.d) { const l = IX.byDay.get(n.d) || []; l.push(n); IX.byDay.set(n.d, l); }
+    } else if (n.r && !n.x && n.k !== 'area') IX.series.push(n);
+  }
+  return IX;
+}
+// What a repeat shares with its series
+const SHARED = ['p', 't', 'notes', 's', 'o', 'c', 'link', 'a', 'ds', 'ar', 'w'];
+function virt(s, d) {
+  const v = { id: occId(s.id, d), rs: s.id, oc: d, d, done: false, m: s.m ?? 60, k: null, r: null, due: null, st: null, ms: false, hd: false, am: null, x: false, v: true };
+  for (const k of SHARED) v[k] = s[k] ?? null;
+  return v;
+}
+/** A repeat that isn't stored, worked out from its series; null if there's none by that id. */
+function ghost(id) {
+  const p = splitOcc(id); if (!p) return null;
+  const s = nodes.get(p[0]);
+  if (!s || s.x || !s.r || !repeatsOn(s.r, s.d, p[1]) || index().bySeries.get(s.id)?.has(p[1])) return null;
+  return virt(s, p[1]);
+}
+/** Every repeat on day d: the stored ones that sit on it, and the worked-out ones due that day. */
+export function occOn(d) {
+  const I = index(), out = (I.byDay.get(d) || []).slice();
+  for (const s of I.series) if (repeatsOn(s.r, s.d, d) && !I.bySeries.get(s.id)?.has(d)) out.push(virt(s, d));
+  return out;
+}
+/** The series a repeat belongs to (or the series itself). */
+export const seriesOf = n => (n?.rs ? get(n.rs) : n?.r ? n : null);
+const occRows = sid => [...(index().bySeries.get(sid)?.values() || [])];
+/** The stored item to change. A worked-out repeat becomes one of its own first, the same as its series. */
+function own(id) {
+  const n = nodes.get(id); if (n && !n.x) return n;
+  const v = ghost(id); if (!v) return n;
+  mark(id, n ? { ...n } : { ...v }); delete v.v; nodes.set(id, v); IX = null;
+  return v;
+}
+// Changing one of these on a single repeat can be carried over to the whole series
+const EDIT = ['t', 'notes', 'm', 's', 'd', 'link', 'w'];
+// What a change to the series hands down to its stored repeats (those still the same as the series was)
+const FOLLOW = ['p', 't', 'notes', 's', 'm', 'c', 'link', 'w', 'ar'];
+function setOcc(n, patch) {
+  if ('d' in patch && !patch.d) patch = { ...patch, x: true }; // a repeat taken off the plan is skipped
+  mark(n.id); Object.assign(n, patch); touch(n);
+  if (EDIT.some(k => k in patch) && !patch.x) for (const f of listeners) f('occ', { id: n.id, patch });
+}
+function setSeries(s, patch) {
+  const old = { ...s }, rows = occRows(s.id); patch = { ...patch }; delete patch.done;
+  mark(s.id); Object.assign(s, patch); touch(s);
+  for (const row of rows) if (!row.x && !row.done) {
+    const q = {}; for (const k of FOLLOW) if (k in patch && same(row[k], old[k])) q[k] = patch[k];
+    if (Object.keys(q).length) { mark(row.id); Object.assign(row, q); touch(row); }
+  }
+  // A new rule, start or end: stored repeats that no longer fall on the series' days go. Done ones stay, as a record.
+  if (('r' in patch || 'd' in patch) && s.r) for (const row of rows) if (!row.x && !row.done && !repeatsOn(s.r, s.d, row.oc)) { mark(row.id); row.x = true; row.oc = null; touch(row); }
+}
+function set(id, patch) {
+  const n = own(id); if (!n) return;
+  if (n.rs) setOcc(n, patch);
+  else if (n.r && n.k !== 'area') setSeries(n, patch);
+  else { mark(id); Object.assign(n, patch); touch(n); }
+}
+/** Carries a change made to one repeat over to its whole series. Moving it to another day moves
+    the weekday (or day of the month) it repeats on, when the rule has one. */
+export function seriesEdit(id, patch) {
+  const o = get(id), s = seriesOf(o); if (!s || !s.r) return;
+  const p = {}; for (const k of FOLLOW) if (k in patch) p[k] = patch[k];
+  if (o.rs && patch.d && patch.d !== o.oc) { const r = shiftRule(s.r, o.oc, patch.d); if (r) { p.r = r; if (patch.d < s.d) p.d = patch.d; } }
+  if (Object.keys(p).length) { setSeries(s, p); emit(); }
+}
+/** Stops a series repeating. It becomes a plain task again on the day of the repeat it was stopped from
+    (or its next one), keeping that repeat's own changes. Repeats already done stay as they are. */
+export function stopRepeat(id) {
+  const o = get(id), s = seriesOf(o); if (!s || !s.r) return null;
+  const from = o.rs && !o.done ? o : get(occId(s.id, nextOn(s.r, s.d, today()) || s.d)) || s;
+  const keep = {}; for (const k of SHARED) keep[k] = from[k] ?? null;
+  const rows = occRows(s.id);
+  mark(s.id); Object.assign(s, keep, { r: null, d: from.d || s.d, m: from.m ?? s.m, done: false }); touch(s);
+  for (const row of rows) if (!row.x && !row.done) { mark(row.id); row.x = true; row.oc = null; touch(row); }
+  emit(); return s.id;
+}
 
 /* Undo and redo. Everything changed in one moment (a drop, a check-off, a delete
    with all its steps) is one step, undone together. A step remembers only the
@@ -40,9 +131,9 @@ const past = [], future = []; let step = null; const KEEP = 100;
 const TEXT = ['t', 'notes', 'link'];
 const same = (a, b) => (a ?? null) === (b ?? null);
 /** Call before changing a node the person changed. */
-function mark(id) {
+function mark(id, before) {
   if (!step) { step = new Map(); queueMicrotask(commit); }
-  if (!step.has(id)) step.set(id, nodes.has(id) ? { ...nodes.get(id) } : null);
+  if (!step.has(id)) step.set(id, before !== undefined ? before : nodes.has(id) ? { ...nodes.get(id) } : null);
 }
 function commit() {
   const s = step; step = null; if (!s) return;
@@ -55,12 +146,12 @@ function commit() {
   }
   if (!ch.length) return;
   const top = past[past.length - 1], now = Date.now();
-  const text = ch.length === 1 && Object.keys(ch[0][1]).every(k => TEXT.includes(k)) ? ch[0][0] + ':' + Object.keys(ch[0][1]).join() : null;
+  const text = ch.every(c => Object.keys(c[1]).every(k => TEXT.includes(k))) ? ch.map(c => c[0] + ':' + Object.keys(c[1]).join()).join('|') : null;
   let fresh = null;
-  if (text && top && !future.length && top.text === text && now - top.at < 60e3) { Object.assign(top.ch[0][2], ch[0][2]); top.at = now; }
+  if (text && top && !future.length && top.text === text && now - top.at < 60e3) { top.ch.forEach((c, i) => Object.assign(c[2], ch[i][2])); top.at = now; }
   else {
     // Typing the name of something just made belongs to making it
-    const made = text && top && !future.length && now - top.at < 60e3 && top.ch.some(([id, b]) => id === ch[0][0] && b.x === true);
+    const made = text && ch.length === 1 && top && !future.length && now - top.at < 60e3 && top.ch.some(([id, b]) => id === ch[0][0] && b.x === true);
     if (made) { const c = top.ch.find(([id]) => id === ch[0][0]); Object.assign(c[2], ch[0][2]); top.at = now; }
     else { past.push(fresh = { ch, at: now, text }); if (past.length > KEEP) past.shift(); }
   }
@@ -83,14 +174,14 @@ export function create(fields) {
   mark(n.id); touch(n); emit(); return n;
 }
 export function update(id, patch, quiet = false) {
-  const n = nodes.get(id); if (!n) return;
-  mark(id); Object.assign(n, patch); touch(n); if (quiet) saveCache(); else emit();
+  set(id, patch); if (quiet) saveCache(); else emit();
 }
-export function updateMany(changes) { for (const [id, patch] of changes) { const n = nodes.get(id); if (n) { mark(id); Object.assign(n, patch); touch(n); } } emit(); }
+export function updateMany(changes) { for (const [id, patch] of changes) set(id, patch); emit(); }
 /** Deletes an item and everything under it. */
 export function remove(id) {
+  const o = get(id); if (o?.rs) { const n = own(id); mark(id); n.x = true; touch(n); emit(); return; } // just this repeat: skipped
   const n0 = nodes.get(id);
-  const kill = i => { const n = nodes.get(i); if (!n) return; mark(i); n.x = true; touch(n); for (const c of [...nodes.values()]) if (c.p === i && !c.x) kill(c.id); };
+  const kill = i => { const n = nodes.get(i); if (!n) return; mark(i); n.x = true; touch(n); for (const c of [...nodes.values()]) if ((c.p === i || c.rs === i) && !c.x) kill(c.id); };
   kill(id);
   if (n0?.k === 'area') for (const c of nodes.values()) if (c.ar === id && !c.x) { mark(c.id); c.ar = null; if (c.c === 'area') c.c = n0.c; touch(c); } // its projects stay, with no area, keeping the colour they had
   emit();
@@ -109,17 +200,17 @@ export function restore(snap) {
 
 /* Local-only mode with sample data (before sign-in, or when not set up). */
 export function useLocal(key, seedFn) {
-  stopCloud(); forget(); cacheKey = key; nodes.clear(); dirty = new Set();
+  stopCloud(); forget(); cacheKey = key; nodes.clear(); IX = null; dirty = new Set();
   const c = lsGet(key);
   (c?.nodes?.length ? c.nodes : seedFn()).forEach(n => nodes.set(n.id, n));
   ensureAreas('local'); setSync('local'); emit();
 }
-export function resetLocal(seedFn) { forget(); nodes.clear(); seedFn().forEach(n => nodes.set(n.id, n)); ensureAreas('local'); emit(); }
+export function resetLocal(seedFn) { forget(); nodes.clear(); IX = null; seedFn().forEach(n => nodes.set(n.id, n)); ensureAreas('local'); emit(); }
 
 /* Cloud mode: this person's items in Supabase. */
 export async function useCloud(client, user) {
   stopCloud(); forget(); sb = client; userId = user.id; cacheKey = 'daybook-cache-' + user.id;
-  nodes.clear();
+  nodes.clear(); IX = null;
   const c = lsGet(cacheKey);
   if (c) { c.nodes.forEach(n => nodes.set(n.id, n)); dirty = new Set(c.dirty || []); cursor = c.cursor || null; } else { dirty = new Set(); cursor = null; }
   emit();
@@ -135,7 +226,7 @@ export const isEmpty = () => all().length === 0;
 function merge(row) {
   if (cursor == null || row.updated_at > cursor) cursor = row.updated_at;
   if (dirty.has(row.id)) return;           // our newer local change wins until it's saved
-  nodes.set(row.id, fromRow(row));
+  nodes.set(row.id, fromRow(row)); IX = null;
 }
 export async function pull() {
   if (!sb) return;
