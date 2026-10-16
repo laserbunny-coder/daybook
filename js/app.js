@@ -293,7 +293,7 @@ function quietKey(e) {
   const k = e.key.toLowerCase(), click = a => document.querySelector(`#main [data-act="${a}"]`)?.click();
   if (k === 'arrowleft') click('prev'); else if (k === 'arrowright') click('next');
   else if (k === 'd' || k === 'w') { const v = k === 'd' ? 'day' : 'week'; if (S.view !== v) { S.view = v; W = null; render(); } }
-  else if (k === 't') { S.mode = S.mode === 'list' ? 'timed' : 'list'; W = null; render(); }
+  else if (k === 't') setMode(S.mode === 'list' ? 'timed' : 'list');
   else if (k === 'p') setQPin(!qPin);
   else if (k === '/') { openAI(); setTimeout(() => document.getElementById('askq')?.focus(), 50); }
   else return false;
@@ -769,6 +769,11 @@ function makeProject(t, ar) {
 }
 function newProject(ar) { const n = makeProject('', ar); if (ar) S.col['area:' + ar] = false; openItem(n.id, true); }
 function newArea() { const n = store.create({ k: 'area', t: '', c: store.nextAreaColor(), o: Math.max(0, ...store.areas().map(a => a.o)) + 1 }); openItem(n.id, true); }
+// Switching List and Time blocks in Week view stays on the days you were looking at
+function setMode(m) {
+  const first = S.view === 'week' && W ? visibleDays()[0] : null;
+  S.mode = m; if (first) W.jump = first; else W = null; render();
+}
 function showPlan(view, mode) { if (S.view !== view || S.mode !== mode) W = null; S.view = view; S.mode = mode; S.page = 'plan'; render(); }
 function signIn() {
   if (!client) return;
@@ -812,7 +817,7 @@ document.addEventListener('click', e => {
     case 'page': if (quiet() && b.dataset.v === 'projects') setQuiet(false); // the full Projects board is its own page, outside Quiet
       S.page = b.dataset.v; S.pick = null; S.adding = null; render(); break;
     case 'view': quietPlan(); S.view = b.dataset.v; W = null; render(); break;
-    case 'mode': quietPlan(); S.mode = b.dataset.v; W = null; render(); break;
+    case 'mode': quietPlan(); setMode(b.dataset.v); break;
     case 'min': setQuiet(!S.min); break;
     case 'qstrip': setStrip(!S.qstrip); break;
     case 'qproj': if (!phone()) setQPin(!qPin); else if (qProjects()) { quietPlan(); render(); } else quietProjects(); break;
