@@ -20,6 +20,13 @@ export type Row = {
   link: string | null;
   kind: string | null;
   area_id: string | null;
+  /** Roadmap: when a project or sub-project starts. */
+  start?: string | null;
+  /** Roadmap: a milestone task shows as a diamond; a hard deadline's date can't move. */
+  milestone?: boolean;
+  hard_deadline?: boolean;
+  /** Roadmap: the id of the item this one is waiting on. */
+  waits_on?: string | null;
   deleted: boolean;
 };
 
@@ -39,6 +46,7 @@ export const INSTRUCTIONS = `Daybook is this person's own task and calendar app.
 - A task can sit on a day without a time ("sometime that day"), or in a time block on that day (start_time plus duration). Leave the time empty unless the person asks for a specific time.
 - Any item can carry a link back to where its notes live, often a Thymer page. When you make a task from something in Thymer, set its link to that page and put a short summary in notes, so the person can glance at it and tap through for the rest. A Thymer page link looks like https://NAME.thymer.com/?open=WORKSPACE.PAGEID; if you can't tell the address, look at the links on existing tasks for the pattern, or ask.
 - Dates are the person's local dates as YYYY-MM-DD, and times are 24-hour HH:MM.
+- The Roadmap shows each top-level project as a bar from its start date to its due date (sub-projects as thinner bars under it). Set start and due on projects and sub-projects to place them. A task marked milestone shows as a diamond on its due date (or its day); hard_deadline marks a milestone whose date can't move. waiting_on links an item to another item it waits on, such as "List footage" waiting on "NAS live".
 - Say what you changed in plain words, since the person sees your reply, not the tool calls.`;
 
 const str = (description: string) => ({ type: "string", description });
@@ -65,7 +73,7 @@ export const TOOLS = [
   {
     name: "list_projects",
     title: "List projects",
-    description: "Lists the person's areas, and their projects and sub-projects with area, progress, due date and link.",
+    description: "Lists the person's areas, and their projects and sub-projects with area, progress, start and due dates, what they wait on, and link.",
     inputSchema: { type: "object", properties: { include_done: { type: "boolean", description: "Include finished projects." } } },
     annotations: { readOnlyHint: true },
   },
@@ -92,7 +100,11 @@ export const TOOLS = [
         duration_minutes: { type: "integer", description: "How long it takes, 5 to 1440. Defaults to 60." },
         notes: str("Notes for when the person sits down to do it, such as a short summary of the source."),
         link: str("Web address the notes came from, such as the Thymer page. Must start with https:// or http://."),
-        due: str("Due date, YYYY-MM-DD."),
+        due: str("Due date, YYYY-MM-DD. For a milestone, the date its diamond sits on."),
+        start: str("Start date, YYYY-MM-DD, for an item that will get steps of its own (a sub-project)."),
+        milestone: { type: "boolean", description: "Mark it as a milestone: a diamond on the Roadmap on its due date (or its day)." },
+        hard_deadline: { type: "boolean", description: "A milestone whose date can't move (drawn red). Makes it a milestone too." },
+        waiting_on: str("Id of another item this one waits on."),
       },
     },
   },
@@ -103,7 +115,15 @@ export const TOOLS = [
     inputSchema: {
       type: "object",
       required: ["title"],
-      properties: { title: str("The project's name."), area: str("The area it belongs in, by name, such as Business (see list_projects)."), notes: str("Goal or notes."), link: str("Web address with more notes."), due: str("Due date, YYYY-MM-DD.") },
+      properties: {
+        title: str("The project's name."),
+        area: str("The area it belongs in, by name, such as Business (see list_projects)."),
+        notes: str("Goal or notes."),
+        link: str("Web address with more notes."),
+        start: str("Start date, YYYY-MM-DD: where its bar begins on the Roadmap."),
+        due: str("Due date, YYYY-MM-DD: where its bar ends on the Roadmap."),
+        waiting_on: str("Id of another item this project waits on."),
+      },
     },
   },
   {
@@ -129,7 +149,7 @@ export const TOOLS = [
   {
     name: "update_item",
     title: "Change an item",
-    description: "Changes a task or project: move it to another day or time, unschedule it, check it off, rename it, change its notes or link, or move it under another project. Only the fields you pass change; pass null to clear one. Changing the day without a start_time makes it 'sometime that day'.",
+    description: "Changes a task or project: move it to another day or time, unschedule it, check it off, rename it, change its notes or link, set its start and due dates, mark it a milestone or hard deadline, set what it's waiting on, or move it under another project. Only the fields you pass change; pass null to clear one. Changing the day without a start_time makes it 'sometime that day'.",
     inputSchema: {
       type: "object",
       required: ["id"],
@@ -143,6 +163,10 @@ export const TOOLS = [
         notes: orNull("string", "Replaces the notes. null clears them."),
         link: orNull("string", "Replaces the link. null removes it."),
         due: orNull("string", "Due date, YYYY-MM-DD, or null."),
+        start: orNull("string", "Start date of a project or sub-project, YYYY-MM-DD, or null."),
+        milestone: { type: "boolean", description: "Make it a milestone (true) or a plain task (false, which also clears hard_deadline)." },
+        hard_deadline: { type: "boolean", description: "Mark a milestone's date as one that can't move. true also makes it a milestone." },
+        waiting_on: orNull("string", "Id of the item this one waits on, or null to clear."),
         project_id: orNull("string", "Move under this project, or null to move to the inbox."),
         area: orNull("string", "For a top-level project or task: move it to this area, by name, or null for no area (a task goes back to the inbox)."),
       },
@@ -243,7 +267,11 @@ class Tree {
     if (r.day) o.day = r.day;
     if (r.start_min != null) o.start_time = hhmm(r.start_min);
     if (!this.isProject(r)) o.duration_minutes = r.duration_min;
+    if (r.start) o.start = r.start;
     if (r.due) o.due = r.due;
+    if (r.milestone) o.milestone = true;
+    if (r.hard_deadline) o.hard_deadline = true;
+    if (r.waits_on) { const w = this.byId.get(r.waits_on); if (w) o.waiting_on = { id: w.id, title: w.title }; }
     if (r.link) o.link = r.link;
     if (r.notes) o.notes = full || r.notes.length <= 200 ? r.notes : r.notes.slice(0, 200) + "…";
     return o;
@@ -251,7 +279,27 @@ class Tree {
 }
 
 function newRow(fields: Partial<Row>): Row {
-  return { id: crypto.randomUUID(), parent_id: null, title: "", notes: null, done: false, day: null, start_min: null, after_min: null, duration_min: 60, sort: now(), color: null, due: null, link: null, kind: null, area_id: null, deleted: false, ...fields };
+  return { id: crypto.randomUUID(), parent_id: null, title: "", notes: null, done: false, day: null, start_min: null, after_min: null, duration_min: 60, sort: now(), color: null, due: null, link: null, kind: null, area_id: null, start: null, milestone: false, hard_deadline: false, waits_on: null, deleted: false, ...fields };
+}
+
+function boolArg(v: unknown, name: string): boolean {
+  if (typeof v !== "boolean") throw new Bad(`${name} must be true or false.`);
+  return v;
+}
+/** Start, due, milestone, hard deadline and waiting on, shared by add_task, add_project and update_item. */
+function roadmapArgs(t: Tree, args: Record<string, unknown>, r: Partial<Row> & { id?: string }) {
+  if (has(args, "start")) r.start = args.start === null ? null : dayArg(args.start, "start");
+  if (has(args, "milestone")) { r.milestone = boolArg(args.milestone, "milestone"); if (!r.milestone) r.hard_deadline = false; }
+  if (has(args, "hard_deadline")) { r.hard_deadline = boolArg(args.hard_deadline, "hard_deadline"); if (r.hard_deadline) r.milestone = true; }
+  if (has(args, "waiting_on")) {
+    if (args.waiting_on === null || args.waiting_on === "") r.waits_on = null;
+    else {
+      const w = t.get(args.waiting_on);
+      if (w.id === r.id) throw new Bad("An item can't wait on itself.");
+      r.waits_on = w.id;
+    }
+  }
+  if (r.start && r.due && r.start > r.due) throw new Bad(`start (${r.start}) is after due (${r.due}). Change both together, or pass the other one too.`);
 }
 
 const has = (o: Record<string, unknown>, k: string) => Object.prototype.hasOwnProperty.call(o, k) && o[k] !== undefined;
@@ -295,6 +343,7 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       if (has(args, "notes")) f.notes = textArg(args.notes, "notes", 20000) || null;
       if (has(args, "link")) f.link = linkArg(args.link);
       if (has(args, "due")) f.due = dayArg(args.due, "due");
+      roadmapArgs(t, args, f);
       const r = newRow(f);
       await db.save([r]);
       return { added: { ...new Tree([...t.areas, ...t.byId.values(), r]).describe(r) } };
@@ -307,9 +356,10 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       if (has(args, "notes")) f.notes = textArg(args.notes, "notes", 20000) || null;
       if (has(args, "link")) f.link = linkArg(args.link);
       if (has(args, "due")) f.due = dayArg(args.due, "due");
+      roadmapArgs(t, args, f);
       const r = newRow(f);
       await db.save([r]);
-      return { added: { id: r.id, title: r.title, ...(f.area_id ? { area: t.area(f.area_id).title } : {}) } };
+      return { added: { id: r.id, title: r.title, ...(f.area_id ? { area: t.area(f.area_id).title } : {}), ...(r.start ? { start: r.start } : {}), ...(r.due ? { due: r.due } : {}) } };
     }
     case "add_steps": {
       const p = t.get(args.parent_id);
@@ -340,6 +390,7 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       if (has(args, "notes")) r.notes = args.notes === null ? null : textArg(args.notes, "notes", 20000) || null;
       if (has(args, "link")) r.link = args.link === null || args.link === "" ? null : linkArg(args.link);
       if (has(args, "due")) r.due = args.due === null ? null : dayArg(args.due, "due");
+      roadmapArgs(t, args, r);
       if (has(args, "project_id")) {
         if (args.project_id === null) r.parent_id = null;
         else {

@@ -27,11 +27,13 @@ const ICON = {
   board: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1.3"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1.3"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1.3"/><rect x="9" y="9" width="4.5" height="4.5" rx="1.3"/></svg>',
   min: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4.5h10M3 8h10M3 11.5h6"/></svg>',
   close: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
+  ms: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 2.5L13.5 8 8 13.5 2.5 8z"/></svg>',
+  wait: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4.5 2.5h7M4.5 13.5h7M5.5 2.5c0 3 5 3.5 5 5.5s-5 2.5-5 5.5M10.5 2.5c0 3-5 3.5-5 5.5s5 2.5 5 5.5"/></svg>',
 };
 
 /* View state (per device) */
 const UI_KEY = 'daybook-ui';
-const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), focus: false, pick: null, adding: null, new: null, drOpen: false, drAt: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, notesEdit: false, mcp: null };
+const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), focus: false, pick: null, adding: null, new: null, drOpen: false, drAt: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, notesEdit: false, waitEdit: false, mcp: null };
 S.anchor = today();
 const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min });
 let client = null, user = null, configured = false, shown = today(), supaUrl = '';
@@ -573,11 +575,16 @@ function renderDetail() {
       <div class="dt-meta">
         <button class="chip${n.d ? ' set' : ''}" data-act="dtpick">${ICON.cal}<span>${n.d ? whenLabel(n) : 'Add to a day'}</span></button>
         ${kids.length || n.c ? '' : `<label class="chip"><span class="k">Takes about</span><select id="dt-dur">${durs.sort((a, b) => a - b).map(m => `<option value="${m}"${(n.m || 60) === m ? ' selected' : ''}>${fmtDur(m)}</option>`).join('')}</select></label>`}
-        ${kids.length || n.c || n.due ? `<label class="chip${n.due ? ' set' : ''}"><span class="k">Due</span><input type="date" id="dt-due" value="${n.due || ''}"></label>` : ''}
+        ${kids.length || n.c ? `<label class="chip${n.st ? ' set' : ''}"><span class="k">Starts</span><input type="date" id="dt-start" value="${n.st || ''}"${n.due ? ` max="${n.due}"` : ''}></label>` : ''}
+        ${kids.length || n.c || n.due || n.ms ? `<label class="chip${n.due ? ' set' : ''}"><span class="k">Due</span><input type="date" id="dt-due" value="${n.due || ''}"${n.st ? ` min="${n.st}"` : ''}></label>` : ''}
+        ${kids.length || n.c ? '' : `<button class="chip ms-chip${n.ms ? ' set' : ''}" data-act="ms" aria-pressed="${!!n.ms}">${ICON.ms}<span>Milestone</span></button>`}
+        ${n.ms && !kids.length && !n.c ? `<button class="chip hd-chip${n.hd ? ' set' : ''}" data-act="hd" aria-pressed="${!!n.hd}" title="A date that can't move">Hard deadline</button>` : ''}
+        ${waitHTML(n)}
         ${linkHTML(n)}
         ${n.p == null ? `<label class="chip"><span class="k">Area</span><select id="dt-area">${store.areas().map(a => `<option value="${a.id}"${areaOf(n) === a.id ? ' selected' : ''}>${esc(a.t || 'Untitled area')}</option>`).join('')}<option value=""${areaOf(n) ? '' : ' selected'}>No area</option></select></label>` : ''}
       </div>
       ${S.dtpick ? pickerHTML(n, 0) : ''}
+      ${S.waitEdit ? waitPickHTML(n) : ''}
       ${n.p == null && isProj(n) ? swatchesHTML(n) : ''}
       <div class="dt-sec">Notes</div>
       ${n.notes && !S.notesEdit ? `<div class="dt-notes dt-notes-view" data-act="editnotes" role="button" tabindex="0" aria-label="Notes, tap to edit">${linkify(n.notes)}</div>` : `<textarea id="dt-notes" class="dt-notes" placeholder="Thoughts, links, where to start. These will be here when you sit down to do it." aria-label="Notes">${esc(n.notes || '')}</textarea>`}
@@ -618,6 +625,27 @@ function areaDetail(el, n, same) {
       </div>
     </div></section>`;
 }
+/* "Waiting on": an item can wait on another one, such as "List footage" on "NAS live". Pick it by typing part of its name. */
+const pathOf = n => ancestors(n).map(a => a.t).join(' › ');
+function waitHTML(n) {
+  const w = n.w && node(n.w);
+  if (w) return `<span class="link-pair"><button class="chip set wait-chip${isDone(w) ? ' met' : ''}" data-act="open" data-id="${w.id}" title="${esc(pathOf(w) ? pathOf(w) + ' › ' + w.t : w.t)}">${ICON.wait}<span><span class="k">Waiting on</span> ${esc(w.t || 'Untitled')}</span></button><button class="chip-edit" data-act="unwait">Remove</button></span>`;
+  return S.waitEdit ? '' : `<button class="chip" data-act="waitedit">${ICON.wait}<span>Waiting on…</span></button>`;
+}
+function waitMatches(n, q) {
+  const bad = new Set([n.id, ...ancestors(n).map(a => a.id)]); const kidsOf = id => children(id).flatMap(c => [c.id, ...kidsOf(c.id)]); kidsOf(n.id).forEach(i => bad.add(i));
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  return store.all().filter(x => !bad.has(x.id) && x.t && words.every(w => (x.t + ' ' + pathOf(x)).toLowerCase().includes(w)))
+    .sort((a, b) => isDone(a) - isDone(b) || (isProj(b) - isProj(a)) || a.t.localeCompare(b.t)).slice(0, 8);
+}
+function waitPickHTML(n) {
+  return `<form class="wait-pick" data-form="wait" style="--pc:${colorOf(n)}"><div class="chip wait-in">${ICON.wait}<input id="dt-wait" placeholder="Waiting on… type a task or project" autocomplete="off" enterkeyhint="done" aria-label="Waiting on"></div><div class="wait-list" id="wait-list" role="listbox">${waitListHTML(n, '')}</div></form>`;
+}
+function waitListHTML(n, q) {
+  if (!q.trim()) return '<div class="wait-hint">Type part of its name</div>';
+  const m = waitMatches(n, q);
+  return m.length ? m.map(x => `<button type="button" class="wait-opt" data-act="setwait" data-id="${x.id}" role="option" style="--pc:${colorOf(x)}"><i></i><span>${esc(x.t)}${pathOf(x) ? `<small>${esc(pathOf(x))}</small>` : ''}</span></button>`).join('') : '<div class="wait-hint">Nothing by that name</div>';
+}
 function linkHTML(n) {
   if (S.linkEdit) return `<form class="chip link-edit" data-form="link" novalidate>${ICON.link}<input id="dt-link" type="url" inputmode="url" placeholder="Paste a Thymer page or any link" value="${esc(n.link || '')}" autocomplete="off" enterkeyhint="done" aria-label="Link"></form>`;
   const u = n.link && safeLink(n.link);
@@ -633,7 +661,7 @@ function saveLink() {
   renderDetail();
 }
 function openItem(id, focusTitle = false) {
-  S.open = id; S.dtpick = false; S.confirmDel = false; S.linkEdit = false; S.notesEdit = false; renderDetail();
+  S.open = id; S.dtpick = false; S.confirmDel = false; S.linkEdit = false; S.notesEdit = false; S.waitEdit = false; renderDetail();
   if (focusTitle) { const t = document.getElementById('dt-title'); t.focus(); t.select(); }
 }
 
@@ -674,6 +702,10 @@ function describe(st) {
   if ('d' in b || 's' in b || 'ar' in b || 'a' in b) return `Moved ${t}`;
   if ('m' in b) return `Changed the length of ${t}`;
   if ('due' in b) return `Changed the due date of ${t}`;
+  if ('st' in b) return `Changed the start date of ${t}`;
+  if ('ms' in b) return a.ms ? `Made ${t} a milestone` : `Made ${t} a plain task`;
+  if ('hd' in b) return a.hd ? `Made ${t} a hard deadline` : `Made ${t}'s date movable`;
+  if ('w' in b) return a.w ? `Set what ${t} waits on` : `${t} no longer waits on anything`;
   if ('t' in b) return `Renamed ${t}`;
   if ('notes' in b) return `Edited the notes of ${t}`;
   if ('link' in b) return `Changed the link of ${t}`;
@@ -796,6 +828,11 @@ document.addEventListener('click', e => {
     }
     case 'editlink': S.linkEdit = true; renderDetail(); document.getElementById('dt-link')?.focus(); break;
     case 'dtpick': S.dtpick = !S.dtpick; renderDetail(); break;
+    case 'ms': { const n = node(S.open); store.update(n.id, n.ms ? { ms: false, hd: false } : { ms: true }); break; }
+    case 'hd': { const n = node(S.open); store.update(n.id, { hd: !n.hd }); break; }
+    case 'waitedit': S.waitEdit = true; renderDetail(); document.getElementById('dt-wait')?.focus(); break;
+    case 'setwait': S.waitEdit = false; document.activeElement?.blur(); store.update(S.open, { w: id }); break;
+    case 'unwait': store.update(S.open, { w: null }); break;
     case 'dtbreak': {
       const n = node(S.open);
       if (user) { const q = hasKids(n.id) ? `Look at "${n.t}" and its steps. What's missing? Add any steps it still needs.` : `Break "${n.t}" into steps.`; S.open = null; renderDetail(); openAI(); ask(q); }
@@ -865,6 +902,7 @@ document.addEventListener('submit', e => {
   if (f.id === 'askf') { const q = document.getElementById('askq'); if (q.value.trim()) { ask(q.value.trim()); q.value = ''; } return; }
   const inp = f.querySelector('input'); const v = inp.value.trim();
   if (f.dataset.form === 'link') { saveLink(); return; }
+  if (f.dataset.form === 'wait') { const o = f.querySelector('.wait-opt'); if (o) { S.waitEdit = false; document.activeElement?.blur(); store.update(S.open, { w: o.dataset.id }); } return; }
   if (f.dataset.form === 'area-project') { if (v) { makeProject(v, f.dataset.area); inp.value = ''; renderDetail(); document.getElementById('dt-add-in')?.focus(); } return; }
   if (f.dataset.form === 'step') { if (v) { store.create({ t: v, p: f.dataset.p, m: 30 }); S.col[f.dataset.p] = false; inp.value = ''; renderDetail(); document.getElementById('dt-add-in')?.focus(); } return; }
   if (f.dataset.form === 'new') {
@@ -884,6 +922,7 @@ document.addEventListener('keydown', e => {
     if (key === 'y' || e.shiftKey) doRedo(); else doUndo();
     return;
   }
+  if (e.key === 'Escape' && S.waitEdit) { S.waitEdit = false; renderDetail(); return; }
   if (e.key === 'Escape' && S.linkEdit) { S.linkEdit = false; document.activeElement?.blur(); renderDetail(); return; }
   if (e.key === 'Escape' && S.new) { closeNew(); return; }
   if (e.key === 'Escape') { if (S.adding) { S.adding = null; render(); } else if (S.open) { S.open = null; renderDetail(); } else if (quiet() && !D) quietAway(); }
@@ -894,6 +933,8 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.matches('.dt-notes-view')) { e.preventDefault(); e.target.click(); }
 });
 document.addEventListener('focusout', e => { if (e.target.id === 'dt-link') saveLink(); });
+// Leaving the "Waiting on" box without picking anything closes it
+document.addEventListener('focusout', e => { if (e.target.id === 'dt-wait') setTimeout(() => { if (S.waitEdit && !document.activeElement?.closest?.('.wait-pick')) { S.waitEdit = false; renderDetail(); } }, 200); });
 // Leaving the notes box shows them as text with clickable links again. Wait a moment so a tap on something else still lands.
 document.addEventListener('focusout', e => { if (e.target.id === 'dt-notes' && S.notesEdit) { S.notesEdit = false; setTimeout(() => { if (!S.notesEdit) renderDetail(); }, 200); } });
 document.addEventListener('focusout', e => { if (e.target.id === 'add-in' && !e.target.value.trim()) setTimeout(() => { if (S.adding && !document.activeElement?.matches('#add-in')) { S.adding = null; render(); } }, 150); });
@@ -915,6 +956,7 @@ document.addEventListener('input', e => {
   const t = e.target, n = S.open && node(S.open); if (!n) return;
   if (t.id === 'dt-notes') { store.update(n.id, { notes: t.value || null }, true); grow(t); const m = document.getElementById('dt-saved'); m.textContent = 'Saved'; clearTimeout(savedT); savedT = setTimeout(() => m.textContent = '', 1200); }
   if (t.id === 'dt-title') { store.update(n.id, { t: t.value.replace(/\n/g, ' ') }, true); grow(t); }
+  if (t.id === 'dt-wait') document.getElementById('wait-list').innerHTML = waitListHTML(n, t.value);
 });
 document.addEventListener('change', e => {
   const t = e.target;
@@ -925,6 +967,7 @@ document.addEventListener('change', e => {
   if (t.id === 'dt-notes') store.updateMany([]);
   if (t.id === 'dt-dur') store.update(n.id, { m: +t.value });
   if (t.id === 'dt-due') store.update(n.id, { due: t.value || null });
+  if (t.id === 'dt-start') store.update(n.id, { st: t.value || null });
 });
 
 /* Drag and drop: mouse uses pointer events, touch uses press-and-hold */
