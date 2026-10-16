@@ -778,13 +778,14 @@ body.rm-dragging,body.rm-dragging *{cursor:grabbing!important;user-select:none;-
 .item.recording{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--danger) 70%,transparent),0 8px 24px -12px color-mix(in srgb,var(--danger) 60%,transparent)}
 /* While a task records, its planned block waits as a faint outline; the time really spent grows from the now line */
 .block.planned{background:none;border:1.5px dashed color-mix(in srgb,var(--pc) 45%,transparent);opacity:.7}
-.block.sess{cursor:grab;background:rgba(6,7,13,.28);border:1.5px solid color-mix(in srgb,var(--pc) 75%,transparent);box-shadow:none}
-.block.sess .b-t{font-weight:600;color:var(--pc)}
-.block.sess .b-time{color:color-mix(in srgb,var(--pc) 55%,var(--muted))}
+.block.sess{cursor:grab;background:color-mix(in srgb,var(--pc) 14%,transparent);border:1px solid color-mix(in srgb,var(--pc) 35%,transparent);box-shadow:none}
+.block.sess .b-t{font-style:italic;font-weight:500}
 .block.sess>.sw-i{width:14px;height:14px;flex:none;margin-top:4px;color:var(--pc)}
-@container blk (max-height:37px){.block.sess>.sw-i{align-self:center;margin-top:0}}
-@container blk (max-height:15px){.block.sess>.sw-i{width:10px;height:10px}}
+.block.sess>.sw-len{flex:none;margin:4px 0 0 auto;font:500 10px/1.5 var(--f-mono);padding:0 6px;border-radius:99px;background:color-mix(in srgb,var(--pc) 30%,transparent);color:var(--fg);white-space:nowrap}
+@container blk (max-height:37px){.block.sess>.sw-i,.block.sess>.sw-len{align-self:center;margin-top:0}}
+@container blk (max-height:15px){.block.sess>.sw-i{width:10px;height:10px}.block.sess>.sw-len{display:none}}
 @container blk (max-height:9px){.block.sess>.sw-i{display:none}}
+@container blk (max-width:120px){.block.sess>.sw-len{display:none}}
 .block.sess.live{border-color:color-mix(in srgb,var(--danger) 75%,transparent);box-shadow:0 6px 22px -12px color-mix(in srgb,var(--danger) 70%,transparent);cursor:pointer}
 .block.sess.live::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--danger);animation:recpulse 1.6s ease-in-out infinite}
 @keyframes recpulse{50%{opacity:.3}}
@@ -838,5 +839,4 @@ body.rec-open .toast{bottom:calc(124px + env(safe-area-inset-bottom,0px))}
 @media (hover:hover){.tl-add:hover{color:var(--fg)}}
 @media (max-width:860px){.detail:not([hidden]) ~ .rec{display:none}}
 /* Once its task is checked off, a recorded stretch fades and is crossed out like the task's own block */
-.block.sess.done{border-color:color-mix(in srgb,var(--pc) 35%,transparent)}
-.block.sess.done>.sw-i,.block.sess.done .b-time{opacity:.55}
+.block.sess.done{opacity:.55}
