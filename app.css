@@ -778,9 +778,14 @@ body.rm-dragging,body.rm-dragging *{cursor:grabbing!important;user-select:none;-
 .item.recording{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--danger) 70%,transparent),0 8px 24px -12px color-mix(in srgb,var(--danger) 60%,transparent)}
 /* While a task records, its planned block waits as a faint outline; the time really spent grows from the now line */
 .block.planned{background:none;border:1.5px dashed color-mix(in srgb,var(--pc) 45%,transparent);opacity:.7}
-.block.sess{cursor:pointer;background:color-mix(in srgb,var(--pc) 22%,transparent);border-style:solid;border-color:color-mix(in srgb,var(--pc) 45%,transparent)}
-.block.sess .b-t{font-weight:600}
-.block.sess.live{background:linear-gradient(160deg,color-mix(in srgb,var(--pc) 45%,transparent),color-mix(in srgb,var(--pc) 20%,transparent));border-color:color-mix(in srgb,var(--danger) 70%,transparent);box-shadow:0 6px 22px -10px color-mix(in srgb,var(--danger) 70%,transparent)}
+.block.sess{cursor:grab;background:rgba(6,7,13,.28);border:1.5px solid color-mix(in srgb,var(--pc) 75%,transparent);box-shadow:none}
+.block.sess .b-t{font-weight:600;color:var(--pc)}
+.block.sess .b-time{color:color-mix(in srgb,var(--pc) 55%,var(--muted))}
+.block.sess>.sw-i{width:14px;height:14px;flex:none;margin-top:4px;color:var(--pc)}
+@container blk (max-height:37px){.block.sess>.sw-i{align-self:center;margin-top:0}}
+@container blk (max-height:15px){.block.sess>.sw-i{width:10px;height:10px}}
+@container blk (max-height:9px){.block.sess>.sw-i{display:none}}
+.block.sess.live{border-color:color-mix(in srgb,var(--danger) 75%,transparent);box-shadow:0 6px 22px -12px color-mix(in srgb,var(--danger) 70%,transparent);cursor:pointer}
 .block.sess.live::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--danger);animation:recpulse 1.6s ease-in-out infinite}
 @keyframes recpulse{50%{opacity:.3}}
 
@@ -832,7 +837,6 @@ body.rec-open .toast{bottom:calc(124px + env(safe-area-inset-bottom,0px))}
 .tl-add{justify-self:start;padding:8px 10px;font-size:13px;color:var(--faint)}
 @media (hover:hover){.tl-add:hover{color:var(--fg)}}
 @media (max-width:860px){.detail:not([hidden]) ~ .rec{display:none}}
-/* A recorded stretch wears a small record mark; once its task is checked off it fades and is crossed out like the task's own block */
-.block.sess .b-time .rs-i{width:10px;height:10px;margin-right:4px;vertical-align:-1px;opacity:.8}
-.block.sess.done{background:color-mix(in srgb,var(--pc) 12%,transparent);border-color:color-mix(in srgb,var(--pc) 30%,transparent)}
-.block.sess.done .b-time{opacity:.6}
+/* Once its task is checked off, a recorded stretch fades and is crossed out like the task's own block */
+.block.sess.done{border-color:color-mix(in srgb,var(--pc) 35%,transparent)}
+.block.sess.done>.sw-i,.block.sess.done .b-time{opacity:.55}
