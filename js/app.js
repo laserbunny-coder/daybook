@@ -38,7 +38,7 @@ const ICON = {
   rep: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12.6 6.2A4.9 4.9 0 0 0 3.7 5M3.4 9.8a4.9 4.9 0 0 0 8.9 1.2"/><path d="M3.4 2.4v2.9h2.9M12.6 13.6v-2.9H9.7"/></svg>',
   play: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 3.8v8.4a.5.5 0 0 0 .76.43l6.6-4.2a.5.5 0 0 0 0-.86l-6.6-4.2a.5.5 0 0 0-.76.43z"/></svg>',
   stop: '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="4.5" y="4.5" width="7" height="7" rx="1.5"/></svg>',
-  recS: '<svg class="ni rs-i" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-label="Recorded time"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/></svg>',
+  watch: '<svg class="sw-i" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-label="Recorded time"><circle cx="8" cy="9" r="5"/><path d="M8 9V6.5M6.5 2.5h3M12.2 4.6l.9-.9"/></svg>',
   repS: '<svg class="ni" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-label="Repeats"><path d="M12.6 6.2A4.9 4.9 0 0 0 3.7 5M3.4 9.8a4.9 4.9 0 0 0 8.9 1.2"/><path d="M3.4 2.4v2.9h2.9M12.6 13.6v-2.9H9.7"/></svg>',
 };
 
@@ -397,13 +397,13 @@ function layout(items) {
    A finished task's block already sits on its last stretch, so that one isn't drawn twice; guesses only place the block. */
 function sessionsOn(d) {
   const out = [], now = track.local(Date.now());
-  for (const n of store.logged()) for (const e of n.tl) {
-    if (e.guess) continue;
-    const a = track.local(e.start); if (a.d !== d) continue;
+  for (const n of store.logged()) n.tl.forEach((e, i) => {
+    if (e.guess) return;
+    const a = track.local(e.start); if (a.d !== d) return;
     const b = e.end ? track.local(e.end) : now, end = b.d === d ? b.m : 1440;
-    if (e.end && n.d === d && n.s === a.m) continue;
-    out.push({ sess: n, e, s: a.m, m: Math.max(1, end - a.m) });
-  }
+    if (e.end && n.d === d && n.s === a.m) return;
+    out.push({ sess: n, e, i, s: a.m, m: Math.max(1, end - a.m) });
+  });
   return out;
 }
 function blocksHTML(d) {
@@ -417,7 +417,9 @@ function blocksHTML(d) {
     const pos = `top:${hpx((s - H0 * 60) / 60)};height:max(${hpx((e - s) / 60)} - 2px, min(18px, ${hpx((below - s) / 60)} - 2px));left:${it.lane / it.lanes * 100}%;width:calc(${100 / it.lanes}% - 4px)`;
     const tm = `${fmtT(it.s)} – ${fmtT(it.s + it.m)}`;
     if (it.ev) return `<div class="ev" style="${pos}" title="${esc(it.ev.cal || '')}"><div class="b-in"><div class="b-t">${esc(it.ev.t)}</div><div class="b-time">${tm}</div></div></div>`;
-    if (it.sess) { const n = it.sess, live = !it.e.end; return `<div class="block sess${live ? ' live' : ''}${isDone(n) ? ' done' : ''}" data-act="open" data-id="${n.id}" style="${pos};--pc:${colorOf(n)}" title="${live ? 'Recording now' : isDone(n) ? 'Time you worked on this, now done' : 'Time you worked on this'}"><div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${ICON.recS}${fmtT(it.s)} – ${live ? 'now' : fmtT(it.s + it.m)} · ${fmtDur(Math.max(1, track.mins(it.e)))}</div></div></div>`; }
+    if (it.sess) { const n = it.sess, live = !it.e.end;
+      // A recorded stretch is a hollow outline with a stopwatch: time spent, not something to check off. Drag it to move it, or its bottom edge to change when it ended.
+      return `<div class="block sess${live ? ' live' : ''}${isDone(n) ? ' done' : ''}" data-act="open" data-id="${n.id}"${live ? '' : ` data-drag data-sess="${it.i}" data-s="${it.s}" data-m="${it.m}"`} style="${pos};--pc:${colorOf(n)}" title="${live ? 'Recording now' : 'Time you worked on this. Drag to move it.'}">${ICON.watch}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${fmtT(it.s)} – ${live ? 'now' : fmtT(it.s + it.m)} · ${fmtDur(Math.max(1, track.mins(it.e)))}</div></div>${live ? '' : '<div class="rs"></div>'}</div>`; }
     const n = it.n, pr = hasKids(n.id) && progress(n.id); // a whole project in a block is a work session: show how far along it is
     return `<div class="block${isDone(n) ? ' done' : ''}${overdue(n) ? ' overdue' : ''}${track.isRec(n) ? ' planned' : ''}" data-drag data-id="${n.id}" style="${pos};--pc:${colorOf(n)}">${ckHTML(n)}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${n.rs ? ICON.repS : ''}${tm}${pr ? ` · ${pr.done}/${pr.total}` : ''}</div></div>${recBtn(n)}<div class="rs"></div></div>`;
   }).join('');
@@ -1201,7 +1203,8 @@ function startDrag() {
   const el = P.el, r = el.getBoundingClientRect();
   D = { id: P.id, kind: P.kind, el, x: P.x, y: P.y, offY: P.y - r.top, offX: Math.min(P.x - r.left, 40), timed: el.classList.contains('block'), t: null };
   if (D.kind === 'resize') D.block = el.closest('.block');
-  else {
+  const sb = el.closest('.block.sess'); if (sb?.dataset.sess != null) Object.assign(D, { si: +sb.dataset.sess, ss: +sb.dataset.s, sm: +sb.dataset.m }); // a recorded stretch
+  { // the floating copy (hidden over the time grid, where a dashed outline stands in)
     const g = el.cloneNode(true); g.classList.add('ghost'); g.classList.remove('pressing'); const w = Math.min(r.width, 280); g.style.width = w + 'px';
     if (D.timed) { g.style.height = r.height + 'px'; D.offX = Math.min(P.x - r.left, w - 10); } else D.offY = Math.min(D.offY, 24);
     document.body.appendChild(g); D.g = g; el.classList.add('dragging');
@@ -1209,7 +1212,7 @@ function startDrag() {
   if (qSide && !qPin && el.closest('.side')) setQSide(false); // Quiet: projects slide away once something is picked up from them, so the whole plan is free
   D.fromDr = !!el.closest('.drawer'); D.x0 = D.x; D.y0 = D.y; // the drawer steps aside after a short carry (see moveDrag)
   D.list = !!el.closest('.side, .board, .dt, .drawer'); // picked up from a list of projects rather than from the plan
-  if (D.kind !== 'resize' && node(D.id)?.d) document.body.classList.add('drag-sched'); // the tab bar offers to unschedule it
+  if (D.kind !== 'resize' && D.si == null && node(D.id)?.d) document.body.classList.add('drag-sched'); // the tab bar offers to unschedule it
   el.classList.remove('pressing'); document.body.classList.add('is-dragging'); P = null; moveDrag(D.x, D.y); requestAnimationFrame(autoScroll);
 }
 function clearMarks() { ind.remove(); ins.remove(); document.querySelectorAll('.over').forEach(x => x.classList.remove('over')); }
@@ -1219,7 +1222,7 @@ function moveDrag(x, y) {
   if (D.fromDr && !D.sunk && Math.hypot(x - D.x0, y - D.y0) > 24) { D.sunk = true; document.body.classList.add('dr-drag'); }
   if (quiet() && !phone() && !qSide && x < 16 && D.kind !== 'resize') setQSide(true); // carried to the left edge: projects and the Inbox slide in to take it
   D.x = x; D.y = y; const hp = HP();
-  if (D.kind === 'resize') { const r = D.block.getBoundingClientRect(); const n = node(D.id); const m = Math.max(15, Math.min(Math.round((y - r.top) / hp * 60 / 15) * 15, H1 * 60 - n.s)); D.newM = m; D.block.style.height = (m / 60 * hp - 2) + 'px'; D.block.querySelector('.b-time').textContent = `${fmtT(n.s)} – ${fmtT(n.s + m)}`; return; }
+  if (D.kind === 'resize') { const r = D.block.getBoundingClientRect(); const s0 = D.ss ?? node(D.id).s; const m = Math.max(D.si != null ? 5 : 15, Math.min(Math.round((y - r.top) / hp * 60 / (D.si != null ? 5 : 15)) * (D.si != null ? 5 : 15), H1 * 60 - s0)); D.newM = m; D.block.style.height = (m / 60 * hp - 2) + 'px'; D.block.querySelector('.b-time').textContent = `${fmtT(s0)} – ${fmtT(s0 + m)}`; return; }
   D.g.style.transform = `translate(${x - D.offX}px,${y - D.offY}px)`;
   clearMarks(); D.g.classList.remove('off'); D.at = null; D.t = null;
   let t = document.elementFromPoint(x, y)?.closest('[data-drop]'); const n = node(D.id);
@@ -1230,7 +1233,7 @@ function moveDrag(x, y) {
   D.t = t || null; if (!t) return;
   const type = t.dataset.drop;
   if (type === 'col') {
-    const r = t.getBoundingClientRect(); const dur = node(D.id).m || 60;
+    const r = t.getBoundingClientRect(); const dur = D.sm ?? (node(D.id).m || 60);
     let min = H0 * 60 + Math.round((y - (D.timed ? D.offY : 12) - r.top) / hp * 60 / 15) * 15; min = Math.max(H0 * 60, Math.min(min, H1 * 60 - dur)); D.min = min;
     ind.style.top = ((min - H0 * 60) / 60 * hp) + 'px'; ind.style.height = (dur / 60 * hp - 2) + 'px'; t.appendChild(ind);
     // Over the time grid the dashed outline stands in for the item, so the floating copy hides
@@ -1260,6 +1263,7 @@ function endDrag() {
   const n = node(d.id);
   justDragged = true; setTimeout(() => justDragged = false, 80);
   if (!n) return render();
+  if (d.si != null) return dropStretch(d, n);
   if (d.kind === 'resize') { if (d.newM) store.update(n.id, { m: d.newM }); else render(); return; }
   if (!d.t) return render();
   if (n.r && ['col', 'tray', 'list'].includes(d.t.dataset.drop)) { toast(`${short(n.t)} is already on your plan, ${lower(ruleText(n.r, n.d))}`); return render(); }
@@ -1280,6 +1284,17 @@ function endDrag() {
     else store.update(n.id, off);
   }
   else render();
+}
+// A recorded stretch dropped on another time (or day), or with its end dragged: the time log changes with it
+function dropStretch(d, n) {
+  const e = n.tl?.[d.si]; if (!e) return render();
+  let day, s, m;
+  if (d.kind === 'resize') { if (!d.newM) return render(); day = track.local(e.start).d; s = d.ss; m = d.newM; }
+  else if (d.t?.dataset.drop === 'col') { day = d.t.dataset.date; s = d.min; m = d.sm; }
+  else return render();
+  const a = pd(day); a.setMinutes(s);
+  const err = track.edit(n.id, d.si, a.toISOString(), new Date(a.getTime() + m * 60000).toISOString());
+  if (err) { toast(err === 'future' ? "Recorded time can't be in the future" : "That time didn't work"); render(); }
 }
 function autoScroll() {
   if (!D) return; const el = document.elementFromPoint(D.x, D.y);
