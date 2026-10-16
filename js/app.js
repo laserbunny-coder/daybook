@@ -181,11 +181,18 @@ function loadHTML(d) {
 const evRow = e => `<div class="evr"><span>${e.allDay ? 'All day' : fmtT(e.s)}</span><b class="ev-t">${esc(e.t)}</b></div>`;
 /* In the List view, tasks sit between the day's calendar events. Gap 0 is before
    the first event, gap i is after event i. A task with a time goes where its time
-   falls; one without sits after the event that starts at its "a" minute. */
+   falls; one without sits after the event that starts at its "a" minute.
+   Inside a gap the order follows Time blocks: timed tasks by start time. A task with no time
+   sits after them, unless it was dragged in among them: then its "a" is the minute of the
+   timed task it follows, so it stays right below that task. */
 const gapOf = (E, min) => min == null ? 0 : E.filter(e => e.s <= min).length;
+const gapStart = (E, g) => g ? E[g - 1].s : null;
+// Sort key within a gap: [minute, 0 for a timed task / 1 for one without a time]
+const gapKey = (n, g0) => n.s != null ? [n.s, 0] : [n.a == null || n.a === g0 ? Infinity : n.a, 1];
 function dayGaps(d) {
   const E = timedOn(d), gaps = E.map(() => []).concat([[]]);
   for (const n of dayItems(d)) gaps[gapOf(E, n.s ?? n.a)].push(n);
+  gaps.forEach((g, i) => { const g0 = gapStart(E, i), ix = new Map(g.map((n, j) => [n, j])); g.sort((x, y) => { const a = gapKey(x, g0), b = gapKey(y, g0); return a[0] - b[0] || a[1] - b[1] || ix.get(x) - ix.get(y); }); });
   return { E, gaps };
 }
 function listHTML(d) {
@@ -704,9 +711,36 @@ function toggle(id) {
   else if (!hasKids(id) && node(id).done && anc.length) { const r = rootOf(n), p = progress(r.id); toast(`${r.t}: ${p.done} of ${p.total} done`); }
 }
 // A day's list keeps its own order (ds), apart from the order of a project's steps (o)
-function reorder(date, id, idx, patch) {
+function reorder(date, id, idx, patch, more = {}) {
   const list = dayGaps(date).gaps.flat().filter(n => n.id !== id); list.splice(Math.max(0, Math.min(idx, list.length)), 0, node(id));
-  store.updateMany(list.map((n, i) => [n.id, n.id === id ? { ...patch, ds: i } : { ds: i }]));
+  store.updateMany(list.map((n, i) => [n.id, n.id === id ? { ...patch, ds: i } : { ...more[n.id], ds: i }]));
+}
+/* A task dropped in the List view: work out what it needs so the list stays in time order.
+   gap/idx say where it landed (idx counts tasks across the whole day). Returns its own patch, plus new times for others. */
+function listDrop(n, date, gap, idx) {
+  const { E, gaps } = dayGaps(date), g0 = gapStart(E, gap);
+  const inGap = gaps[gap].filter(x => x.id !== n.id), k = idx - gaps.slice(0, gap).flat().filter(x => x.id !== n.id).length;
+  const above = inGap.slice(0, Math.max(0, k)), below = inGap.slice(Math.max(0, k));
+  const timed = l => l.filter(x => x.s != null), patch = { d: date, a: g0 }, more = {};
+  const pin = () => { // no time: stay right below whatever is above it, or above whatever is below
+    const up = above[above.length - 1], dn = below.find(x => gapKey(x, g0)[0] !== Infinity);
+    if (up) { const u = gapKey(up, g0)[0]; if (u !== Infinity) patch.a = u; }
+    else if (dn) { const m = gapKey(dn, g0)[0] - 1; if (m >= 0 && (g0 == null || m > g0)) patch.a = m; }
+  };
+  if (n.s == null) { pin(); return { patch, more }; }
+  if (n.d === date && gapOf(E, n.s) === gap) {
+    // Moved among the timed tasks of its own gap: they keep the same start times, handed out in the new order
+    const order = timed(above).concat([n], timed(below)), slots = order.map(x => x.s).sort((x, y) => x - y);
+    order.forEach((x, i) => { if (x.s !== slots[i]) { if (x.id === n.id) patch.s = slots[i]; else more[x.id] = { s: slots[i] }; } });
+    patch.a = null; return { patch, more };
+  }
+  // Moved to another gap or day: start right after what is above it (a task or an event), or end just before what is below
+  const up = timed(above).pop(), dn = timed(below)[0], prevEv = gap ? E[gap - 1] : null, nextS = dn ? dn.s : E[gap]?.s;
+  let s = up ? up.s + (up.m || 60) : prevEv ? prevEv.s + prevEv.m : nextS != null ? nextS - (n.m || 60) : n.s;
+  s = Math.round(s / 5) * 5;
+  if (s >= 0 && s + (n.m || 60) <= 1440 && gapOf(E, s) === gap && (!dn || s <= dn.s)) { patch.s = s; patch.a = null; }
+  else { patch.s = null; pin(); } // no time fits there, so it keeps its place without one
+  return { patch, more };
 }
 /* Reordering projects, tasks and steps. A list says whose items it holds: data-g="p:<parent>" for a project's steps,
    "loose" for inbox tasks, and an area (data-drop="area") holds top-level projects and its own tasks. Dragged into another area,
@@ -960,11 +994,9 @@ function endDrag() {
   if (type === 'col') store.update(n.id, { d: date, s: d.min, m: n.m || 60 });
   else if (type === 'tray') store.update(n.id, { d: date, s: null, a: null, ds: Date.now() / 1000 });
   else if (type === 'list') {
-    // Dropped between events: remember which event it follows, but no exact time.
-    // A task that has a time keeps it only if that time still fits where it was dropped.
-    const E = timedOn(date), patch = { d: date, a: d.gap ? E[d.gap - 1].s : null };
-    if (n.s != null && gapOf(E, n.s) !== d.gap) patch.s = null;
-    reorder(date, n.id, d.idx, patch);
+    // Dropped between events: a timed task takes a time that fits its new place, so the list never shows times out of order
+    const { patch, more } = listDrop(n, date, d.gap, d.idx);
+    reorder(date, n.id, d.idx, patch, more);
   }
   else if (type === 'inbox') store.update(n.id, { d: null, s: null, a: null });
   else if (type === 'area') {
