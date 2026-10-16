@@ -102,8 +102,8 @@ export const TOOLS = [
         link: str("Web address the notes came from, such as the Thymer page. Must start with https:// or http://."),
         due: str("Due date, YYYY-MM-DD. For a milestone, the date its diamond sits on."),
         start: str("Start date, YYYY-MM-DD, for an item that will get steps of its own (a sub-project)."),
-        milestone: { type: "boolean", description: "Mark it as a milestone: a diamond on the Roadmap on its due date (or its day)." },
-        hard_deadline: { type: "boolean", description: "A milestone whose date can't move (drawn red). Makes it a milestone too." },
+        milestone: { type: ["boolean", "string"], enum: [true, false, "true", "false"], description: "Mark it as a milestone: a diamond on the Roadmap on its due date (or its day)." },
+        hard_deadline: { type: ["boolean", "string"], enum: [true, false, "true", "false"], description: "A milestone whose date can't move (drawn red). Makes it a milestone too." },
         waiting_on: str("Id of another item this one waits on."),
       },
     },
@@ -164,8 +164,8 @@ export const TOOLS = [
         link: orNull("string", "Replaces the link. null removes it."),
         due: orNull("string", "Due date, YYYY-MM-DD, or null."),
         start: orNull("string", "Start date of a project or sub-project, YYYY-MM-DD, or null."),
-        milestone: { type: "boolean", description: "Make it a milestone (true) or a plain task (false, which also clears hard_deadline)." },
-        hard_deadline: { type: "boolean", description: "Mark a milestone's date as one that can't move. true also makes it a milestone." },
+        milestone: { type: ["boolean", "string"], enum: [true, false, "true", "false"], description: "Make it a milestone (true) or a plain task (false, which also clears hard_deadline)." },
+        hard_deadline: { type: ["boolean", "string"], enum: [true, false, "true", "false"], description: "Mark a milestone's date as one that can't move. true also makes it a milestone." },
         waiting_on: orNull("string", "Id of the item this one waits on, or null to clear."),
         project_id: orNull("string", "Move under this project, or null to move to the inbox."),
         area: orNull("string", "For a top-level project or task: move it to this area, by name, or null for no area (a task goes back to the inbox)."),
@@ -282,9 +282,12 @@ function newRow(fields: Partial<Row>): Row {
   return { id: crypto.randomUUID(), parent_id: null, title: "", notes: null, done: false, day: null, start_min: null, after_min: null, duration_min: 60, sort: now(), color: null, due: null, link: null, kind: null, area_id: null, start: null, milestone: false, hard_deadline: false, waits_on: null, deleted: false, ...fields };
 }
 
+/** true or false, also written as the text "true" or "false" (some clients send flags as text). */
 function boolArg(v: unknown, name: string): boolean {
-  if (typeof v !== "boolean") throw new Bad(`${name} must be true or false.`);
-  return v;
+  if (typeof v === "boolean") return v;
+  const t = typeof v === "string" ? v.trim().toLowerCase() : "";
+  if (t === "true" || t === "false") return t === "true";
+  throw new Bad(`${name} must be true or false.`);
 }
 /** Start, due, milestone, hard deadline and waiting on, shared by add_task, add_project and update_item. */
 function roadmapArgs(t: Tree, args: Record<string, unknown>, r: Partial<Row> & { id?: string }) {
