@@ -3,6 +3,7 @@ import * as calendar from './calendar.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { initAI, ask, undo, renderMsgs, clearChat, breakDownLocal } from './ai.js';
 import * as roadmap from './roadmap.js';
+import * as stats from './stats.js';
 import * as track from './track.js';
 import { cleanRule, ruleText, splitOcc, WEEK } from './repeat.js';
 import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
@@ -17,6 +18,8 @@ const phone = () => matchMedia('(max-width:860px)').matches;
 const boardShown = () => !phone() && S.page === 'projects';
 // The Roadmap is a page of its own on a computer and a tab on a phone, and it can open inside Quiet too
 const roadShown = () => phone() ? S.tab === 'roadmap' : S.page === 'roadmap';
+// Stats (js/stats.js) works the same way: a page on a computer, a tab on a phone, and it opens inside Quiet too
+const statsShown = () => phone() ? S.tab === 'stats' : S.page === 'stats';
 const ICON = {
   prev: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 3L5 8l5 5"/></svg>',
   next: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3l5 5-5 5"/></svg>',
@@ -32,6 +35,7 @@ const ICON = {
   board: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1.3"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1.3"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1.3"/><rect x="9" y="9" width="4.5" height="4.5" rx="1.3"/></svg>',
   min: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4.5h10M3 8h10M3 11.5h6"/></svg>',
   close: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
+  stats: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 19.5V13M10 19.5V6.5M15 19.5V10M20 19.5V4.5"/></svg>',
   road: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 6.5h8M8 12h10M6 17.5h7"/><path d="M15.5 4.5l2 2-2 2-2-2z" stroke-linejoin="round"/></svg>',
   ms: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 2.5L13.5 8 8 13.5 2.5 8z"/></svg>',
   wait: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4.5 2.5h7M4.5 13.5h7M5.5 2.5c0 3 5 3.5 5 5.5s-5 2.5-5 5.5M10.5 2.5c0 3-5 3.5-5 5.5s5 2.5 5 5.5"/></svg>',
@@ -46,7 +50,7 @@ const ICON = {
 const UI_KEY = 'daybook-ui';
 const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), focus: false, pick: null, adding: null, new: null, drOpen: false, drAt: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, notesEdit: false, waitEdit: false, rpEdit: false, scope: 'one', mcp: null };
 S.anchor = today();
-const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min, rmZoom: S.rmZoom, free: S.free });
+const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min, rmZoom: S.rmZoom, free: S.free, stK: S.stK, stCard: S.stCard });
 let client = null, user = null, configured = false, shown = today(), supaUrl = '';
 
 /* Links on items, such as the Thymer page a task came from */
@@ -304,14 +308,14 @@ let qVisit = false, qSkip = false;
 function quietProjects(tab = 'projects') { setStrip(false); S.tab = tab; S.drOpen = false; document.body.classList.remove('dr-on'); if (!qVisit) { qVisit = true; history.pushState({ qVisit: 1 }, ''); } render(); }
 function quietPlan() { if (S.tab === 'plan') return; setStrip(false); S.tab = 'plan'; W = null; if (qVisit) { qVisit = false; qSkip = true; history.back(); } }
 const qProjects = () => quiet() && phone() && S.tab === 'projects';
-// The roadmap button (or R) goes to the Roadmap and back to the plan
-function toggleRoad() {
+// The roadmap button (or R) goes to the Roadmap and back to the plan; the stats button (or S) does the same for Stats
+function toggleRoad(pg = 'roadmap') {
   setStrip(false);
-  if (phone()) { if (S.tab === 'roadmap') { if (quiet()) quietPlan(); else S.tab = 'plan'; } else if (quiet()) { quietProjects('roadmap'); return; } else { S.tab = 'roadmap'; S.drOpen = false; document.body.classList.remove('dr-on'); } }
-  else S.page = S.page === 'roadmap' ? 'plan' : 'roadmap';
+  if (phone()) { if (S.tab === pg) { if (quiet()) quietPlan(); else S.tab = 'plan'; } else if (quiet()) { if (S.tab !== 'plan') { S.tab = pg; render(); return; } quietProjects(pg); return; } else { S.tab = pg; S.drOpen = false; document.body.classList.remove('dr-on'); } }
+  else S.page = S.page === pg ? 'plan' : pg;
   render();
 }
-function leaveRoad() { if (!phone() && S.page === 'roadmap') S.page = 'plan'; quietPlan(); }
+function leaveRoad() { if (!phone() && (S.page === 'roadmap' || S.page === 'stats')) S.page = 'plan'; quietPlan(); }
 let qSide = false, qPin = false, qT = 0;
 function setStrip(on) { S.qstrip = on; document.body.classList.toggle('q-strip', quiet() && on); document.querySelector('.qh')?.setAttribute('aria-expanded', on); }
 function setQSide(on) { qSide = on && quiet() && !phone(); if (!qSide) qPin = false; document.body.classList.toggle('q-side', qSide); document.body.classList.toggle('q-pin', qPin); if (!phone()) document.querySelector('.mh [data-act="qproj"]')?.setAttribute('aria-pressed', qPin); if (qSide) setStrip(false); }
@@ -328,8 +332,8 @@ function setQuiet(on) {
 function quietKey(e) {
   const k = e.key.toLowerCase(), click = a => document.querySelector(`#main [data-act="${a}"]`)?.click();
   if (k === 'arrowleft') click('prev'); else if (k === 'arrowright') click('next');
-  else if (k === 'd' || k === 'w') { const v = k === 'd' ? 'day' : 'week'; const away = roadShown(); leaveRoad(); if (S.view !== v || away) { S.view = v; W = null; render(); } }
-  else if (k === 't') { if (roadShown()) { leaveRoad(); render(); } else setMode(S.mode === 'list' ? 'timed' : 'list'); }
+  else if (k === 'd' || k === 'w') { const v = k === 'd' ? 'day' : 'week'; const away = roadShown() || statsShown(); leaveRoad(); if (S.view !== v || away) { S.view = v; W = null; render(); } }
+  else if (k === 't') { if (roadShown() || statsShown()) { leaveRoad(); render(); } else setMode(S.mode === 'list' ? 'timed' : 'list'); }
   else if (k === 'p') setQPin(!qPin);
   else if (k === '/') { openAI(); setTimeout(() => document.getElementById('askq')?.focus(), 50); }
   else return false;
@@ -469,7 +473,7 @@ function setDrawer(open) {
   const d = document.getElementById('drawer'); if (!d) return;
   d.classList.toggle('on', open); d.inert = !open; d.previousElementSibling.classList.toggle('on', open);
 }
-const pageSeg = () => `<div class="seg page-seg" role="group" aria-label="Page"><button data-act="page" data-v="plan" aria-pressed="${!boardShown() && !roadShown()}">Plan</button><button data-act="page" data-v="projects" aria-pressed="${boardShown()}">Projects</button><button data-act="page" data-v="roadmap" aria-pressed="${roadShown()}">Roadmap</button></div>`;
+const pageSeg = () => `<div class="seg page-seg" role="group" aria-label="Page"><button data-act="page" data-v="plan" aria-pressed="${!boardShown() && !roadShown() && !statsShown()}">Plan</button><button data-act="page" data-v="projects" aria-pressed="${boardShown()}">Projects</button><button data-act="page" data-v="roadmap" aria-pressed="${roadShown()}">Roadmap</button><button data-act="page" data-v="stats" aria-pressed="${statsShown()}">Stats</button></div>`;
 function renderBoard(el) {
   const old = document.getElementById('board'); const hs = old?.scrollLeft || 0, vs = old ? [...old.querySelectorAll('.bcol-b')].map(c => c.scrollTop) : [];
   const { groups, loose } = areaGroups();
@@ -482,7 +486,7 @@ function renderBoard(el) {
   const b = document.getElementById('board'); b.scrollLeft = hs; b.querySelectorAll('.bcol-b').forEach((c, i) => c.scrollTop = vs[i] || 0);
 }
 /* The Roadmap page (js/roadmap.js draws the timeline) */
-const roadBtn = () => `<button class="ib q-only" data-act="road" aria-pressed="${roadShown()}" aria-label="Roadmap" title="Roadmap (R)">${ICON.road}</button>`;
+const roadBtn = () => `<button class="ib q-only" data-act="road" aria-pressed="${roadShown()}" aria-label="Roadmap" title="Roadmap (R)">${ICON.road}</button><button class="ib q-only" data-act="stats" aria-pressed="${statsShown()}" aria-label="Stats" title="Stats (S)">${ICON.stats}</button>`;
 function renderRoad(el) {
   const first = !document.getElementById('rmsc');
   if (first && client && user) client.auth.getUser().then(({ data }) => { const v = +data?.user?.user_metadata?.free_hours; if (v > 0 && v !== +S.free) { S.free = v; saveUI(); later(); } }).catch(() => {}); // set on another device, or by Claude
@@ -505,7 +509,22 @@ function setFree(v) {
   later();
 }
 roadmap.init({ S, saveUI, render: () => render(), toast: (...a) => toast(...a) });
-addEventListener('resize', () => { if (roadShown()) later(); });
+addEventListener('resize', () => { if (roadShown() || statsShown()) later(); });
+/* The Stats page (js/stats.js draws it): hours by area for a range, a row of charts to swipe through, and the year in squares */
+function renderStats(el) {
+  const k = stats.KINDS.some(([v]) => v === S.stK) ? S.stK : 'week', R = stats.range(), fixed = k === 'all';
+  const prev = document.getElementById('mbody'), sc = prev?.dataset.k === 'stats' ? prev.scrollTop : 0;
+  el.innerHTML = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">Stats · ${esc(R.label)}</span></button>` : ''}<header class="mh st-mh">
+    <div class="mh-l">${pageSeg()}<h1 id="mtitle">Stats</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Earlier"${fixed ? ' disabled' : ''}>${ICON.prev}</button><button class="tb" data-act="today"${fixed ? ' disabled' : ''}>${k === 'day' ? 'Today' : 'Now'}</button><button class="ib" data-act="next" aria-label="Later"${fixed ? ' disabled' : ''}>${ICON.next}</button></div>${urBtns()}</div>
+    <div class="mh-r"><div class="seg st-kinds" role="group" aria-label="Range">${stats.KINDS.map(([v, l]) => `<button data-act="st-k" data-v="${v}" aria-pressed="${k === v}">${l}</button>`).join('')}</div>
+    <div class="mh-i"><button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
+    <button class="ib q-only" data-act="qproj" aria-pressed="${qProjects() || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
+    <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
+  <div class="mbody st-b vscroll" id="mbody" data-k="stats">${stats.html()}</div>`;
+  document.getElementById('mbody').scrollTop = sc;
+  stats.mounted();
+}
+stats.init({ S, saveUI, render: () => render() });
 // Time blocks scrolls both ways in one box, so one finger can go sideways and up/down in the same swipe, and the day names stay pinned on top
 const vScroller = mb => (mb?.classList.contains('timed') && mb.querySelector('.tw')) || mb;
 function renderMain() {
@@ -513,6 +532,7 @@ function renderMain() {
   document.body.classList.toggle('quiet', quietLook()); document.body.classList.toggle('q-strip', quiet() && !!S.qstrip);
   if (boardShown()) return renderBoard(el);
   if (roadShown()) return renderRoad(el);
+  if (statsShown()) return renderStats(el);
   const strip = S.view === 'week';
   const prev = document.getElementById('mbody'); const key = S.view + S.mode + (strip ? '' : S.anchor);
   const same = prev && prev.dataset.k === key; const sc = same ? vScroller(prev).scrollTop : null;
@@ -616,11 +636,11 @@ function stripGo(d, smooth) {
   s.el.scrollBy({ [s.x ? 'left' : 'top']: delta, behavior: smooth ? 'smooth' : 'auto' });
 }
 function renderTabs() {
-  const t = [['plan', 'Plan', ICON.plan], ['projects', 'Projects', ICON.proj], ['roadmap', 'Roadmap', ICON.road], ['ask', 'Ask Claude', ICON.ask]];
+  const t = [['plan', 'Plan', ICON.plan], ['projects', 'Projects', ICON.proj], ['roadmap', 'Roadmap', ICON.road], ['stats', 'Stats', ICON.stats], ['ask', 'Ask Claude', ICON.ask]];
   const nav = document.getElementById('tabs'); nav.dataset.drop = 'inbox';
   nav.innerHTML = t.map(([k, l, i]) => `<button data-act="tab" data-v="${k}" aria-current="${S.tab === k}">${i}<span>${l}</span></button>`).join('')
     + (S.tab === 'plan' ? `<button class="tab-grab" data-act="drawer" aria-label="${S.drOpen ? 'Hide' : 'Show'} projects to schedule" aria-expanded="${S.drOpen}"></button>` : '');
-  document.body.dataset.tab = S.tab; document.body.dataset.page = boardShown() ? 'projects' : roadShown() ? 'roadmap' : 'plan';
+  document.body.dataset.tab = S.tab; document.body.dataset.page = boardShown() ? 'projects' : roadShown() ? 'roadmap' : statsShown() ? 'stats' : 'plan';
 }
 
 /* Zoomed-in view of one item */
@@ -698,7 +718,7 @@ function timeHTML(n) {
     return `<button class="tl-row${e.guess ? ' guess' : ''}${b ? '' : ' live'}" data-act="tl-edit" data-i="${i}" title="Tap to correct"><span>${dayWord(a.d)}</span><span class="tl-t">${fmtT(a.m)} – ${b ? fmtT(b.m) : 'now'}</span><span class="tl-m">${e.guess ? 'guessed' : fmtDur(Math.max(1, track.mins(e)))}</span></button>`;
   }).join('');
   const sum = t ? `${fmtDur(t)} recorded${plan ? ` · planned ${fmtDur(plan)}` : ''}` : '';
-  return `<div class="dt-sec">Time${sum ? `<small>${sum}</small>` : ''}</div><div class="tl">${rows}<button class="tl-add" data-act="tl-add">+ Add time I forgot</button></div>`;
+  return `<div class="dt-sec">Time${sum ? `<small>${sum}</small>` : ''}</div>${stats.paceHTML(n)}<div class="tl">${rows}<button class="tl-add" data-act="tl-add">+ Add time I forgot</button></div>`;
 }
 // Saves the stretch being corrected. An end before the start means it ran past midnight.
 function saveStretch() {
@@ -1069,6 +1089,11 @@ document.addEventListener('click', e => {
     case 'page': if (quiet() && b.dataset.v === 'projects') setQuiet(false); // the full Projects board is its own page, outside Quiet
       S.page = b.dataset.v; S.pick = null; S.adding = null; render(); break;
     case 'road': toggleRoad(); break;
+    case 'stats': toggleRoad('stats'); break;
+    case 'st-k': S.stK = b.dataset.v; S.stAt = today(); render(); break;
+    case 'st-at': S.stK = b.dataset.k; S.stAt = b.dataset.d; render(); document.getElementById('mbody')?.scrollTo({ top: 0, behavior: 'smooth' }); break;
+    case 'st-area': S.stArea = id || null; render(); break;
+    case 'st-card': stats.showCard(b.dataset.v); break;
     case 'rm-zoom': roadmap.setZoom(+b.dataset.v); break;
     case 'rm-fold': S.col['rm:' + id] = !S.col['rm:' + id]; saveUI(); render(); break;
     case 'rm-week': S.anchor = b.dataset.d; S.view = 'week'; W = null; leaveRoad(); render(); break;
@@ -1077,7 +1102,7 @@ document.addEventListener('click', e => {
     case 'min': setQuiet(!S.min); break;
     case 'qstrip': setStrip(!S.qstrip); break;
     case 'qproj': if (!phone()) setQPin(!qPin); else if (qProjects()) { quietPlan(); render(); } else quietProjects(); break;
-    case 'prev': case 'next': if (roadShown()) { roadmap.go(a === 'prev' ? -1 : 1); break; } if (qProjects()) { quietPlan(); render(); break; } {
+    case 'prev': case 'next': if (roadShown()) { roadmap.go(a === 'prev' ? -1 : 1); break; } if (statsShown()) { stats.go(a === 'prev' ? -1 : 1); break; } if (qProjects()) { quietPlan(); render(); break; } {
       const dir = a === 'prev' ? -1 : 1;
       if (S.view !== 'week' || !W) { S.anchor = add(S.anchor, dir * (S.view === 'week' ? 7 : 1)); render(); break; }
       const f = visibleDays()[0] || S.anchor, ws = weekStart(f); // a computer lines weeks up on Monday; a phone steps a week from where you are
@@ -1087,7 +1112,7 @@ document.addEventListener('click', e => {
       if (grew) renderMain();
       stripGo(to, true); break;
     }
-    case 'today': if (roadShown()) { roadmap.goToday(); break; } if (qProjects()) { quietPlan(); S.anchor = today(); render(); break; } if (S.view === 'week' && W) { stripGo(phone() ? today() : weekStart(today()), true); break; } S.anchor = today(); render(); break;
+    case 'today': if (roadShown()) { roadmap.goToday(); break; } if (statsShown()) { stats.goToday(); break; } if (qProjects()) { quietPlan(); S.anchor = today(); render(); break; } if (S.view === 'week' && W) { stripGo(phone() ? today() : weekStart(today()), true); break; } S.anchor = today(); render(); break;
     case 'goday': S.anchor = b.dataset.d; S.view = 'day'; W = null; render(); break;
     case 'tip': S.tip = false; render(); break;
     case 'tab': S.tab = b.dataset.v; S.drOpen = false; document.body.classList.remove('dr-on'); render(); break;
@@ -1149,6 +1174,8 @@ document.addEventListener('keydown', e => {
   if (key === 'q' && !D && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); if (S.open) { S.open = null; renderDetail(); } setQuiet(!S.min); return; }
   // R opens the Roadmap and goes back, anywhere outside a text box
   if (key === 'r' && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); toggleRoad(); return; }
+  // S does the same for Stats
+  if (key === 's' && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); toggleRoad('stats'); return; }
   if (quiet() && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])') && quietKey(e)) { e.preventDefault(); return; }
   if (e.key === 'Enter' && e.target.id === 'dt-title') { e.preventDefault(); e.target.blur(); }
   if (e.key === 'Enter' && e.target.matches('.dt-notes-view')) { e.preventDefault(); e.target.click(); }
@@ -1183,6 +1210,7 @@ document.addEventListener('change', e => {
   const t = e.target;
   if (t.dataset.pickdate) { if (t.value) setDay(t.dataset.pickdate, t.value); return; }
   if (t.id === 'rm-free') { setFree(t.value); return; }
+  if (t.id === 'st-from' || t.id === 'st-to') { if (t.value) { S[t.id === 'st-from' ? 'stFrom' : 'stTo'] = t.value; render(); } return; }
   if (t.id === 'tl-day' || t.id === 'tl-s' || t.id === 'tl-e') { saveStretch(); return; }
   const n = S.open && node(S.open); if (!n) return;
   if (t.id === 'dt-title') { if (!n.t.trim()) edit(n.id, { t: n.k === 'area' ? 'New area' : n.c ? 'New project' : 'Untitled' }); else store.updateMany([]); }
