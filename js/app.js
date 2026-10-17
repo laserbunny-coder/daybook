@@ -937,17 +937,23 @@ function onStep(st) {
 // Checking off one task stops its recording and moves its block to when it was really done (track.js); reopening puts it back
 // A step of a project that isn't on the plan itself stays off it: its project's recording holds the time
 const check = n => store.update(n.id, n.done ? track.undonePatch(n) : track.donePatch(n, !!n.d || n.p == null));
-function placedText(id) {
-  const n = node(id); if (!n?.done || n.s == null) return '';
+function placedText(id, proj = false) {
+  const n = node(id); if (!(proj ? isDone(n) : n?.done) || n.s == null) return '';
   return ` · ${fmtT(n.s)}–${fmtT(n.s + (n.m || 60))}${n.tl?.[n.tl.length - 1]?.guess ? ', as planned' : ''}`;
 }
 function toggle(id) {
   const n = node(id); if (n.rs) { check(n); if (node(id)?.done) toast(`${short(n.t)} done${placedText(id)}`); return; } // a repeat is checked off on its own
-  const anc = ancestors(n); const before = anc.map(isDone);
+  const anc = ancestors(n); const before = anc.map(isDone), was = isDone(n);
   if (hasKids(id) || n.c) { const all = isDone(n); store.updateMany(leaves(id).filter(l => !l.c && !l.r).map(l => [l.id, { done: !all }])); }
   else check(n);
+  // Projects that just finished move to when they were really worked on; reopened ones go back to their plan (same undo step)
+  [...anc.map((a, i) => [a, before[i]]), [n, was]].forEach(([a, b]) => {
+    if (!(hasKids(a.id) || a.c) || isDone(a) === b) return;
+    const p = node(a.id), patch = b ? track.reopenPatch(p) : track.finishPatch(p);
+    if (Object.keys(patch).length) store.update(p.id, patch);
+  });
   const fin = anc.filter((a, i) => !before[i] && isDone(a)), when = hasKids(id) || n.c ? '' : placedText(id);
-  if (fin.length) { const a = fin[fin.length - 1]; const r = rootOf(n); const p = progress(r.id); toast(r === a ? `${a.t} is complete.` : `${a.t} is done. ${r.t} is now ${Math.round(p.done / p.total * 100)}% complete.`); }
+  if (fin.length) { const a = fin[fin.length - 1]; const r = rootOf(n); const p = progress(r.id); toast(r === a ? `${a.t} is complete${placedText(a.id, true)}.` : `${a.t} is done. ${r.t} is now ${Math.round(p.done / p.total * 100)}% complete.`); }
   else if (!hasKids(id) && node(id).done && anc.length) { const r = rootOf(n), p = progress(r.id); toast(`${r.t}: ${p.done} of ${p.total} done${when}`); }
   else if (when) toast(`${short(n.t)} done${when}`);
 }
