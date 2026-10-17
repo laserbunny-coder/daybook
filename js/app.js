@@ -77,7 +77,7 @@ function ckHTML(n) {
   if (n.r) { const t = esc(ruleText(n.r, n.d)); return `<button class="ck rp" data-act="open" data-id="${n.id}" title="${t}" aria-label="${esc(n.t)} repeats: ${t}">${ICON.rep}</button>`; } // a repeating task is checked off one repeat at a time, on the plan
   if (hasKids(n.id) || n.c) {
     const p = progress(n.id); const pct = p.total ? p.done / p.total : 0;
-    return `<button class="ring" data-act="toggle" data-id="${n.id}" style="--p:${pct}" title="${p.done} of ${p.total} done" aria-label="${esc(n.t)}: ${p.done} of ${p.total} done"></button>`;
+    return `<button class="ring${p.total && p.done === p.total ? ' fin' : ''}" data-act="toggle" data-id="${n.id}" style="--p:${pct}" title="${p.done} of ${p.total} done" aria-label="${esc(n.t)}: ${p.done} of ${p.total} done"></button>`;
   }
   return `<button class="ck${n.done ? ' on' : ''}" data-act="toggle" data-id="${n.id}" aria-label="Mark ${esc(n.t)} ${n.done ? 'not done' : 'done'}"></button>`;
 }
