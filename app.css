@@ -981,3 +981,63 @@ body.quiet[data-page="stats"] .side{visibility:visible}
   body.quiet[data-tab="stats"] .main{display:flex}
 }
 @media (prefers-reduced-motion:reduce){.st-tabs button,.st-seg{transition:none}}
+
+/* Notes from Claude: unread ones wait in one frosted card at the top; Notes keeps them all */
+.nb{position:relative}
+.nb-dot{position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;background:var(--now);box-shadow:0 0 0 2px rgba(6,7,13,.9),0 0 8px rgba(255,122,184,.8)}
+body.quiet .nb-dot{top:7px;right:7px}
+.note{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);z-index:45;width:min(480px,calc(100% - 24px))}
+.nc{display:flex;flex-direction:column;gap:10px;padding:14px 16px 14px;border-radius:22px;border:1px solid var(--edge);
+  background:rgba(16,18,30,.94);backdrop-filter:blur(26px) saturate(1.25);-webkit-backdrop-filter:blur(26px) saturate(1.25);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 30px 70px -24px rgba(0,0,0,.9),0 0 0 1px rgba(143,168,255,.06)}
+.nc.in{animation:ncIn .42s cubic-bezier(.2,.8,.2,1)}
+.nc.next>*{animation:ncNext .3s ease}
+@keyframes ncIn{from{transform:translateY(-16px) scale(.98);opacity:0}}
+@keyframes ncNext{from{opacity:0;transform:translateY(4px)}}
+.n-h{display:flex;align-items:center;gap:10px}
+.n-h .orb{width:34px;height:34px;margin:-4px -4px -4px -6px}
+.n-from{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.n-from b{font:600 14px/1.3 var(--f-body);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.n-from small{font:500 11px/1.2 var(--f-mono);color:var(--faint)}
+.n-count{flex:none;font:600 11px/1 var(--f-mono);padding:5px 9px;border-radius:999px;background:rgba(255,122,184,.14);color:#FFB3D6;border:1px solid rgba(255,122,184,.28)}
+@media (hover:hover){.n-count:hover{background:rgba(255,122,184,.22)}}
+.n-x{flex:none;margin:-4px -6px -4px 0;color:var(--faint)}
+.n-b{font-size:14px;line-height:1.55;color:#DADCEB;overflow-wrap:anywhere}
+.nc .n-b{max-height:min(38vh,320px);margin:0 -4px;padding:0 4px}
+.md p{margin:0 0 .55em}.md>:last-child{margin-bottom:0}
+.md .md-h{font-weight:700;color:var(--fg)}
+.md b{color:var(--fg);font-weight:700}
+.md ul,.md ol{margin:0 0 .55em;padding-left:1.25em}
+.md li{margin:.15em 0}
+.md li::marker{color:var(--faint)}
+.md code{font:12.5px var(--f-mono);background:var(--sunk);padding:1px 5px;border-radius:5px}
+.md a{color:var(--accent);text-decoration:underline;text-decoration-color:rgba(143,168,255,.45);text-underline-offset:3px}
+.n-tasks{display:flex;flex-wrap:wrap;gap:6px}
+.n-task{display:inline-flex;align-items:center;gap:6px;max-width:100%;font-size:12.5px;font-weight:600;padding:5px 10px 5px 9px;border-radius:999px;
+  background:color-mix(in srgb,var(--pc) 14%,transparent);border:1px solid color-mix(in srgb,var(--pc) 40%,transparent);color:var(--fg)}
+.n-task span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.n-task.done span:last-child{text-decoration:line-through;color:var(--muted)}
+.n-task.gone{--pc:#6F7391;color:var(--faint);font-weight:500}
+@media (hover:hover){button.n-task:hover{background:color-mix(in srgb,var(--pc) 24%,transparent)}}
+.n-acts{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:2px}
+.n-talk{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:700;color:#fff;text-decoration:none;padding:8px 15px 8px 12px;border-radius:999px;background:var(--glow);box-shadow:0 6px 18px -8px #8A5CFF}
+.n-talk svg{width:16px;height:16px}
+.n-ok{font-size:13px;font-weight:600;padding:7px 16px;border-radius:999px;border:1px solid var(--edge);background:var(--surface);color:var(--fg)}
+@media (hover:hover){.n-ok:hover{background:var(--sunk)}.n-talk:hover{filter:brightness(1.1)}}
+.n-acts .n-ok:only-child{margin-left:auto}
+/* Notes: the history, slid in like an open task, which can open over it */
+.detail.notes{z-index:49}
+.nl-t{font:600 18px/1.2 var(--f-display);letter-spacing:-.02em;margin:0;padding-left:12px;display:flex;align-items:baseline;gap:10px}
+.nl-t small{font:500 11px var(--f-mono);letter-spacing:0;color:#FFB3D6}
+.nl-acts{display:flex;align-items:center;gap:12px;font-size:13px}
+.nl .dt-body{display:flex;flex-direction:column;gap:12px;padding-top:12px}
+.nn{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border-radius:18px;border:1px solid var(--line);background:rgba(255,255,255,.03)}
+.nn.un{border-color:rgba(255,122,184,.32);background:rgba(255,122,184,.045)}
+.nn .n-from b{white-space:normal}
+.n-new{color:#FFB3D6}
+.n-empty{color:var(--muted);font-size:14px;padding:24px 4px;max-width:420px}
+@media (max-width:860px){
+  .note{top:calc(10px + env(safe-area-inset-top,0px));width:calc(100% - 20px)}
+  .nc{border-radius:20px}
+  .nl .dt-body{padding-left:14px;padding-right:14px}
+}
