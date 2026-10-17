@@ -5,8 +5,9 @@ import { initAI, ask, undo, renderMsgs, clearChat, breakDownLocal } from './ai.j
 import * as roadmap from './roadmap.js';
 import * as stats from './stats.js';
 import * as track from './track.js';
+import * as notes from './notes.js';
 import { cleanRule, ruleText, splitOcc, WEEK } from './repeat.js';
-import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
+import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fd, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
 import { ancestors, children, colorOf, dayItems, glow, hasKids, isDone, isProj, leaves, node, PALETTE, progress, rootOf } from './tree.js';
 
 const H0 = 6, H1 = 23;
@@ -43,6 +44,7 @@ const ICON = {
   play: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 3.8v8.4a.5.5 0 0 0 .76.43l6.6-4.2a.5.5 0 0 0 0-.86l-6.6-4.2a.5.5 0 0 0-.76.43z"/></svg>',
   stop: '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="4.5" y="4.5" width="7" height="7" rx="1.5"/></svg>',
   watch: '<svg class="sw-i" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-label="Recorded time"><circle cx="8" cy="9" r="5"/><path d="M8 9V6.5M6.5 2.5h3M12.2 4.6l.9-.9"/></svg>',
+  notes: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M3.2 3h9.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H7.4L4.6 13.6v-2.2H3.2c-.7 0-1.2-.5-1.2-1.2v-6C2 3.5 2.5 3 3.2 3z"/><path d="M5 6.2h6M5 8.4h3.6"/></svg>',
   repS: '<svg class="ni" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-label="Repeats"><path d="M12.6 6.2A4.9 4.9 0 0 0 3.7 5M3.4 9.8a4.9 4.9 0 0 0 8.9 1.2"/><path d="M3.4 2.4v2.9h2.9M12.6 13.6v-2.9H9.7"/></svg>',
 };
 
@@ -161,10 +163,10 @@ function footHTML() {
       <div class="acct">${esc(user.email || '')}</div>
       <div class="sync ${store.sync.state}">${SYNC_TEXT[store.sync.state] || ''}</div>
       <div>${c.connected && !c.reconnect ? 'Google Calendar connected (read-only).' : 'Google Calendar isn\'t connected.'} ${!c.connected || c.reconnect ? '<button class="link" data-act="signin">Connect it</button>' : ''}</div>
-      <div class="foot-acts"><button class="link" data-act="mcp">Connect to Claude</button><button class="link" data-act="signout">Sign out</button></div>${mcpHTML()}</div>`;
+      <div class="foot-acts"><button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="mcp">Connect to Claude</button><button class="link" data-act="signout">Sign out</button></div>${mcpHTML()}</div>`;
   }
   return `<div class="side-f">Sample data, stored only on this device. Drag anything onto the plan, or back here to unschedule it.
-    <div class="foot-acts">${configured ? '<button class="link" data-act="signin">Sign in with Google</button>' : ''}<button class="link" data-act="reset">Reset sample data</button></div></div>`;
+    <div class="foot-acts">${configured ? '<button class="link" data-act="signin">Sign in with Google</button>' : ''}<button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="reset">Reset sample data</button></div></div>`;
 }
 /* Areas group the top-level projects, and tasks that belong to an area without being part of a project.
    Such a task becomes a project in that area as soon as it gets steps. A project whose area is gone shows under "No area";
@@ -495,7 +497,7 @@ function renderRoad(el) {
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">Roadmap</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Earlier">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Later">${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg rm-zoom" role="group" aria-label="Zoom">${[1, 3, 6].map(m => `<button data-act="rm-zoom" data-v="${m}" aria-pressed="${z === m}">${m} mo</button>`).join('')}</div>
     <label class="chip rm-free" title="How many hours a week you have for planned tasks. Weeks with more scheduled than this stand out."><input id="rm-free" type="number" inputmode="numeric" min="1" max="168" step="1" value="${free}" aria-label="Free hours per week"><span class="k">h free a week</span></label>
-    <div class="mh-i"><button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
+    <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
     <button class="ib q-only" data-act="qproj" aria-pressed="${qProjects() || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>`;
   const box = document.getElementById('rmsc'); const width = (box ? box.clientWidth : el.clientWidth) || innerWidth;
@@ -517,7 +519,7 @@ function renderStats(el) {
   el.innerHTML = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">Stats · ${esc(R.label)}</span></button>` : ''}<header class="mh st-mh">
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">Stats</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Earlier"${fixed ? ' disabled' : ''}>${ICON.prev}</button><button class="tb" data-act="today"${fixed ? ' disabled' : ''}>${k === 'day' ? 'Today' : 'Now'}</button><button class="ib" data-act="next" aria-label="Later"${fixed ? ' disabled' : ''}>${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg st-kinds" role="group" aria-label="Range">${stats.KINDS.map(([v, l]) => `<button data-act="st-k" data-v="${v}" aria-pressed="${k === v}">${l}</button>`).join('')}</div>
-    <div class="mh-i"><button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
+    <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
     <button class="ib q-only" data-act="qproj" aria-pressed="${qProjects() || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
   <div class="mbody st-b vscroll" id="mbody" data-k="stats">${stats.html()}</div>`;
@@ -550,7 +552,7 @@ function renderMain() {
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg" role="group" aria-label="Range"><button data-act="view" data-v="day" ${P('view', 'day')}>Day</button><button data-act="view" data-v="week" ${P('view', 'week')}>Week</button></div>
     <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button></div>
-    <div class="mh-i"><button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
+    <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
     <button class="ib q-only" data-act="qproj" aria-pressed="${qp || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
   <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
@@ -835,7 +837,7 @@ function render() {
   cancelAnimationFrame(raf); raf = 0;
   const ae = document.activeElement; const fid = ae && ae.id && !document.getElementById('detail').contains(ae) ? ae.id : null;
   const val = fid ? ae.value : null;
-  renderSide(); renderMain(); renderTabs(); renderDetail(); renderRec(); renderMsgs(); saveUI();
+  renderSide(); renderMain(); renderTabs(); renderDetail(); renderRec(); renderNote(); renderNotes(); renderMsgs(); saveUI();
   if (S.view === 'week' && W?.jump && placeDay(W.jump, 0)) { W.jump = null; stripTitle(); } // a phone only lays the plan out once its tab is set
   if (S.adding) { const i = document.getElementById('add-in'); if (i) { if (fid === 'add-in') i.value = val; i.focus({ preventScroll: true }); } }
   else if (fid && fid !== 'askq') { const i = document.getElementById(fid); if (i) { if (val != null && 'value' in i) i.value = val; i.focus({ preventScroll: true }); } }
@@ -867,6 +869,83 @@ setInterval(() => {
   if (!!recEl.dataset.ask !== recAsk(e)) { renderRec(); return; }
   const c = document.getElementById('rec-c'); if (c) c.textContent = recClock(e);
 }, 1000);
+
+/* Notes from Claude (js/notes.js). Unread ones wait in one card at the top, newest first, with a count when there are
+   several; Got it marks the one showing read and the next takes its place. Notes keeps every note, read or not.
+   The message is light Markdown; the tasks a note mentions open when tapped. */
+const MD_IN = /`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|\b(?:https?:\/\/|www\.)[^\s<>"]+/gi;
+const mdEm = t => esc(t).replace(/\*\*(?=\S)(.+?)\*\*|__(?=\S)(.+?)__/g, (_, a, b) => `<b>${a ?? b}</b>`)
+  .replace(/(^|[^\w*])\*(?=[^\s*])(.+?)\*(?![\w*])|(^|[^\w])_(?=\S)(.+?)_(?!\w)/g, (_, p, a, q, b) => `${p ?? q}<i>${a ?? b}</i>`);
+function mdInline(t) {
+  let out = '', last = 0;
+  for (const m of t.matchAll(MD_IN)) {
+    out += mdEm(t.slice(last, m.index)); last = m.index + m[0].length;
+    if (m[1] != null) out += `<code>${esc(m[1])}</code>`;
+    else if (m[2] != null) { const u = safeLink(m[3]); out += u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${mdEm(m[2])}</a>` : mdEm(m[0]); }
+    else out += linkify(m[0]);
+  }
+  return out + mdEm(t.slice(last));
+}
+function md(text) {
+  const out = []; let para = [], list = null;
+  const endP = () => { if (para.length) out.push(`<p>${para.join('<br>')}</p>`); para = []; };
+  const endL = () => { if (list) out.push(`<${list.k}>${list.items.map(i => `<li>${i}</li>`).join('')}</${list.k}>`); list = null; };
+  for (const line of String(text || '').replace(/\r/g, '').split('\n')) {
+    let m;
+    if (!line.trim()) { endP(); endL(); }
+    else if ((m = /^\s*#{1,6}\s+(.*)$/.exec(line))) { endP(); endL(); out.push(`<p class="md-h">${mdInline(m[1])}</p>`); }
+    else if ((m = /^\s*(?:[-*•+]|(\d+)[.)])\s+(.*)$/.exec(line))) { endP(); const k = m[1] ? 'ol' : 'ul'; if (list?.k !== k) { endL(); list = { k, items: [] }; } list.items.push(mdInline(m[2])); }
+    else if (list && /^\s{2,}\S/.test(line)) list.items[list.items.length - 1] += '<br>' + mdInline(line.trim());
+    else { endL(); para.push(mdInline(line)); }
+  }
+  endP(); endL(); return out.join('');
+}
+function noteWhen(iso) {
+  const d = new Date(iso); if (isNaN(d)) return '';
+  const day = fd(d), t = fmtT(d.getHours() * 60 + d.getMinutes());
+  return (day === today() ? 'Today' : day === add(today(), -1) ? 'Yesterday' : `${DAYN[d.getDay()]}, ${MON[d.getMonth()]} ${d.getDate()}${d.getFullYear() !== new Date().getFullYear() ? ', ' + d.getFullYear() : ''}`) + ' · ' + t;
+}
+const noteFrom = n => `${esc(n.author || 'Claude')}: ${esc(n.title)}`;
+const noteTalk = n => { const u = safeLink(n.link); return u ? `<a class="n-talk" href="${esc(u)}" target="_blank" rel="noopener">${ICON.ask}<span>Talk about this</span></a>` : ''; };
+function noteTasks(n) {
+  if (!n.task_ids?.length) return '';
+  return `<div class="n-tasks">${n.task_ids.map(id => {
+    const t = node(id);
+    return t ? `<button class="n-task${isDone(t) ? ' done' : ''}" data-act="note-task" data-id="${esc(id)}" style="--pc:${colorOf(t)}"><span class="pdot"></span><span>${esc(t.t || 'Untitled')}</span></button>` : '<span class="n-task gone">Removed</span>';
+  }).join('')}</div>`;
+}
+const notesBtn = () => { const k = notes.unread().length; return `<button class="ib nb" data-act="notes" aria-pressed="${!!S.notesOpen}" aria-label="Notes from Claude${k ? `, ${k} unread` : ''}" title="Notes from Claude (N)">${ICON.notes}${k ? '<i class="nb-dot"></i>' : ''}</button>`; };
+const noteEl = document.createElement('div'); noteEl.id = 'note'; noteEl.className = 'note'; noteEl.hidden = true; noteEl.setAttribute('role', 'status'); document.body.appendChild(noteEl);
+const notesEl = document.createElement('div'); notesEl.id = 'notes'; notesEl.className = 'detail notes'; notesEl.hidden = true; document.body.appendChild(notesEl);
+const noteLater = new Set(); // put off with × until the app is opened again; Notes still has them
+function renderNote() {
+  const un = notes.unread(), n = un.find(x => !noteLater.has(x.id));
+  if (!n || S.notesOpen || !document.getElementById('welcome').hidden) { noteEl.hidden = true; noteEl.innerHTML = ''; noteEl.h = null; delete noteEl.dataset.id; return; }
+  const h = `<div class="nc">
+    <div class="n-h"><i class="orb" aria-hidden="true"></i><div class="n-from"><b>${noteFrom(n)}</b><small>${noteWhen(n.created_at)}</small></div>${un.length > 1 ? `<button class="n-count" data-act="notes" title="See them all in Notes">${un.length} unread</button>` : ''}<button class="ib n-x" data-act="note-later" aria-label="Not now" title="Not now (it stays in Notes)">${ICON.close}</button></div>
+    <div class="n-b md vscroll">${md(n.body)}</div>${noteTasks(n)}
+    <div class="n-acts">${noteTalk(n)}<button class="n-ok" data-act="note-ok" data-id="${esc(n.id)}">Got it</button></div></div>`;
+  if (noteEl.h === h) return;
+  const was = noteEl.hidden ? null : noteEl.dataset.id, sc = was === n.id ? noteEl.querySelector('.n-b')?.scrollTop || 0 : 0;
+  noteEl.h = h; noteEl.innerHTML = h; noteEl.hidden = false; noteEl.dataset.id = n.id;
+  noteEl.firstElementChild.classList.add(!was ? 'in' : was === n.id ? 'still' : 'next'); // drops in when it first shows; the next note only fades in
+  noteEl.querySelector('.n-b').scrollTop = sc;
+}
+function renderNotes() {
+  if (!S.notesOpen) { notesEl.hidden = true; notesEl.innerHTML = ''; notesEl.h = null; return; }
+  const L = notes.all(), k = notes.unread().length;
+  const items = L.length ? L.map(n => `<article class="nn${n.read_at ? '' : ' un'}">
+      <div class="n-from"><b>${noteFrom(n)}</b><small>${noteWhen(n.created_at)}${n.read_at ? '' : ' · <span class="n-new">Unread</span>'}</small></div>
+      <div class="n-b md">${md(n.body)}</div>${noteTasks(n)}
+      <div class="n-acts">${noteTalk(n)}${n.read_at ? '' : `<button class="n-ok" data-act="note-ok" data-id="${esc(n.id)}">Got it</button>`}</div></article>`).join('')
+    : '<div class="n-empty">No notes yet. When Claude leaves you one, say after your morning plan check, it shows up here and as a card when you open Daybook.</div>';
+  const h = `<div class="dt-back" data-act="notes-close"></div><div class="dt nl"><div class="dt-top"><h2 class="nl-t">Notes${k ? ` <small>${k} unread</small>` : ''}</h2><div class="nl-acts">${k > 1 ? '<button class="link" data-act="notes-allread">Mark all read</button>' : ''}<button class="ib" data-act="notes-close" aria-label="Close">${ICON.close}</button></div></div><div class="dt-body vscroll">${items}</div></div>`;
+  if (notesEl.h === h) return;
+  const first = notesEl.hidden, sc = first ? 0 : notesEl.querySelector('.dt-body')?.scrollTop || 0;
+  notesEl.h = h; notesEl.innerHTML = h; notesEl.hidden = false;
+  if (!first) notesEl.querySelector('.dt').classList.add('still');
+  notesEl.querySelector('.dt-body').scrollTop = sc;
+}
 
 /* Actions */
 let toastT, toastMsg = '', toastAt = 0;
@@ -1135,6 +1214,12 @@ document.addEventListener('click', e => {
     case 'signin': signIn(); break;
     case 'demo': enterDemo(); break;
     case 'signout': client.auth.signOut(); break;
+    case 'notes': setStrip(false); S.notesOpen = !S.notesOpen; render(); break;
+    case 'notes-close': S.notesOpen = false; render(); break;
+    case 'notes-allread': notes.markRead(notes.unread().map(n => n.id)); break;
+    case 'note-ok': notes.markRead([id]); break;
+    case 'note-later': notes.unread().forEach(n => noteLater.add(n.id)); renderNote(); break;
+    case 'note-task': openItem(id); break;
     case 'mcp': S.mcp = S.mcp ? null : {}; renderSide(); break;
     case 'mcp-close': S.mcp = null; renderSide(); break;
     case 'mcp-make': mcpMake(); break;
@@ -1175,11 +1260,14 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && S.waitEdit) { S.waitEdit = false; renderDetail(); return; }
   if (e.key === 'Escape' && S.linkEdit) { S.linkEdit = false; document.activeElement?.blur(); renderDetail(); return; }
   if (e.key === 'Escape' && S.new) { closeNew(); return; }
+  if (e.key === 'Escape' && S.notesOpen && !S.open) { S.notesOpen = false; render(); return; }
   if (e.key === 'Escape') { if (S.adding) { S.adding = null; render(); } else if (S.open) { S.open = null; renderDetail(); } else if (quiet() && !D) quietAway(); }
   // Q turns Quiet on and off, anywhere outside a text box
   if (key === 'q' && !D && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); if (S.open) { S.open = null; renderDetail(); } setQuiet(!S.min); return; }
   // R opens the Roadmap and goes back, anywhere outside a text box
   if (key === 'r' && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); toggleRoad(); return; }
+  // N opens Notes from Claude and closes them again
+  if (key === 'n' && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); setStrip(false); S.notesOpen = !S.notesOpen; render(); return; }
   // S does the same for Stats
   if (key === 's' && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); toggleRoad('stats'); return; }
   if (quiet() && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])') && quietKey(e)) { e.preventDefault(); return; }
@@ -1521,20 +1609,21 @@ matchMedia('(max-width:860px)').addEventListener('change', () => { W = null; lat
 function showWelcome(show) { document.getElementById('welcome').hidden = !show; }
 function enterDemo() {
   S.demo = true; saveUI(); user = null; showWelcome(false);
-  store.useLocal('daybook-sample', store.sampleData); calendar.useSample();
+  store.useLocal('daybook-sample', store.sampleData); calendar.useSample(); notes.useLocal(['s4', 's3', 's26']);
   initAI({ cloud: false, client: null }); render();
 }
 async function enterCloud(u) {
   user = u; S.demo = false; if (u.user_metadata?.free_hours) S.free = u.user_metadata.free_hours; saveUI(); showWelcome(false);
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; // so Claude reads and writes finish times in local time
   if (tz && u.user_metadata?.tz !== tz) client.auth.updateUser({ data: { tz } }).catch(() => {});
-  calendar.useGoogle(client, u.id); initAI({ cloud: true, client });
+  calendar.useGoogle(client, u.id); initAI({ cloud: true, client }); notes.useCloud(client, u);
   render();
   await store.useCloud(client, u);
   calendar.ensure(add(today(), -7), add(today(), 28), true);
 }
 store.onChange((kind, st) => { if (kind === 'occ') { if (!S.open && !('done' in st.patch) && !('tl' in st.patch)) occOffer = occOffer || st; return; } if (kind === 'step') return onStep(st); if (kind === 'sync') { if (!D) later(); return; } if (!D) later(); });
 calendar.onCalendarChange(() => { if (!D) later(); });
+notes.onChange(() => { if (!D) later(); });
 initAI({ anchor: () => S.anchor, showPlan, render: later });
 setInterval(() => { if (today() !== shown) { shown = today(); if (S.anchor === add(today(), -1)) S.anchor = today(); later(); } else if (track.running() && !D) later(); // what's recording grows in Time blocks
   else if (S.mode === 'timed' && !D) { document.querySelectorAll('.now').forEach(n => n.style.top = hpx((nowMin() - H0 * 60) / 60)); } }, 60e3);
@@ -1552,7 +1641,7 @@ async function boot() {
     if (session?.provider_refresh_token) {
       client.rpc('save_google_token', { refresh: session.provider_refresh_token }).then(() => calendar.ensure(add(today(), -7), add(today(), 28), true));
     }
-    if (event === 'SIGNED_OUT') { store.stopCloud(); user = null; S.demo = false; saveUI(); showWelcome(true); }
+    if (event === 'SIGNED_OUT') { store.stopCloud(); notes.stop(); S.notesOpen = false; user = null; S.demo = false; saveUI(); showWelcome(true); }
     else if (event === 'SIGNED_IN' && session?.user && (!user || user.id !== session.user.id)) enterCloud(session.user);
   });
   const { data: { session } } = await client.auth.getSession();

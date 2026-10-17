@@ -56,7 +56,13 @@ export type Db = {
   setFreeHours(hours: number): Promise<void>;
   /** The person's time zone (the app records it), such as Europe/Berlin; null if unknown. */
   timeZone(): Promise<string | null>;
+  /** Notes left for the person (post_note), newest first. */
+  listNotes(limit: number, unreadOnly: boolean): Promise<Note[]>;
+  addNote(n: Pick<Note, "author" | "title" | "body" | "link" | "task_ids">): Promise<Note>;
 };
+
+/** A note Claude left for the person, shown in the app until they tap Got it, and kept in Notes after. */
+export type Note = { id: string; author: string; title: string; body: string; link: string; task_ids: string[]; created_at: string; read_at: string | null };
 
 /** What the Roadmap assumes until free hours are set (the app shows the same). */
 const FREE_DEFAULT = 10;
@@ -75,6 +81,7 @@ export const INSTRUCTIONS = `Daybook is this person's own task and calendar app.
 - Checking off a task records when (done_at, in the person's local time); reopening clears it. If they say they finished something earlier, pass done_at with update_item to backdate it. actual_minutes is how long a task really took, next to its planned duration_minutes; fill it in when they tell you, or when it was far off. list_tasks with done_since lists what was finished since a date, to see their real pace.
 - Time tracking: the person records time in the app with a ▶ on a task or project (one at a time). time_log lists each stretch really worked (start, end, minutes; end is "recording now" while it runs). Checking a task off moves its block (day, start_time, duration_minutes) to when it was really done, and planned keeps where and how long it was planned, so compare planned with the real block and actual_minutes (the recorded total) to learn their pace. A stretch marked guessed wasn't recorded: it was checked off without the timer, so the app assumed it ended then and took as long as planned; don't read its length as real. Time on a project's steps is recorded on the project as a whole.
 - A task can repeat (daily, weekdays, weekly on chosen days, every N weeks, or monthly), with an optional last day: pass repeat to add_task or update_item. The task is then a series that starts on its day. Each repeat shows on its own day and is checked off on its own. list_tasks with from and to lists the repeats in that range: each has its own id (series id~date) and a series_id. To change one day's repeat (move it, check it off, rename it), use its id; to change every repeat, use the series_id. A repeat moved off the plan (day null) is skipped. repeat: null stops a series repeating. Repeating tasks count in each week's scheduled hours but have no bar on the Roadmap.
+- Notes: post_note leaves the person a note they see in the app as a card the next time they open it (unread notes stack into one card), with a button back to the chat it came from, and it stays in their Notes history. Use it to tell them what a scheduled check changed, such as a morning plan check, with a short title, a few lines, the link to this chat, and the ids of the tasks you changed. list_notes reads back what you already told them, and whether they've read it.
 - Say what you changed in plain words, since the person sees your reply, not the tool calls.`;
 
 const str = (description: string) => ({ type: "string", description });
@@ -199,6 +206,35 @@ export const TOOLS = [
     title: "Set free hours per week",
     description: "Sets how many hours a week the person has for the tasks in Daybook (1 to 168). Only change it when they tell you their number.",
     inputSchema: { type: "object", required: ["hours"], properties: { hours: { type: ["integer", "string"], description: "Whole hours per week, 1 to 168." } } },
+  },
+  {
+    name: "post_note",
+    title: "Leave a note",
+    description: "Leaves the person a note in Daybook: a card at the top of the app the next time they open it, on phone or computer, with a Talk about this button that opens link, and the tasks it mentions to tap. Unread notes stack into one card with a count. Tapping Got it marks it read; every note stays in their Notes history. Use it to say what you did, for example after a morning plan check moved tasks.",
+    inputSchema: {
+      type: "object",
+      required: ["title", "message", "link"],
+      properties: {
+        title: str("Short title, such as Morning plan check (up to 120 characters). The card reads 'Claude: <title>'."),
+        message: str("The note itself, a few lines. Markdown is fine: **bold**, *italic*, lists, links (up to 6000 characters)."),
+        link: str("The Claude chat this note came from, so the person can talk about it there. Must start with https:// or http://."),
+        task_ids: { type: "array", items: { type: "string" }, description: "Ids of the tasks or projects the note is about, such as the ones you moved (up to 50). They show as tappable chips." },
+        from: str("Who it's from, shown before the title. Defaults to Claude."),
+      },
+    },
+  },
+  {
+    name: "list_notes",
+    title: "List notes",
+    description: "The notes already left for the person with post_note, newest first: title, message, link, the tasks they mention, when, and whether they've read it (read_at).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        unread_only: { type: ["boolean", "string"], enum: [true, false, "true", "false"], description: "Only notes they haven't marked read yet." },
+        limit: { type: ["integer", "string"], description: "How many, 1 to 100. Defaults to 20." },
+      },
+    },
+    annotations: { readOnlyHint: true },
   },
   {
     name: "update_item",
@@ -555,10 +591,16 @@ function weekLoad(t: Tree, free: number, today = new Date(), weeks = 4) {
   });
 }
 
+/** A note as Claude reads it back: local times, and the tasks it mentions by name. */
+function noteOut(t: Tree, n: Note) {
+  const tasks = n.task_ids.map((id) => { try { const r = t.get(id); return { id, title: r.title, ...(t.isDone(r) ? { done: true } : {}) }; } catch { return { id, title: null, deleted: true }; } });
+  return { id: n.id, from: n.author, title: n.title, message: n.body, link: n.link, ...(tasks.length ? { tasks } : {}), posted_at: localStamp(n.created_at, t.tz), read: !!n.read_at, ...(n.read_at ? { read_at: localStamp(n.read_at, t.tz) } : {}) };
+}
+
 export async function runTool(name: string, args: Record<string, unknown>, db: Db): Promise<unknown> {
   if (name === "set_free_hours") { const h = hoursArg(args.hours); await db.setFreeHours(h); return { free_hours_per_week: h }; }
   const t = new Tree(await db.load());
-  if (["list_tasks", "list_projects", "get_item", "update_item", "add_task"].includes(name)) t.tz = await db.timeZone();
+  if (["list_tasks", "list_projects", "get_item", "update_item", "add_task", "post_note", "list_notes"].includes(name)) t.tz = await db.timeZone();
   const today = () => zoned(Date.now(), t.tz).date;
   switch (name) {
     case "get_free_hours": {
@@ -588,6 +630,27 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       else rows.sort((a, b) => (a.day ?? "9999").localeCompare(b.day ?? "9999") || (a.start_min ?? 1e4) - (b.start_min ?? 1e4) || (a.day_sort ?? a.sort) - (b.day_sort ?? b.sort));
       const out = rows.slice(0, 300).map((r) => t.describe(r));
       return rows.length > 300 ? { tasks: out, note: `Showing 300 of ${rows.length}. Narrow it down with dates or a project.` } : { tasks: out };
+    }
+    case "post_note": {
+      const title = textArg(args.title, "title", 120).trim(), body = textArg(args.message, "message", 6000).trim();
+      if (!title) throw new Bad("title can't be empty.");
+      if (!body) throw new Bad("message can't be empty.");
+      if (!has(args, "link")) throw new Bad("link is required: the address of this Claude chat, so the person can come back to it.");
+      const link = linkArg(args.link);
+      const author = has(args, "from") ? textArg(args.from, "from", 40).trim() || "Claude" : "Claude";
+      const raw = has(args, "task_ids") ? args.task_ids : [];
+      if (!Array.isArray(raw)) throw new Bad("task_ids must be a list of item ids.");
+      if (raw.length > 50) throw new Bad("task_ids can list up to 50 items.");
+      const task_ids = [...new Set(raw.map((id) => t.get(id).id))];
+      const n = await db.addNote({ author, title, body, link, task_ids });
+      return { posted: noteOut(t, n) };
+    }
+    case "list_notes": {
+      const unread = has(args, "unread_only") ? boolArg(args.unread_only, "unread_only") : false;
+      const lim = has(args, "limit") ? Number(args.limit) : 20;
+      if (!Number.isInteger(lim) || lim < 1 || lim > 100) throw new Bad("limit must be a whole number from 1 to 100.");
+      const notes = await db.listNotes(lim, unread);
+      return { notes: notes.map((n) => noteOut(t, n)), ...(notes.length ? {} : { note: unread ? "No unread notes." : "No notes yet." }) };
     }
     case "list_projects": {
       const rows = [...t.byId.values()].filter((r) => t.isProject(r) && (args.include_done || !t.isDone(r)));

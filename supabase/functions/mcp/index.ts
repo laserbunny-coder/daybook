@@ -2,9 +2,11 @@
 // secret made in the app under "Connect to Claude"; whoever has the address
 // can read and change that person's tasks, so it's treated like a password.
 import { admin, cors } from "../_shared/common.ts";
-import { type Db, handle, type Row } from "./tools.ts";
+import { type Db, handle, type Note, type Row } from "./tools.ts";
 
 const COLS = "id,parent_id,title,notes,done,day,start_min,after_min,duration_min,sort,day_sort,color,due,link,kind,area_id,start,milestone,hard_deadline,waits_on,done_at,actual_minutes,time_log,planned,repeat_rule,series_id,occurs_on,deleted";
+
+const NOTE_COLS = "id,author,title,body,link,task_ids,created_at,read_at";
 
 const headers = {
   ...cors,
@@ -64,6 +66,18 @@ function dbFor(userId: string): Db {
       if (error) throw error;
       const { error: e2 } = await sb.auth.admin.updateUserById(userId, { user_metadata: { ...(data.user?.user_metadata ?? {}), free_hours: hours } });
       if (e2) throw e2;
+    },
+    async listNotes(limit, unreadOnly) {
+      let q = sb.from("notes").select(NOTE_COLS).eq("user_id", userId);
+      if (unreadOnly) q = q.is("read_at", null);
+      const { data, error } = await q.order("created_at", { ascending: false }).limit(limit);
+      if (error) throw error;
+      return data as Note[];
+    },
+    async addNote(n) {
+      const { data, error } = await sb.from("notes").insert({ ...n, user_id: userId }).select(NOTE_COLS).single();
+      if (error) throw error;
+      return data as Note;
     },
   };
 }
