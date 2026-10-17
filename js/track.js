@@ -84,6 +84,12 @@ export function undonePatch(n) {
   return p;
 }
 
+/** A project is done when all its steps are: its recording stops, and its block moves to when it was really
+    worked on, as a task's does. Off the plan and never recorded, it stays off. */
+export function finishPatch(n) { const { done, ...p } = donePatch(n, !!n.d); return p; }
+/** A project with a step reopened goes back to where it was planned. */
+export function reopenPatch(n) { const { done, ...p } = undonePatch(n); return p; }
+
 // Changes to the log by hand. A done task's block follows its last stretch.
 function setLog(n, tl) {
   const p = withLog(n, tl);
