@@ -94,6 +94,11 @@ body.is-dragging .hscroll{scroll-snap-type:none}
 .ck.on{background:var(--pc,var(--ok));border-color:var(--pc,var(--ok));box-shadow:0 0 10px -2px var(--pc,var(--ok))}
 .ck.on::after{content:"";width:5px;height:9px;border:solid var(--bg);border-width:0 2px 2px 0;transform:rotate(45deg) translate(-1px,-1px)}
 .ring{width:18px;height:18px;border-radius:50%;flex:none;background:conic-gradient(var(--pc) calc(var(--p)*360deg),var(--line) 0);-webkit-mask:radial-gradient(circle,transparent 5px,#000 5.5px);mask:radial-gradient(circle,transparent 5px,#000 5.5px)}
+/* A finished project: a filled check like a task's, with a thin second ring so it still reads as a project */
+.ring.fin{-webkit-mask:none!important;mask:none!important;background:var(--pc);display:grid;place-items:center;box-shadow:0 0 0 1.5px var(--bg),0 0 0 2.5px color-mix(in srgb,var(--pc) 75%,transparent),0 0 10px -2px var(--pc)}
+.ring.fin::after{content:"";width:5px;height:9px;border:solid var(--bg);border-width:0 2px 2px 0;transform:rotate(45deg) translate(-1px,-1px)}
+.block .ring.fin::after,.item.compact .ring.fin::after{width:4px;height:7px;border-width:0 1.5px 1.5px 0}
+.dt-head .ring.fin::after{width:6px;height:11px}
 
 /* Main */
 .main{display:flex;flex-direction:column;min-width:0;min-height:0;background:rgba(255,255,255,.02)}
@@ -247,7 +252,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 @container blk (max-height:15px){
   .b-t{font-size:10px;line-height:1}
   .block>.ck,.block>.ring{width:10px;height:10px;border-width:1.5px}
-  .block>.ck.on::after{width:3px;height:5px;border-width:0 1.5px 1.5px 0}
+  .block>.ck.on::after,.block>.ring.fin::after{width:3px;height:5px;border-width:0 1.5px 1.5px 0}
   .block>.ring{-webkit-mask:radial-gradient(circle,transparent 2.5px,#000 3px);mask:radial-gradient(circle,transparent 2.5px,#000 3px)}
 }
 @container blk (max-height:9px){.b-t{font-size:9px}.block>.ck,.block>.ring{display:none}}
