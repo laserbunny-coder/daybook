@@ -3,7 +3,7 @@
 // project names its area in area_id. all() leaves areas out, areas() lists them.
 // Changes are applied locally at once, cached on the device, and synced to
 // Supabase in the background so the phone and computer stay in step.
-import { add, lsGet, lsSet, today, uid } from './util.js';
+import { add, lsGet, lsSet, pd, today, uid } from './util.js';
 import { nextOn, occId, repeatsOn, shiftRule, splitOcc } from './repeat.js';
 
 const nodes = new Map();          // id -> node (deleted ones kept as tombstones)
@@ -321,5 +321,25 @@ export function sampleData() {
   mk('Call insurance about claim', null, { d: D(0), m: 30 });
   mk('Renew passport', null, { m: 30 });
   mk('Return library books', null, { d: D(3), m: 20 });
+  // Nine weeks of recorded time, so the plan's past days and Stats have a history to show. Time on a project's steps
+  // is recorded on the project as a whole; a few finished tasks were timed on their own, to show their pace.
+  let sd = 11; const rnd = () => (sd = sd * 16807 % 2147483647) / 2147483647, now = Date.now(), byId = id => N.find(n => n.id === id);
+  const P = [[w, 9, 15], [f, 15, 22], [r, 6, 8.5], [h, 12, 17]];
+  for (let k = -63; k <= 0; k++) {
+    const day = D(k), we = [0, 6].includes(pd(day).getDay());
+    let at = (we ? 9 : 6.5) * 60 + Math.round(rnd() * 60);
+    for (let j = 0, c = we ? Math.floor(rnd() * 3) : 3 + Math.floor(rnd() * 3); j < c; j++) {
+      const hr = at / 60, wt = P.map(([, a, b], i) => (hr >= a - .5 && hr <= b ? 3 : .3) * (we && i === 1 ? 2 : 1));
+      let x = rnd() * wt.reduce((a, v) => a + v, 0), i = 0; while (x > wt[i]) x -= wt[i++];
+      const len = Math.round((30 + rnd() * 100) / 5) * 5, t0 = pd(day), t1 = pd(day); t0.setMinutes(at); t1.setMinutes(at + len);
+      if (at + len > 22 * 60 || t1.getTime() > now) break;
+      const n = byId(P[i][0]); (n.tl = n.tl || []).push({ start: t0.toISOString(), end: t1.toISOString() });
+      at += len + 15 + Math.round(rnd() * 70);
+    }
+  }
+  [['Quarterly taxes', biz, -9, 600, 120, 165], ['Update showreel', film, -5, 1140, 90, 140], ['Sharpen the kitchen knives', life, -3, 1080, 30, 25]].forEach(([t, ar, k, s, plan, took]) => {
+    const t0 = pd(D(k)), t1 = pd(D(k)); t0.setMinutes(s); t1.setMinutes(s + took);
+    mk(t, null, { ar, done: true, d: D(k), s, m: took, am: took, pl: { day: D(k), start_min: s, duration_min: plan }, tl: [{ start: t0.toISOString(), end: t1.toISOString() }] });
+  });
   return N;
 }
