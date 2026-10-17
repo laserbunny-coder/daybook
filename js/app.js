@@ -409,7 +409,7 @@ function sessionsOn(d) {
     if (e.guess) return;
     const a = track.local(e.start); if (a.d !== d) return;
     const b = e.end ? track.local(e.end) : now, end = b.d === d ? b.m : 1440;
-    if (e.end && n.d === d && n.s === a.m) return;
+    if (e.end && isDone(n) && n.d === d && n.s === a.m) return; // a finished task's own block already sits on this stretch
     out.push({ sess: n, e, i, s: a.m, m: Math.max(1, end - a.m) });
   });
   return out;
