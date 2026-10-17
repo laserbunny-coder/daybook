@@ -211,7 +211,9 @@ function loadHTML(d) {
   if (!tasks && !meet) return '';
   return `<div class="load${tasks + meet > 540 ? ' heavy' : ''}">${tasks ? fmtDur(tasks) + ' of tasks' : ''}${tasks && meet ? ' · ' : ''}${meet ? fmtDur(meet) + ' booked' : ''}</div>`;
 }
-const evRow = e => `<div class="evr"><span>${e.allDay ? 'All day' : fmtT(e.s)}</span><b class="ev-t">${esc(e.t)}</b></div>`;
+// Each event carries its Google colour (its own, else its calendar's) as --evc; the CSS mixes in a faint tint of it.
+const evTint = e => /^#[0-9a-f]{3,8}$/i.test(e.color || '') ? ` style="--evc:${e.color}"` : '';
+const evRow = e => `<div class="evr"${evTint(e)}><span>${e.allDay ? 'All day' : fmtT(e.s)}</span><b class="ev-t">${esc(e.t)}</b></div>`;
 /* In the List view, tasks sit between the day's calendar events. Gap 0 is before
    the first event, gap i is after event i. A task with a time goes where its time
    falls; one without sits after the event that starts at its "a" minute.
@@ -422,7 +424,7 @@ function blocksHTML(d) {
     const below = items.filter(o => o.s >= e && x0(o) < x1(it) && x1(o) > x0(it)).reduce((m, o) => Math.min(m, o.s), H1 * 60);
     const pos = `top:${hpx((s - H0 * 60) / 60)};height:max(${hpx((e - s) / 60)} - 2px, min(18px, ${hpx((below - s) / 60)} - 2px));left:${it.lane / it.lanes * 100}%;width:calc(${100 / it.lanes}% - 4px)`;
     const tm = `${fmtT(it.s)} – ${fmtT(it.s + it.m)}`;
-    if (it.ev) return `<div class="ev" style="${pos}" title="${esc(it.ev.cal || '')}"><div class="b-in"><div class="b-t">${esc(it.ev.t)}</div><div class="b-time">${tm}</div></div></div>`;
+    if (it.ev) return `<div class="ev" style="${pos}${evTint(it.ev) ? ';--evc:' + it.ev.color : ''}" title="${esc(it.ev.cal || '')}"><div class="b-in"><div class="b-t">${esc(it.ev.t)}</div><div class="b-time">${tm}</div></div></div>`;
     if (it.sess) { const n = it.sess, live = !it.e.end;
       // A recorded stretch is a hollow outline with a stopwatch: time spent, not something to check off. Drag it to move it, or its bottom edge to change when it ended.
       return `<div class="block sess${live ? ' live' : ''}${isDone(n) ? ' done' : ''}" data-act="open" data-id="${n.id}"${live ? '' : ` data-drag data-sess="${it.i}" data-s="${it.s}" data-m="${it.m}"`} style="${pos};--pc:${colorOf(n)}" title="${live ? 'Recording now' : 'Time you worked on this. Drag to move it.'}">${ICON.watch}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${fmtT(it.s)} – ${live ? 'now' : fmtT(it.s + it.m)}</div></div><span class="sw-len">${fmtDur(Math.max(1, track.mins(it.e)))}</span>${live ? '' : '<div class="rs"></div>'}</div>`; }
@@ -435,7 +437,7 @@ function timed(days) {
   const hrs = []; for (let h = H0 + 1; h < H1; h++) hrs.push(h);
   return `<div class="tw hscroll vscroll"><div class="tg${days.length === 1 ? ' one' : ''}" style="--cols:${days.length};--hours:${H1 - H0}">
     <div class="trow thead"><div class="gut"></div>${days.map(d => `<button class="th${dayCls(d)}" data-act="goday" data-d="${d}" data-day="${d}">${days.length > 1 && isMon(d) ? weekLabel(d) : ''}${DAYN[pd(d).getDay()]} <b>${pd(d).getDate()}</b></button>`).join('')}</div>
-    <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray${isMon(d) ? ' mon' : ''}" data-drop="tray" data-date="${d}">${eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all">${esc(e.t)}</div>`).join('')}${dayItems(d).filter(n => n.s == null).map(n => chipHTML(n, { compact: days.length > 1 })).join('')}${S.new?.at === 'tray' && S.new.d === d ? newHTML() : ''}</div>`).join('')}</div>
+    <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray${isMon(d) ? ' mon' : ''}" data-drop="tray" data-date="${d}">${eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all"${evTint(e)}>${esc(e.t)}</div>`).join('')}${dayItems(d).filter(n => n.s == null).map(n => chipHTML(n, { compact: days.length > 1 })).join('')}${S.new?.at === 'tray' && S.new.d === d ? newHTML() : ''}</div>`).join('')}</div>
     <div class="trow tbody"><div class="gut hrs">${hrs.map(h => `<div class="hl" style="top:${hpx(h - H0)}">${h % 12 || 12}${h < 12 ? 'am' : 'pm'}</div>`).join('')}</div>
     ${days.map(d => `<div class="col${d === today() ? ' today' : ''}${isMon(d) ? ' mon' : ''}" data-drop="col" data-date="${d}">${blocksHTML(d)}${nowHTML(d)}${S.new?.at === 'col' && S.new.d === d ? newHTML() : ''}</div>`).join('')}</div>
   </div></div>`;
