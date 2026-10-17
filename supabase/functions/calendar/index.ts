@@ -6,6 +6,7 @@ type GEvent = {
   id: string;
   status?: string;
   summary?: string;
+  colorId?: string;
   start?: { date?: string; dateTime?: string };
   end?: { date?: string; dateTime?: string };
   attendees?: { self?: boolean; responseStatus?: string }[];
@@ -50,7 +51,11 @@ Deno.serve(async (req) => {
   if (!token) return json({ connected: false, reconnect: true, events: [] });
 
   try {
-    const list = await google("/users/me/calendarList?minAccessRole=reader", token);
+    const [list, palette] = await Promise.all([
+      google("/users/me/calendarList?minAccessRole=reader", token),
+      google("/colors", token).catch(() => ({})), // Google's event colour palette, for events given their own colour
+    ]);
+    const eventColors: Record<string, { background?: string }> = palette.event ?? {};
     const cals = (list.items ?? []).filter((c: { selected?: boolean; primary?: boolean }) => c.selected || c.primary);
     const q = new URLSearchParams({ timeMin, timeMax, singleEvents: "true", orderBy: "startTime", maxResults: "500" });
     const perCal = await Promise.all(cals.map(async (c: { id: string; backgroundColor?: string; summary?: string }) => {
@@ -65,7 +70,7 @@ Deno.serve(async (req) => {
           end: e.end?.dateTime ?? e.end?.date,
           allDay: !e.start?.dateTime,
           calendar: c.summary,
-          color: c.backgroundColor,
+          color: (e.colorId && eventColors[e.colorId]?.background) || c.backgroundColor,
         }));
     }));
     return json({ connected: true, events: perCal.flat() });

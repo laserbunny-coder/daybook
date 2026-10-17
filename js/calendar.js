@@ -14,9 +14,10 @@ export const timedOn = d => eventsOn(d).filter(e => !e.allDay);
 export function useSample() {
   mode = 'sample'; sb = null; byDay = new Map(); cal.connected = false;
   const T = today(), D = n => add(T, n);
-  [['Team check-in', D(0), 600, 30], ['Lunch with Sam', D(0), 780, 60], ['Client call', D(1), 840, 60], ['Dentist', D(2), 540, 60],
-   ['Team check-in', D(3), 600, 30], ['1:1 with Jordan', D(3), 930, 60], ['Haircut', D(4), 720, 45], ['Dinner with family', D(4), 1080, 120],
-   ["Kids' soccer", D(5), 600, 120]].forEach(([t, d, s, m]) => push(d, { t, s, m, allDay: false }));
+  const work = '#039BE5', home = '#33B679'; // sample calendar colours, like Google's
+  [['Team check-in', D(0), 600, 30, work], ['Lunch with Sam', D(0), 780, 60, home], ['Client call', D(1), 840, 60, work], ['Dentist', D(2), 540, 60, '#E67C73'],
+   ['Team check-in', D(3), 600, 30, work], ['1:1 with Jordan', D(3), 930, 60, work], ['Haircut', D(4), 720, 45, home], ['Dinner with family', D(4), 1080, 120, home],
+   ["Kids' soccer", D(5), 600, 120, home]].forEach(([t, d, s, m, color]) => push(d, { t, s, m, color, allDay: false }));
   onUpdate();
 }
 

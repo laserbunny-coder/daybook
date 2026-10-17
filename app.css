@@ -156,7 +156,11 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .ev-t{font-weight:inherit}
 /* Calendar events inside the List view mark the gaps tasks can be dragged into.
    Every calendar event wears faint diagonal stripes: fixed, comes from Google, not editable here. */
-.list > .evr,.wcol > .evr,.dl > .evr{background:var(--stripes) var(--ev);border:1px dashed var(--edge);border-radius:14px;padding:5px 8px}
+/* Events with a Google colour (--evc, set per event: its own colour, else its calendar's) wear that colour
+   in their stripes, over a faint wash, with a tinted dashed edge ("Stripes + wash" at half strength). */
+.evr,.ev,.ev-all{--evs:var(--stripes);--evt:var(--ev);--evb:var(--edge)}
+:is(.evr,.ev,.ev-all)[style*="--evc"]{--evs:repeating-linear-gradient(-45deg,color-mix(in srgb,var(--evc) 17%,transparent) 0 1.5px,transparent 1.5px 8px);--evt:color-mix(in srgb,var(--evc) 4%,rgba(255,255,255,.03));--evb:color-mix(in srgb,var(--evc) 18%,rgba(255,255,255,.14))}
+.list > .evr,.wcol > .evr,.dl > .evr{background:var(--evs) var(--evt);border:1px dashed var(--evb);border-radius:14px;padding:5px 8px}
 .dl > .evr,.dl .list > .evr{padding:7px 12px;font-size:13px}
 .min-btn[aria-pressed="true"]{background:var(--sunk);color:var(--fg)}
 .mbody.min .dl .item{padding:7px 12px}
@@ -234,7 +238,8 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .b-t{font-weight:600;overflow-wrap:break-word}
 .b-t.clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--l);overflow:hidden}
 .b-time{font:500 10px var(--f-mono);color:var(--muted);margin-top:1px}
-.ev{background:var(--stripes) var(--ev);color:var(--ev-fg);z-index:1;border:1px dashed rgba(255,255,255,.22)}
+.ev{background:var(--evs) var(--evt);color:var(--ev-fg);z-index:1;border:1px dashed rgba(255,255,255,.22)}
+.ev[style*="--evc"]{border-color:var(--evb)}
 .ev .b-t{font-weight:500}
 .rs{position:absolute;left:0;right:0;bottom:0;height:9px;cursor:ns-resize;touch-action:none}
 .rs::after{content:"";position:absolute;left:50%;bottom:3px;width:18px;height:2px;margin-left:-9px;border-radius:2px;background:var(--pc);opacity:0;transition:opacity .15s}
@@ -462,7 +467,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .foot-acts{display:flex;gap:14px;flex-wrap:wrap;margin-top:2px}
 .tip.warn{background:color-mix(in srgb,var(--warn) 14%,transparent)}
 .wcol.past{opacity:.7}
-.ev-all{font-size:11px;padding:3px 6px;border-radius:8px;border:1px dashed var(--edge);background:var(--stripes) var(--ev);color:var(--ev-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ev-all{font-size:11px;padding:3px 6px;border-radius:8px;border:1px dashed var(--evb);background:var(--evs) var(--evt);color:var(--ev-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pick-date{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
 .pick-date input{border:0;background:transparent;font:inherit;color:var(--fg);max-width:130px}
 .chip input[type=date]{border:0;background:transparent;font:inherit;font-weight:600;color:inherit;outline:none;padding:0}
@@ -539,7 +544,7 @@ button.area-t:hover{text-decoration:underline;text-underline-offset:3px;text-dec
 .mbody.min :is(.list,.dl,.wcol) > .evr{background:none;border:0;border-radius:0;padding:3px 4px;font-size:12px;color:var(--faint);align-items:center;flex-wrap:nowrap;gap:10px}
 .mbody.min .evr span{min-width:38px;flex:none;color:var(--faint)}
 .mbody.min .evr .ev-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mbody.min .evr::after{content:"";flex:1;min-width:16px;height:1px;background:repeating-linear-gradient(90deg,var(--edge) 0 4px,transparent 4px 8px)}
+.mbody.min .evr::after{content:"";flex:1;min-width:16px;height:1px;background:repeating-linear-gradient(90deg,color-mix(in srgb,var(--evc,transparent) 30%,var(--edge)) 0 4px,transparent 4px 8px)}
 .mbody.min .wcol .evr{gap:6px;padding:2px}
 .mbody.min .wcol .evr span{min-width:0;flex:none}
 .mbody.min .wcol .evr::after{min-width:10px}
