@@ -808,34 +808,40 @@ body.rm-dragging,body.rm-dragging *{cursor:grabbing!important;user-select:none;-
 
 /* The pill */
 .rec{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(24px + env(safe-area-inset-bottom,0px));z-index:190;width:max-content;max-width:calc(100% - 32px);display:grid;gap:6px;justify-items:center}
-body.recording .toast{bottom:calc(80px + env(safe-area-inset-bottom,0px))}
-body.rec-open .toast{bottom:calc(124px + env(safe-area-inset-bottom,0px))}
+body.recording .toast{bottom:calc(102px + env(safe-area-inset-bottom,0px))}
+body.rec-open .toast{bottom:calc(146px + env(safe-area-inset-bottom,0px))}
 @media (max-width:860px){
   .rec{bottom:calc(104px + env(safe-area-inset-bottom,0px))}
-  body.recording .toast{bottom:calc(160px + env(safe-area-inset-bottom,0px))}
+  body.recording .toast{bottom:calc(182px + env(safe-area-inset-bottom,0px))}
   body.quiet .rec{bottom:calc(30px + env(safe-area-inset-bottom,0px))}
-  body.quiet.recording .toast{bottom:calc(86px + env(safe-area-inset-bottom,0px))}
-  body.rec-open .toast{bottom:calc(204px + env(safe-area-inset-bottom,0px))}
-  body.quiet.rec-open .toast{bottom:calc(130px + env(safe-area-inset-bottom,0px))}
+  body.quiet.recording .toast{bottom:calc(108px + env(safe-area-inset-bottom,0px))}
+  body.rec-open .toast{bottom:calc(226px + env(safe-area-inset-bottom,0px))}
+  body.quiet.rec-open .toast{bottom:calc(152px + env(safe-area-inset-bottom,0px))}
   body[data-tab="ask"] .rec,body.dr-on .rec{display:none}
 }
-.rec-p{display:flex;align-items:center;gap:4px;max-width:100%;background:rgba(20,22,36,.88);border:1px solid var(--edge);border-radius:999px;padding:4px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:0 10px 30px -12px rgba(0,0,0,.8)}
-.rec .dot{width:8px;height:8px;border-radius:50%;background:var(--danger);flex:none;animation:recpulse 1.4s ease-in-out infinite}
-.rec-main{display:flex;align-items:center;gap:9px;min-width:0;padding:5px 8px 5px 12px;border-radius:999px;font-size:13px;font-weight:600}
-.rec-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;max-width:44vw}
-.rec-c{font:500 12px var(--f-mono);color:var(--muted);font-variant-numeric:tabular-nums}
-.rec-i{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;flex:none;background:rgba(255,255,255,.08);color:var(--fg)}
-.rec-i svg{width:12px;height:12px}
+.rec-p{display:flex;align-items:center;gap:6px;max-width:100%;background:rgba(20,22,36,.92);border:1px solid color-mix(in srgb,var(--danger) 35%,var(--edge));border-radius:999px;padding:6px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:0 12px 36px -12px rgba(0,0,0,.85),0 0 24px -10px color-mix(in srgb,var(--danger) 60%,transparent)}
+.rec .dot{width:10px;height:10px;border-radius:50%;background:var(--danger);flex:none;animation:recpulse 1.4s ease-in-out infinite}
+/* Big and easy while it runs: the clock large, Stop a big red button */
+.rec-main{display:flex;align-items:center;gap:12px;min-width:0;padding:4px 14px 4px 16px;border-radius:999px;text-align:left}
+.rec-s{display:grid;min-width:0}
+.rec-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;max-width:46vw;font-size:13px;font-weight:600;color:var(--muted)}
+.rec-c{font:600 24px/1.15 var(--f-mono);color:var(--fg);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.rec-i{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;flex:none;background:rgba(255,255,255,.08);color:var(--fg)}
+.rec-i svg{width:16px;height:16px}
+.rec-i.stop{background:color-mix(in srgb,var(--danger) 88%,transparent);color:#fff;box-shadow:0 6px 18px -8px var(--danger)}
 .rec-i.ok{background:color-mix(in srgb,var(--ok) 20%,transparent);color:var(--ok)}
-.rec-i.ok svg{width:15px;height:15px}
+.rec-i.ok svg{width:20px;height:20px}
 .rec-p.ask{padding:4px 4px 4px 14px;gap:8px;font-size:13px;font-weight:600}
 .rec-q{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .rec-w{padding:7px 13px;border-radius:999px;background:rgba(255,255,255,.08);font-size:13px}
 .rec-w:first-of-type{color:var(--accent)}
 .rec-x{display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:center;background:rgba(20,22,36,.88);border:1px solid var(--edge);border-radius:999px;padding:4px 4px 4px 12px;font-size:12px;color:var(--muted);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
-.rec-x button{padding:5px 10px;border-radius:999px;border:1px solid var(--edge);font:500 12px var(--f-mono);color:var(--fg)}
+.rec-x button{padding:8px 13px;border-radius:999px;border:1px solid var(--edge);font:500 13px var(--f-mono);color:var(--fg)}
 .rec-x button:last-child{font-family:var(--f-body);color:var(--accent);border-color:transparent}
-@media (hover:hover){.rec-main:hover,.rec-i:hover,.rec-w:hover,.rec-x button:hover{background:rgba(255,255,255,.12)}}
+.rec-p.ask{padding:6px 6px 6px 18px;font-size:15px}
+.rec-w{padding:12px 18px;font-size:14px}
+.rec-w:last-of-type{background:color-mix(in srgb,var(--danger) 88%,transparent);color:#fff}
+@media (hover:hover){.rec-i.stop:hover{background:var(--danger)}.rec-main:hover,.rec-i:not(.stop):hover,.rec-w:not(:last-of-type):hover,.rec-x button:hover{background:rgba(255,255,255,.12)}}
 
 /* In an opened task: Start, and the time log */
 .rec-chip{font-weight:600}
