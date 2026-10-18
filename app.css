@@ -132,7 +132,8 @@ body.is-dragging .hscroll{scroll-snap-type:none}
 .it-body{min-width:0;flex:1}
 .it-t{font-weight:500;overflow-wrap:break-word;hyphens:auto}
 .it-m{font-size:12px;color:var(--muted);margin-top:1px;display:flex;flex-wrap:wrap;gap:0 6px;align-items:center}
-.it-m .pd{width:6px;height:6px;border-radius:50%;background:var(--pc);box-shadow:0 0 6px var(--pc)}
+.it-m .pd{flex:none;width:6px;height:6px;border-radius:50%;background:var(--pc);box-shadow:0 0 6px var(--pc)}
+.it-m .mi{display:inline-flex;align-items:center;gap:6px;min-width:0}
 .it-m .tm{font-family:var(--f-mono);font-size:11px;color:var(--accent)}
 .item.overdue{border-color:color-mix(in srgb,var(--danger) 92%,transparent);box-shadow:inset 0 0 0 .5px var(--danger),inset 0 1px 0 rgba(255,255,255,.09),0 8px 20px -14px rgba(0,0,0,.7)} /* left unchecked on an earlier day */
 .item.done .it-t{color:var(--faint);text-decoration:line-through}
@@ -779,6 +780,9 @@ body.rm-dragging,body.rm-dragging *{cursor:grabbing!important;user-select:none;-
   .rec-b:hover{color:var(--fg);border-color:var(--muted)}
 }
 .item.compact .rec-b{display:none}
+/* Week list on a computer: the columns are narrow, so the ▶ floats in the corner on hover instead of taking width from the title */
+@media (min-width:861px){.wcol .it-m{gap:0 8px}.wcol .it-m>span:not([class]){display:none}} /* narrow columns: wrapped details without stray dots */
+@media (hover:hover) and (min-width:861px){.wcol .item{position:relative}.wcol .item>.rec-b{position:absolute;right:6px;bottom:6px;width:24px;height:24px;background:var(--solid)}}
 .tr .rec-b{width:26px;height:26px}
 .block>.rec-b{position:absolute;top:4px;right:4px;width:26px;height:26px}
 @container blk (max-height:37px){.block>.rec-b{top:50%;margin-top:-13px}}

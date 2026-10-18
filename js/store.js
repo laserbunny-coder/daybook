@@ -12,6 +12,8 @@ let cacheKey = null;
 let sb = null, userId = null, channel = null;
 let dirty = new Set();
 let cursor = null;                // newest server updated_at we have seen
+const sending = new Set();        // ids whose save is on its way to the server
+const saved = new Map();          // id -> server updated_at of the newest version we know of
 let flushTimer = null, retryTimer = null;
 export const sync = { state: 'local', pending: 0 }; // local | syncing | saved | offline | error
 
@@ -213,7 +215,7 @@ export function resetLocal(seedFn) { forget(); nodes.clear(); IX = null; seedFn(
 
 /* Cloud mode: this person's items in Supabase. */
 export async function useCloud(client, user) {
-  stopCloud(); forget(); sb = client; userId = user.id; cacheKey = 'daybook-cache-' + user.id;
+  stopCloud(); forget(); sb = client; userId = user.id; cacheKey = 'daybook-cache-' + user.id; sending.clear(); saved.clear();
   nodes.clear(); IX = null;
   const c = lsGet(cacheKey);
   if (c) { c.nodes.forEach(n => nodes.set(n.id, n)); dirty = new Set(c.dirty || []); cursor = c.cursor || null; } else { dirty = new Set(); cursor = null; }
@@ -229,7 +231,11 @@ export const isEmpty = () => all().length === 0;
 
 function merge(row) {
   if (cursor == null || row.updated_at > cursor) cursor = row.updated_at;
-  if (dirty.has(row.id)) return;           // our newer local change wins until it's saved
+  if (dirty.has(row.id) || sending.has(row.id)) return; // our newer local change wins until it's saved
+  // A late echo of an earlier save (say, of the first of two quick drags) must not pull the item back to where it was
+  const at = Date.parse(row.updated_at), known = saved.get(row.id);
+  if (known && at < known) return;
+  saved.set(row.id, at);
   nodes.set(row.id, fromRow(row)); IX = null;
 }
 export async function pull() {
@@ -252,9 +258,11 @@ export async function flush() {
   if (!sb || !dirty.size) { if (sb) setSync('saved'); return; }
   if (!navigator.onLine) { setSync('offline'); return; }
   const ids = [...dirty]; const rows = ids.map(id => nodes.get(id)).filter(Boolean).map(toRow);
-  ids.forEach(id => dirty.delete(id));
+  ids.forEach(id => { dirty.delete(id); sending.add(id); });
   setSync('syncing');
-  const { error } = await sb.from('items').upsert(rows);
+  const { data, error } = await sb.from('items').upsert(rows).select('id,updated_at');
+  ids.forEach(id => sending.delete(id));
+  (data || []).forEach(r => { const at = Date.parse(r.updated_at); if (!(saved.get(r.id) > at)) saved.set(r.id, at); });
   if (error) {
     console.warn('save failed', error);
     ids.forEach(id => { if (!dirty.has(id)) dirty.add(id); });

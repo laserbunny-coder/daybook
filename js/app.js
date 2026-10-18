@@ -109,8 +109,8 @@ function chipHTML(n, o = {}) {
     if (n.rs) meta.push(ICON.repS);
     if (n.notes) meta.push(ICON.note);
     if (n.link) meta.push(ICON.linkS);
-    if (crumbs.length) meta.push(`<span class="pd"></span>${esc(crumbs.slice(-2).join(' › '))}`);
-    else if (!kids && areaOf(n)) meta.push(`<span class="pd"></span>${esc(store.get(n.ar).t || 'Untitled area')}`); // a task right in an area
+    if (crumbs.length) meta.push(`<span class="mi"><span class="pd"></span>${esc(crumbs.slice(-2).join(' › '))}</span>`);
+    else if (!kids && areaOf(n)) meta.push(`<span class="mi"><span class="pd"></span>${esc(store.get(n.ar).t || 'Untitled area')}</span>`); // a task right in an area
     if (o.time && n.s != null) meta.push(`<span class="tm">${fmtT(n.s)}</span>`);
     if (n.m && !kids) meta.push(fmtDur(n.m));
     if (kids) { const p = progress(n.id); meta.push(`${p.done}/${p.total} done`); }
@@ -1339,6 +1339,7 @@ function startDrag() {
   const sb = el.closest('.block.sess'); if (sb?.dataset.sess != null) Object.assign(D, { si: +sb.dataset.sess, ss: +sb.dataset.s, sm: +sb.dataset.m }); // a recorded stretch
   { // the floating copy (hidden over the time grid, where a dashed outline stands in)
     const g = el.cloneNode(true); g.classList.add('ghost'); g.classList.remove('pressing'); const w = Math.min(r.width, 280); g.style.width = w + 'px';
+    g.style.top = g.style.left = '0'; // a block's own place in the grid would push the copy far from the pointer
     if (D.timed) { g.style.height = r.height + 'px'; D.offX = Math.min(P.x - r.left, w - 10); } else D.offY = Math.min(D.offY, 24);
     document.body.appendChild(g); D.g = g; el.classList.add('dragging');
   }
@@ -1359,6 +1360,8 @@ function moveDrag(x, y) {
   D.g.style.transform = `translate(${x - D.offX}px,${y - D.offY}px)`;
   clearMarks(); D.g.classList.remove('off'); D.at = null; D.t = null;
   let t = document.elementFromPoint(x, y)?.closest('[data-drop]'); const n = node(D.id);
+  // Over the pinned day names or hours of Time blocks (where it scrolls), the time just inside the grid takes it, so the outline stays in view
+  if (!t) { const g = gridEdge(x, y); if (g) t = document.elementFromPoint(g.x, g.y)?.closest('[data-drop="col"], [data-drop="tray"]'); }
   // The nearest list that holds this item's siblings takes it at a new place among them
   if (!D.fromDr) for (let s = t; s && (s.dataset.drop === 'sib' || s.dataset.drop === 'area'); s = s.parentElement.closest('[data-drop]')) if (holds(s, n)) return markAmong(s, n, y);
   while (t && t.dataset.drop === 'sib') t = t.parentElement.closest('[data-drop]');
@@ -1429,11 +1432,21 @@ function dropStretch(d, n) {
   const err = track.edit(n.id, d.si, a.toISOString(), new Date(a.getTime() + m * 60000).toISOString());
   if (err) { toast(err === 'future' ? "Recorded time can't be in the future" : "That time didn't work"); render(); }
 }
+// In Time blocks the day names and the hours stay pinned over the grid; the edge that scrolls it starts past them
+function gridEdge(x, y) {
+  const tw = document.querySelector('#mbody .tw'); if (!tw || D?.kind === 'resize') return null;
+  const r = tw.getBoundingClientRect(); if (x < r.left || x > r.right || y < r.top || y > r.bottom) return null;
+  const top = tw.querySelector('.thead')?.getBoundingClientRect().bottom ?? r.top, left = tw.querySelector('.tbody > .gut')?.getBoundingClientRect().right ?? r.left;
+  return y < top || x < left ? { x: Math.max(x, left + 1), y: Math.max(y, top + 1), top, left } : null;
+}
 function autoScroll() {
   if (!D) return; const el = document.elementFromPoint(D.x, D.y);
   const v = el?.closest('.vscroll, .dr-b'), h = el?.closest('.hscroll'); let moved = false;
-  if (v) { const r = v.getBoundingClientRect(); if (D.y < r.top + 50) { v.scrollTop -= 10; moved = true; } else if (D.y > r.bottom - 50) { v.scrollTop += 10; moved = true; } }
-  if (h && D.kind !== 'resize') { const r = h.getBoundingClientRect(); if (D.x < r.left + 40) { h.scrollLeft -= 10; moved = true; } else if (D.x > r.right - 40) { h.scrollLeft += 10; moved = true; } }
+  const pin = v?.matches('.tw') ? { top: v.querySelector('.thead')?.getBoundingClientRect().bottom, left: v.querySelector('.tbody > .gut')?.getBoundingClientRect().right } : {};
+  // A block carried up stops at the first hour rather than sliding "Any time" under the pointer, where letting go would take its time away
+  const floor = D.timed && v?.matches('.tw') ? Math.min(v.scrollTop, v.querySelector('.ttray')?.offsetHeight || 0) : 0;
+  if (v) { const r = v.getBoundingClientRect(), top = pin.top ?? r.top; if (D.y < top + 40) { if (v.scrollTop > floor) { v.scrollTop = Math.max(floor, v.scrollTop - 10); moved = true; } } else if (D.y > r.bottom - 50) { v.scrollTop += 10; moved = true; } }
+  if (h && D.kind !== 'resize') { const r = h.getBoundingClientRect(), left = pin.left ?? r.left; if (D.x < left + 30) { h.scrollLeft -= 10; moved = true; } else if (D.x > r.right - 40) { h.scrollLeft += 10; moved = true; } }
   if (moved) moveDrag(D.x, D.y); requestAnimationFrame(autoScroll);
 }
 document.addEventListener('pointerdown', e => {
