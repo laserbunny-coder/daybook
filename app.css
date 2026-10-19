@@ -245,7 +245,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .rs{position:absolute;left:0;right:0;bottom:0;height:9px;cursor:ns-resize;touch-action:none}
 .rs::after{content:"";position:absolute;left:50%;bottom:3px;width:18px;height:2px;margin-left:-9px;border-radius:2px;background:var(--pc);opacity:0;transition:opacity .15s}
 .block:hover .rs::after{opacity:.7}
-@media (hover:none){.rs{height:14px}.rs::after{opacity:.5}}
+@media (hover:none){.rs{height:14px;touch-action:auto}.rs::after{opacity:.5}} /* held before it resizes, so a swipe there still scrolls */
 /* Short blocks (zoomed out, or a quick task) become one clean line: title centered, no time, no resize mark over the text */
 @container blk (max-height:37px){
   .b-in,.block>.ck,.block>.ring{align-self:center}
