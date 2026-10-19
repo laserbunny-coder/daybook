@@ -1347,7 +1347,7 @@ function startDrag() {
   D.fromDr = !!el.closest('.drawer'); D.x0 = D.x; D.y0 = D.y; // the drawer steps aside after a short carry (see moveDrag)
   D.list = !!el.closest('.side, .board, .dt, .drawer'); // picked up from a list of projects rather than from the plan
   if (D.kind !== 'resize' && D.si == null && node(D.id)?.d) document.body.classList.add('drag-sched'); // the tab bar offers to unschedule it
-  el.classList.remove('pressing'); document.body.classList.add('is-dragging'); P = null; moveDrag(D.x, D.y); requestAnimationFrame(autoScroll);
+  pressed(el).classList.remove('pressing'); document.body.classList.add('is-dragging'); P = null; moveDrag(D.x, D.y); requestAnimationFrame(autoScroll);
 }
 function clearMarks() { ind.remove(); ins.remove(); document.querySelectorAll('.over').forEach(x => x.classList.remove('over')); }
 function moveDrag(x, y) {
@@ -1459,7 +1459,8 @@ document.addEventListener('pointermove', e => { if (e.pointerType === 'touch') r
 document.addEventListener('pointerup', e => { if (e.pointerType === 'touch') return; if (D) endDrag(); P = null; });
 document.addEventListener('touchstart', e => {
   if (e.touches.length > 1) { clearTimeout(lp); P = null; return; } const t = e.touches[0];
-  const rs = e.target.closest('.rs'); if (rs) { e.preventDefault(); P = { x: t.clientX, y: t.clientY, el: rs, kind: 'resize', id: rs.closest('.block').dataset.id }; startDrag(); return; }
+  // A block's bottom edge needs the same short hold as moving it, so a scroll that starts there doesn't stretch the block
+  const rs = e.target.closest('.rs'); if (rs) { P = { x: t.clientX, y: t.clientY, el: rs, kind: 'resize', id: rs.closest('.block').dataset.id }; rs.parentElement.classList.add('pressing'); lp = setTimeout(() => { if (P) { navigator.vibrate?.(12); startDrag(); } }, 280); return; }
   if (e.target.closest('button:not([data-dragok]),input,a,form,textarea,select')) return;
   const el = e.target.closest('[data-drag]'); if (!el) return;
   P = { x: t.clientX, y: t.clientY, el, kind: 'move', id: el.dataset.id }; el.classList.add('pressing');
@@ -1467,9 +1468,10 @@ document.addEventListener('touchstart', e => {
 }, { passive: false });
 document.addEventListener('touchmove', e => {
   const t = e.touches[0]; if (D) { e.preventDefault(); moveDrag(t.clientX, t.clientY); return; }
-  if (P && Math.hypot(t.clientX - P.x, t.clientY - P.y) > 8) { clearTimeout(lp); P.el.classList.remove('pressing'); P = null; }
+  if (P && Math.hypot(t.clientX - P.x, t.clientY - P.y) > 8) { clearTimeout(lp); pressed(P.el).classList.remove('pressing'); P = null; }
 }, { passive: false });
-const tend = e => { clearTimeout(lp); if (D) { e.preventDefault(); endDrag(); } if (P) { P.el.classList.remove('pressing'); P = null; } };
+const tend = e => { clearTimeout(lp); if (D) { e.preventDefault(); endDrag(); } if (P) { pressed(P.el).classList.remove('pressing'); P = null; } };
+const pressed = el => el.matches('.rs') ? el.parentElement : el; // a resize handle shows its press on the block
 document.addEventListener('touchend', tend, { passive: false }); document.addEventListener('touchcancel', tend, { passive: false });
 // On a computer, press on an empty time and drag down to choose how long the new task takes; a plain click picks the half hour
 let NB = null;
