@@ -2,6 +2,7 @@ import * as store from './store.js';
 import * as calendar from './calendar.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { initAI, ask, undo, renderMsgs, clearChat, breakDownLocal } from './ai.js';
+import { initVoice, stop as stopVoice } from './voice.js';
 import * as roadmap from './roadmap.js';
 import * as stats from './stats.js';
 import * as track from './track.js';
@@ -1218,7 +1219,7 @@ document.addEventListener('click', e => {
     case 'ai-toggle': document.body.classList.toggle('ai-off'); break;
     case 'reset': store.resetLocal(store.sampleData); toast('Sample data restored'); break;
     case 'ask': openAI(); ask(b.dataset.q); break;
-    case 'clear-chat': clearChat(); break;
+    case 'clear-chat': stopVoice(); clearChat(); break;
     case 'ur-undo': doUndo(); break;
     case 'ur-redo': doRedo(); break;
     case 'undo': if (undo(b.dataset.u)) { b.disabled = true; b.textContent = 'Undone'; } break;
@@ -1649,8 +1650,9 @@ async function enterCloud(u) {
 }
 store.onChange((kind, st) => { if (kind === 'occ') { if (!S.open && !('done' in st.patch) && !('tl' in st.patch)) occOffer = occOffer || st; return; } if (kind === 'step') return onStep(st); if (kind === 'sync') { if (!D) later(); return; } if (!D) later(); });
 calendar.onCalendarChange(() => { if (!D) later(); });
-notes.onChange(() => { if (!D) later(); });
+notes.onChange(() => { if (!D) later(); renderMsgs(); });
 initAI({ anchor: () => S.anchor, showPlan, render: later });
+initVoice(q => ask(q, { voice: true }), msg => toast(msg, '', 5000));
 setInterval(() => { if (today() !== shown) { shown = today(); if (S.anchor === add(today(), -1)) S.anchor = today(); later(); } else if (track.running() && !D) later(); // what's recording grows in Time blocks
   else if (S.mode === 'timed' && !D) { document.querySelectorAll('.now').forEach(n => n.style.top = hpx((nowMin() - H0 * 60) / 60)); } }, 60e3);
 if (!matchMedia('(min-width:1500px)').matches) document.body.classList.add('ai-off');

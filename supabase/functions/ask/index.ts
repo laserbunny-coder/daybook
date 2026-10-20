@@ -15,6 +15,7 @@ How Daybook works:
 - A step with no day of its own is worked on inside its scheduled parent (its "scheduled_with" names that parent). It is not unscheduled; only give it its own day or time if the person asks or it clearly needs one.
 - Calendar events come from the person's Google Calendar. They are read-only: never move, change or delete them. Plan around them.
 - Notes on an item are the person's own thoughts for when they sit down to do it.
+- The person also plans their goals and weeks with Claude in a separate, long-running chat, which reaches Daybook through a connector and leaves them notes ("notes_from_planning_chat" in the state, newest first). Those notes carry that chat's plans and reasons. Treat them as the current plan: build on them, and if something you suggest goes against them, say so plainly. You can't see that chat itself, only these notes.
 
 When you answer:
 - Reply in plain, friendly language, short enough to read on a phone. Lead with the answer. Use a short list only when it helps.
@@ -71,6 +72,10 @@ const OUTPUT_SCHEMA = {
   },
 };
 
+const SPOKEN = `
+
+The person is talking to you out loud, and your reply will be read aloud by their phone or computer. Answer the way you would on a phone call: one to three short spoken sentences, no lists, no Markdown, no ids, links or symbols. Say times the way people say them ("two thirty"). If you made changes, sum them up in a sentence instead of listing each one.`;
+
 type ChatTurn = { role: "user" | "assistant"; content: string };
 
 Deno.serve(async (req) => {
@@ -78,10 +83,11 @@ Deno.serve(async (req) => {
   const user = await userFrom(req);
   if (!user) return json({ error: "Not signed in" }, 401);
 
-  const { history = [], question, state } = await req.json() as {
+  const { history = [], question, state, voice = false } = await req.json() as {
     history?: ChatTurn[];
     question: string;
     state: unknown;
+    voice?: boolean;
   };
   if (!question) return json({ error: "Missing question" }, 400);
 
@@ -97,9 +103,10 @@ Deno.serve(async (req) => {
     const response = await client.beta.messages.create({
       model: "claude-opus-5-5",
       max_tokens: 16000,
-      system: SYSTEM,
+      system: voice ? SYSTEM + SPOKEN : SYSTEM,
       messages,
-      output_config: { effort: "medium", format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
+      // A spoken question gets a quicker answer, since silence on a call feels long
+      output_config: { effort: voice ? "low" : "medium", format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
       betas: ["server-side-fallback-2026-07-01"],
       // @ts-ignore: server-side fallback parameter (beta)
       fallbacks: "default",

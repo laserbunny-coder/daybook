@@ -5,6 +5,7 @@ import { eventsOn, timedOn } from './calendar.js';
 import { add, DAYL, dayShort, esc, fmtDur, fmtT, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
 import { children, dayItems, hasKids, heldBy, isDone, leaves, node, PALETTE, progress, rootOf, unscheduled } from './tree.js';
 import { ruleText } from './repeat.js';
+import * as notes from './notes.js';
 
 let ctx = { cloud: false, client: null, anchor: () => today(), showPlan: () => {}, render: () => {} };
 const MSGS = lsGet('daybook-chat', []).filter(m => !m.typing).map(m => ({ ...m, u: null }));
@@ -16,12 +17,14 @@ function persist() { lsSet('daybook-chat', MSGS.filter(m => !m.typing).slice(-40
 const remember = () => { const k = 'u' + (++uSeq); UNDO[k] = store.snapshot(); return k; };
 export function undo(k) { if (!UNDO[k]) return false; store.restore(UNDO[k]); delete UNDO[k]; return true; }
 
-export async function ask(q) {
+// Returns the reply as plain text, so a spoken question can be answered out loud (voice.js)
+export async function ask(q, { voice = false } = {}) {
   MSGS.push({ me: q }); const typing = { typing: true }; MSGS.push(typing); renderMsgs();
   let out;
-  try { out = ctx.cloud ? await askClaude(q) : await new Promise(r => setTimeout(() => r(scripted(q)), 600)); }
+  try { out = ctx.cloud ? await askClaude(q, voice) : await new Promise(r => setTimeout(() => r(scripted(q)), 600)); }
   catch (e) { console.warn(e); out = { h: `<p>${esc(e.message || "I couldn't reach Claude. Check your connection and try again.")}</p>`, error: true }; }
   MSGS.splice(MSGS.indexOf(typing), 1); MSGS.push(out); persist(); renderMsgs(); ctx.render();
+  return out.text || out.h.replace(/<\/(p|li)>/g, '. ').replace(/<[^>]+>/g, '').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/([.!?:])\. /g, '$1 ');
 }
 
 /* Real Claude */
@@ -50,8 +53,17 @@ function plannerState() {
     const d = add(T, i);
     for (const e of eventsOn(d)) calendar_events.push(e.allDay ? { title: e.t, day: d, all_day: true } : { title: e.t, day: d, start_min: e.s, duration_min: e.m });
   }
-  return { today: T, weekday: DAYL[pd(T).getDay()], now_min: nowMin(), viewing_week_of: weekStart(ctx.anchor()), areas: areas.map(a => ({ id: a.id, title: a.t })), items, calendar_events };
+  return { today: T, weekday: DAYL[pd(T).getDay()], now_min: nowMin(), viewing_week_of: weekStart(ctx.anchor()), areas: areas.map(a => ({ id: a.id, title: a.t })), items, calendar_events, notes_from_planning_chat: planningNotes() };
 }
+// The latest notes the planning chat (Claude with the Daybook connector) left in Notes: its plans and reasons,
+// so Ask Claude follows the same plan
+function planningNotes() {
+  const since = Date.now() - 21 * 864e5;
+  return notes.all().filter(n => Date.parse(n.created_at) > since).slice(0, 8)
+    .map(n => ({ written: n.created_at, title: n.title, message: (n.body || '').slice(0, 1500), task_ids: n.task_ids || [] }));
+}
+// The chat the latest note came from, to carry on there (the Claude app has its own voice mode)
+export function planningChat() { for (const n of notes.all()) { try { const u = new URL(n.link); if (u.protocol === 'https:') return u.href; } catch { /* no link */ } } return null; }
 function history() {
   const h = [];
   for (let i = 0; i < MSGS.length; i++) {
@@ -60,8 +72,8 @@ function history() {
   }
   return h.slice(-12);
 }
-async function askClaude(q) {
-  const { data, error } = await ctx.client.functions.invoke('ask', { body: { question: q, history: history(), state: plannerState() } });
+async function askClaude(q, voice) {
+  const { data, error } = await ctx.client.functions.invoke('ask', { body: { question: q, history: history(), state: plannerState(), voice } });
   if (error) {
     let msg = "I couldn't reach Claude. Check your connection and try again.";
     try { const b = await error.context?.json?.(); if (b?.error) msg = b.error; } catch { /* keep default */ }
@@ -163,5 +175,7 @@ export function renderMsgs() {
     m.innerHTML = `<div class="msg bot"><p>${open ? `You have ${open} open tasks, and ${unscheduled().length} of them don't have a day yet.` : 'Add a few projects and tasks, then ask me to plan them out.'}</p><p>Ask me to plan your week, break a task into steps, or check what's at risk.</p></div>`;
   } else m.innerHTML = MSGS.map(x => x.me ? `<div class="msg me">${esc(x.me)}</div>` : x.typing ? `<div class="msg bot typing">Thinking…</div>` : `<div class="msg bot${x.error ? ' err' : ''}">${x.h}${x.u || x.see || x.follow ? `<div class="acts">${x.follow ? `<button data-act="ask" data-q="Plan my week">Plan my week</button>` : ''}${x.see ? `<button data-act="tab" data-v="plan" class="phone-only">See the plan</button>` : ''}${x.u ? `<button data-act="undo" data-u="${x.u}">Undo</button>` : ''}</div>` : ''}</div>`).join('');
   m.scrollTop = m.scrollHeight;
-  document.getElementById('sugs').innerHTML = ['Plan my week', "What's at risk this week?", ...(MSGS.length ? ['Start over'] : [])].map(s => `<button data-act="${s === 'Start over' ? 'clear-chat' : 'ask'}" data-q="${esc(s)}">${esc(s)}</button>`).join('');
+  const chat = planningChat();
+  document.getElementById('sugs').innerHTML = ['Plan my week', "What's at risk this week?", ...(MSGS.length ? ['Start over'] : [])].map(s => `<button data-act="${s === 'Start over' ? 'clear-chat' : 'ask'}" data-q="${esc(s)}">${esc(s)}</button>`).join('')
+    + (chat ? `<a class="plan-chat" href="${esc(chat)}" target="_blank" rel="noopener" title="Open the Claude chat you plan with">Planning chat ↗</a>` : '');
 }
