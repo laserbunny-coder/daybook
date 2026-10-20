@@ -8,7 +8,7 @@
 // wait in a tray at the bottom and can be dragged onto the timeline.
 import * as store from './store.js';
 import { add, daysBetween, esc, fmtShort, MON, pd, today, weekStart } from './util.js';
-import { colorOf, hasKids, isDone, isProj, progress, projColor } from './tree.js';
+import { colorOf, hasKids, ink, isDone, isProj, progress, projColor } from './tree.js';
 
 const ZOOMS = { 1: 4.4, 3: 13, 6: 26 };   // weeks in view at each zoom (months)
 const DUR = 27;                            // a project dropped from the tray gets four weeks
@@ -91,7 +91,7 @@ export function html(width) {
 
   const laneHTML = l => {
     if (!l.items.length && !l.ms.length) return '';
-    const lc = l.a ? l.a.c || '#B9BCD0' : '#B9BCD0';
+    const lc = ink(l.a?.c);
     l.items.sort((a, b) => a.sp.s.localeCompare(b.sp.s) || a.n.o - b.n.o);
     let rows = '';
     // Milestones share rows, a new row only where labels would collide
