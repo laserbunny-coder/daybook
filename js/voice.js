@@ -87,12 +87,15 @@ function speak(text) {
 }
 const plain = t => String(t || '').replace(/\*\*(.+?)\*\*/g, '$1').replace(/^\s*(?:[-*•]|\d+\.)\s+/gm, '').replace(/https?:\/\/\S+/g, 'the link');
 
-// The most natural voice the device has in the person's language
+// The most natural British voice the device has (Michael likes the light British accent of the Claude app);
+// for someone who doesn't speak English, the most natural voice in their own language
 function pickVoice() {
   const all = speechSynthesis.getVoices(); if (!all.length) return;
   const lang = (navigator.language || 'en-US').toLowerCase(), base = lang.split('-')[0];
-  const mine = all.filter(v => v.lang.toLowerCase().replace('_', '-') === lang);
-  const near = mine.length ? mine : all.filter(v => v.lang.toLowerCase().startsWith(base));
+  const tag = v => v.lang.toLowerCase().replace('_', '-');
+  const uk = base === 'en' ? all.filter(v => tag(v) === 'en-gb') : [];
+  const mine = all.filter(v => tag(v) === lang);
+  const near = uk.length ? uk : mine.length ? mine : all.filter(v => tag(v).startsWith(base));
   const rank = v => (/natural|neural|online|premium|enhanced/i.test(v.name) ? 0 : /google/i.test(v.name) ? 1 : v.localService ? 3 : 2);
   voice = near.slice().sort((a, b) => rank(a) - rank(b))[0] || null;
 }
