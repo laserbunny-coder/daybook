@@ -20,7 +20,7 @@
   --fg:#2A2622; --muted:#665E53; --faint:#8F8677; --line:#E4DCCD; --line2:#D6CCBA;
   --accent:#9A4A2E; --accent-fg:#FFFFFF; --accent-soft:rgba(154,74,46,.1); --today:rgba(154,74,46,.035);
   --hdr:rgba(246,241,231,.96); --pop:#FBF8F2; --bar:#F6F1E7;
-  --hatch:rgba(42,38,34,.14); --card-sh:0 1px 0 rgba(42,38,34,.04); --tk:13%; --tb:30%; --evh:32%; --evw:4%; --evd:55%;
+  --hatch:rgba(42,38,34,.2); --card-sh:0 1px 0 rgba(42,38,34,.04); --tk:13%; --tb:30%; --evh:42%; --evw:7%; --evd:65%; --ev-fg:#4A443C;
   --warn:#A8742A; --danger:#B3402F; color-scheme:light;
 }
 
@@ -1147,9 +1147,18 @@ body.quiet .nb-dot{top:7px;right:7px}
 .proj-n,.load{font-family:var(--f-body)}
 .ladd{font-weight:500}
 
-/* Calendar events: pencil hatching in their Google colour, no fill, dashed edge. Fixed time, never a card. */
-:is(.evr,.ev,.ev-all)[style*="--evc"]{--evs:repeating-linear-gradient(-45deg,color-mix(in srgb,var(--evc) var(--evh,28%),transparent) 0 1px,transparent 1px 7px);--evt:color-mix(in srgb,var(--evc) var(--evw,5%),transparent);--evb:color-mix(in srgb,var(--evc) var(--evd,45%),var(--line))}
-.ev{border:1px dashed var(--line2);border-radius:6px;color:var(--ev-fg)}
+/* Calendar events: hatching in their Google colour over a faint wash, dashed edge. Fixed time, never a card.
+   The hatching is a tiled SVG used as a mask, so every line comes out the same width at any size (gradients alias into thick and thin lines). */
+.evr,.ev,.ev-all{--evl:var(--hatch);--evt:transparent;--evb:var(--line2)}
+:is(.evr,.ev,.ev-all)[style*="--evc"]{--evl:color-mix(in srgb,var(--evc) var(--evh,28%),transparent);--evt:color-mix(in srgb,var(--evc) var(--evw,5%),transparent);--evb:color-mix(in srgb,var(--evc) var(--evd,45%),var(--line))}
+:is(.list,.wcol,.dl) > .evr,.ev,.ev-all{background:var(--evt);isolation:isolate}
+:is(.list,.wcol,.dl) > .evr,.ev-all{position:relative}
+:is(.list,.wcol,.dl) > .evr::before,.ev::before,.ev-all::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;border-radius:inherit;background:var(--evl);
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Cpath d='M-3 3L3-3M0 12L12 0M9 15L15 9' stroke='%23000' stroke-width='1.6'/%3E%3C/svg%3E") 0 0/12px 12px repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Cpath d='M-3 3L3-3M0 12L12 0M9 15L15 9' stroke='%23000' stroke-width='1.6'/%3E%3C/svg%3E") 0 0/12px 12px repeat}
+.mbody.min .evr::before{display:none} /* Quiet keeps events as a dotted line */
+:is(.list,.wcol,.dl) > .evr,.ev,.ev-all{text-shadow:0 0 3px var(--bg),0 0 1px var(--bg)} /* a soft halo keeps the words clear of the hatching */
+.ev{border:1px dashed var(--evb);border-radius:6px;color:var(--ev-fg)}
 .ev .b-t,.evr .ev-t{font-style:italic;font-family:var(--f-display);font-size:13px;font-weight:400}
 .list > .evr,.wcol > .evr,.dl > .evr{border-radius:6px}
 .evr span{font-family:var(--f-body)}
