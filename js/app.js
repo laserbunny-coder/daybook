@@ -9,7 +9,7 @@ import * as track from './track.js';
 import * as notes from './notes.js';
 import { cleanRule, ruleText, splitOcc, WEEK } from './repeat.js';
 import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fd, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
-import { ancestors, children, colorOf, dayItems, glow, hasKids, isDone, isProj, leaves, node, PALETTE, progress, rootOf } from './tree.js';
+import { ancestors, children, colorOf, dayItems, glow, hasKids, ink, look, isDone, isProj, leaves, node, PALETTE, progress, rootOf } from './tree.js';
 
 const H0 = 6, H1 = 23;
 const HP = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hp')) || 48;
@@ -23,6 +23,8 @@ const roadShown = () => phone() ? S.tab === 'roadmap' : S.page === 'roadmap';
 // Stats (js/stats.js) works the same way: a page on a computer, a tab on a phone, and it opens inside Quiet too
 const statsShown = () => phone() ? S.tab === 'stats' : S.page === 'stats';
 const ICON = {
+  sun: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="2.8"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg>',
+  moon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M13.2 9.8A5.6 5.6 0 0 1 6.2 2.8a5.6 5.6 0 1 0 7 7z"/></svg>',
   prev: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 3L5 8l5 5"/></svg>',
   next: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3l5 5-5 5"/></svg>',
   undo: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 3.5l-3 3 3 3"/><path d="M2.5 6.5h7a3.5 3.5 0 0 1 0 7H7"/></svg>',
@@ -173,10 +175,10 @@ function footHTML() {
       <div class="acct">${esc(user.email || '')}</div>
       <div class="sync ${store.sync.state}">${SYNC_TEXT[store.sync.state] || ''}</div>
       <div>${c.connected && !c.reconnect ? 'Google Calendar connected (read-only).' : 'Google Calendar isn\'t connected.'} ${!c.connected || c.reconnect ? '<button class="link" data-act="signin">Connect it</button>' : ''}</div>
-      <div class="foot-acts"><button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="mcp">Connect to Claude</button><button class="link" data-act="signout">Sign out</button></div>${mcpHTML()}</div>`;
+      <div class="foot-acts"><button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="mcp">Connect to Claude</button><button class="link" data-act="signout">Sign out</button><button class="link" data-act="look">${look() === 'paper' ? 'Dark look' : 'Light look'}</button></div>${mcpHTML()}</div>`;
   }
   return `<div class="side-f">Sample data, stored only on this device. Drag anything onto the plan, or back here to unschedule it.
-    <div class="foot-acts">${configured ? '<button class="link" data-act="signin">Sign in with Google</button>' : ''}<button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="reset">Reset sample data</button></div></div>`;
+    <div class="foot-acts">${configured ? '<button class="link" data-act="signin">Sign in with Google</button>' : ''}<button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="reset">Reset sample data</button><button class="link" data-act="look">${look() === 'paper' ? 'Dark look' : 'Light look'}</button></div></div>`;
 }
 /* Areas group the top-level projects, and tasks that belong to an area without being part of a project.
    Such a task becomes a project in that area as soon as it gets steps. A project whose area is gone shows under "No area";
@@ -192,7 +194,7 @@ function areaGroups() {
 }
 function areaHTML({ a, projs }, board = false) {
   const id = a ? a.id : '', key = 'area:' + id, shut = !board && S.col[key], label = a ? esc(a.t || 'Untitled area') : 'No area';
-  const name = a ? `<span class="pdot" style="--pc:${a.c || '#B9BCD0'}"></span><button class="area-t" data-act="open" data-id="${id}" title="Rename or delete this area">${label}</button>` : `<span class="area-t">${label}</span>`;
+  const name = a ? `<span class="pdot" style="--pc:${ink(a.c)}"></span><button class="area-t" data-act="open" data-id="${id}" title="Rename or delete this area">${label}</button>` : `<span class="area-t">${label}</span>`;
   const list = (projs.length ? projs.map(p => isProj(p) ? projHTML(p) : treeRows(p, 0)).join('') : '<div class="empty-note">No projects here yet.</div>') + (board ? `<button class="bcol-add" data-act="new-project" data-area="${id}">+ New project</button>` : '');
   return `<section class="area${board ? ' bcol' : ''}" data-drop="area" data-area="${id}">
     <div class="area-h">${board ? '' : `<button class="caret${shut ? ' shut' : ''}" data-act="fold" data-id="${key}" aria-label="Show or hide ${label}"></button>`}${name}<span class="area-n">${projs.length}</span><button class="plus" data-act="new-project" data-area="${id}" aria-label="New project in ${label}" title="New project">+</button></div>
@@ -258,7 +260,7 @@ function projOptions(sel) {
     : (g.projs.length ? `<optgroup label="No area">${g.projs.map(p => opt(p, 0)).join('')}</optgroup>` : '')).join('');
 }
 // The colour of what's picked: a project's, an area's, or grey for the Inbox
-const pickColor = v => v.startsWith('area:') ? store.get(v.slice(5))?.c || '#B9BCD0' : v && node(v) ? colorOf(node(v)) : '#B9BCD0';
+const pickColor = v => v.startsWith('area:') ? ink(store.get(v.slice(5))?.c) : v && node(v) ? colorOf(node(v)) : ink();
 function newHTML() {
   const N = S.new, pc = pickColor(N.p);
   const pos = N.at === 'col' ? `;top:${hpx((N.s - H0 * 60) / 60)};min-height:max(${hpx(N.m / 60)} - 2px, 62px)` : '';
@@ -473,7 +475,7 @@ function drawerHTML() {
   } else {
     const { groups, loose } = areaGroups(), todo = loose.filter(n => !n.done);
     top = `<div class="dr-title">Projects</div><span class="dr-hint">Hold and drag onto your day</span>`;
-    body = groups.filter(g => g.projs.length).map(g => `<div class="dr-grp" data-drop="area" data-area="${g.a?.id || ''}"><div class="dr-area"><span class="pdot" style="--pc:${g.a?.c || '#B9BCD0'}"></span>${g.a ? esc(g.a.t || 'Untitled area') : 'No area'}</div>${g.projs.filter(p => isProj(p) || !p.done).map(drRow).join('')}</div>`).join('')
+    body = groups.filter(g => g.projs.length).map(g => `<div class="dr-grp" data-drop="area" data-area="${g.a?.id || ''}"><div class="dr-area"><span class="pdot" style="--pc:${ink(g.a?.c)}"></span>${g.a ? esc(g.a.t || 'Untitled area') : 'No area'}</div>${g.projs.filter(p => isProj(p) || !p.done).map(drRow).join('')}</div>`).join('')
       + (todo.length ? `<div class="dr-grp" data-drop="sib" data-g="loose"><div class="dr-area"><span class="pdot" style="--pc:var(--muted)"></span>Inbox</div>${todo.map(drRow).join('')}</div>` : '')
       || '<div class="dr-empty">No projects yet. Add them in Projects.</div>';
   }
@@ -509,7 +511,7 @@ function renderRoad(el) {
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">Roadmap</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Earlier">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Later">${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg rm-zoom" role="group" aria-label="Zoom">${[1, 3, 6].map(m => `<button data-act="rm-zoom" data-v="${m}" aria-pressed="${z === m}">${m} mo</button>`).join('')}</div>
     <label class="chip rm-free" title="How many hours a week you have for planned tasks. Weeks with more scheduled than this stand out."><input id="rm-free" type="number" inputmode="numeric" min="1" max="168" step="1" value="${free}" aria-label="Free hours per week"><span class="k">h free a week</span></label>
-    <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
+    <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>${lookBtn()}
     <button class="ib q-only" data-act="qproj" aria-pressed="${qProjects() || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>`;
   const box = document.getElementById('rmsc'); const width = (box ? box.clientWidth : el.clientWidth) || innerWidth;
@@ -531,7 +533,7 @@ function renderStats(el) {
   el.innerHTML = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">Stats · ${esc(R.label)}</span></button>` : ''}<header class="mh st-mh">
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">Stats</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Earlier"${fixed ? ' disabled' : ''}>${ICON.prev}</button><button class="tb" data-act="today"${fixed ? ' disabled' : ''}>${k === 'day' ? 'Today' : 'Now'}</button><button class="ib" data-act="next" aria-label="Later"${fixed ? ' disabled' : ''}>${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg st-kinds" role="group" aria-label="Range">${stats.KINDS.map(([v, l]) => `<button data-act="st-k" data-v="${v}" aria-pressed="${k === v}">${l}</button>`).join('')}</div>
-    <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
+    <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>${lookBtn()}
     <button class="ib q-only" data-act="qproj" aria-pressed="${qProjects() || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
   <div class="mbody st-b vscroll" id="mbody" data-k="stats">${stats.html()}</div>`;
@@ -564,7 +566,7 @@ function renderMain() {
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg" role="group" aria-label="Range"><button data-act="view" data-v="day" ${P('view', 'day')}>Day</button><button data-act="view" data-v="week" ${P('view', 'week')}>Week</button></div>
     <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button></div>
-    <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
+    <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>${lookBtn()}
     <button class="ib q-only" data-act="qproj" aria-pressed="${qp || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
   <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
@@ -779,9 +781,9 @@ function edit(id, patch, quiet) {
 /* Colour choices. A project in an area can follow the area's colour (the ringed swatch) or have its own. */
 function swatchesHTML(n) {
   const area = n.k !== 'area' && areaOf(n) && store.get(n.ar);
-  const follow = area ? `<button class="sw follow${n.c === 'area' ? ' on' : ''}" style="--sw:${area.c || '#B9BCD0'}" data-act="color" data-c="area" aria-label="Use the ${esc(area.t)} area's colour" title="Use the area's colour"></button><span class="sw-sep"></span>` : '';
+  const follow = area ? `<button class="sw follow${n.c === 'area' ? ' on' : ''}" style="--sw:${ink(area.c)}" data-act="color" data-c="area" aria-label="Use the ${esc(area.t)} area's colour" title="Use the area's colour"></button><span class="sw-sep"></span>` : '';
   const own = n.k === 'area' || n.c !== 'area' || !area ? glow(n.c) : null;
-  return `<div class="swatches${n.k === 'area' ? ' area-sw' : ''}" role="group" aria-label="Color">${follow}${PALETTE.map(c => `<button class="sw${own === c ? ' on' : ''}" style="--sw:${c}" data-act="color" data-c="${c}" aria-label="Color ${c}"></button>`).join('')}</div>`;
+  return `<div class="swatches${n.k === 'area' ? ' area-sw' : ''}" role="group" aria-label="Color">${follow}${PALETTE.map(c => `<button class="sw${own === c ? ' on' : ''}" style="--sw:${ink(c)}" data-act="color" data-c="${c}" aria-label="Color ${c}"></button>`).join('')}</div>`;
 }
 // An area opens like a project: rename it, see and add its projects, or delete it (its projects stay).
 function areaDetail(el, n, same) {
@@ -925,6 +927,14 @@ function noteTasks(n) {
     const t = node(id);
     return t ? `<button class="n-task${isDone(t) ? ' done' : ''}" data-act="note-task" data-id="${esc(id)}" style="--pc:${colorOf(t)}"><span class="pdot"></span><span>${esc(t.t || 'Untitled')}</span></button>` : '<span class="n-task gone">Removed</span>';
   }).join('')}</div>`;
+}
+/* Ink (dark, the default) or Paper (light). index.html applies the saved look before anything draws. */
+const LOOK_KEY = 'daybook-look';
+const lookBtn = () => { const p = look() === 'paper'; return `<button class="ib" data-act="look" aria-label="${p ? 'Dark look (Ink)' : 'Light look (Paper)'}" title="${p ? 'Switch to Ink, the dark look' : 'Switch to Paper, the light look'} (L)">${p ? ICON.moon : ICON.sun}</button>`; };
+function setLook(l) {
+  document.documentElement.dataset.look = l; lsSet(LOOK_KEY, l);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', l === 'paper' ? '#F6F1E7' : '#1C1A17');
+  render();
 }
 const notesBtn = () => { const k = notes.unread().length; return `<button class="ib nb" data-act="notes" aria-pressed="${!!S.notesOpen}" aria-label="Notes from Claude${k ? `, ${k} unread` : ''}" title="Notes from Claude (N)">${ICON.notes}${k ? '<i class="nb-dot"></i>' : ''}</button>`; };
 const noteEl = document.createElement('div'); noteEl.id = 'note'; noteEl.className = 'note'; noteEl.hidden = true; noteEl.setAttribute('role', 'status'); document.body.appendChild(noteEl);
@@ -1197,6 +1207,7 @@ document.addEventListener('click', e => {
     case 'view': leaveRoad(); S.view = b.dataset.v; W = null; render(); break;
     case 'mode': leaveRoad(); setMode(b.dataset.v); break;
     case 'min': setQuiet(!S.min); break;
+    case 'look': setLook(look() === 'paper' ? 'ink' : 'paper'); break;
     case 'qstrip': setStrip(!S.qstrip); break;
     case 'qproj': if (!phone()) setQPin(!qPin); else if (qProjects()) { quietPlan(); render(); } else quietProjects(); break;
     case 'prev': case 'next': if (roadShown()) { roadmap.go(a === 'prev' ? -1 : 1); break; } if (statsShown()) { stats.go(a === 'prev' ? -1 : 1); break; } if (qProjects()) { quietPlan(); render(); break; } {
@@ -1282,6 +1293,7 @@ document.addEventListener('keydown', e => {
   if (key === 'n' && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); setStrip(false); S.notesOpen = !S.notesOpen; render(); return; }
   // S does the same for Stats
   if (key === 's' && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); toggleRoad('stats'); return; }
+  if (key === 'l' && !D && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); setLook(look() === 'paper' ? 'ink' : 'paper'); return; }
   if (quiet() && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])') && quietKey(e)) { e.preventDefault(); return; }
   if (e.key === 'Enter' && e.target.id === 'dt-title') { e.preventDefault(); e.target.blur(); }
   if (e.key === 'Enter' && e.target.matches('.dt-notes-view')) { e.preventDefault(); e.target.click(); }

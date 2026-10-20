@@ -7,7 +7,7 @@
 import * as store from './store.js';
 import * as track from './track.js';
 import { add, DAYL, daysBetween, esc, fd, fmtShort, MON, nowMin, pd, today, weekStart } from './util.js';
-import { children, hasKids, leaves, projColor, rootOf } from './tree.js';
+import { children, hasKids, ink, leaves, projColor, rootOf } from './tree.js';
 
 let C = null; // what the app hands over: { S, render }
 export function init(ctx) { C = ctx; }
@@ -15,14 +15,16 @@ export function init(ctx) { C = ctx; }
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 export const KINDS = [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['year', 'Year'], ['all', 'All'], ['custom', 'Custom']];
 const CARDS = [['share', 'Share'], ['days', 'Days'], ['projects', 'Projects'], ['rhythm', 'Rhythm'], ['pace', 'Pace'], ['flow', 'Flow']];
-const BG = '#06070D', NOAREA = '#B9BCD0';
+const NOAREA = '#B9BCD0';
+const cssVar = (k, d) => getComputedStyle(document.documentElement).getPropertyValue(k).trim() || d;
+const bg = () => cssVar('--bg', '#1C1A17'); // the look's background, for shading
 
 /* Colours */
 const hexOk = c => /^#[0-9a-f]{6}$/i.test(c || '');
 const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
 function mix(a, b, t) { if (!hexOk(a)) a = NOAREA; const A = rgb(a), B = rgb(b); return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join(''); }
 const lum = c => { const [r, g, b] = rgb(c).map(v => { v /= 255; return v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }); return .2126 * r + .7152 * g + .0722 * b; };
-const shade = (c, k) => k ? mix(c, BG, [0, .3, .5, .62, .7][Math.min(k, 4)]) : (hexOk(c) ? c : NOAREA);
+const shade = (c, k) => k ? mix(c, bg(), [0, .3, .5, .62, .7][Math.min(k, 4)]) : (hexOk(c) ? c : NOAREA);
 
 /* Hours */
 export const fmtH = m => { m = Math.round(m); const h = Math.floor(m / 60), mm = m % 60; return h ? (mm ? `${h}h ${mm}m` : `${h}h`) : `${mm}m`; };
@@ -95,7 +97,7 @@ function model() {
   const G = new Map(), gKey = p => area == null ? areaKey(p.root) : p.root.id;
   const grp = (p, k) => {
     let g = G.get(k); if (g) return g;
-    if (area == null) { const a = k !== '~' && store.get(k); g = { key: k, name: a ? a.t || 'Untitled area' : 'No area', base: a?.c || NOAREA, act: 'st-area', id: k }; }
+    if (area == null) { const a = k !== '~' && store.get(k); g = { key: k, name: a ? a.t || 'Untitled area' : 'No area', base: a ? ink(a.c) : ink(), act: 'st-area', id: k }; }
     else g = { key: k, name: p.root.t || 'Untitled', base: projColor(p.root), act: 'open', id: p.root.id };
     Object.assign(g, { m: 0, pm: 0, gm: 0, subs: new Map() }); G.set(k, g); return g;
   };
@@ -117,7 +119,7 @@ function model() {
   const lo = f0 && f0 > R.a ? f0 : R.a, hi = R.b < T ? R.b : T;
   const elapsed = Math.max(1, daysBetween(lo, hi) + 1);
   const areaName = area == null ? null : area !== '~' ? store.get(area)?.t || 'Untitled area' : 'No area';
-  const areaC = area == null ? null : area !== '~' ? store.get(area)?.c || NOAREA : NOAREA;
+  const areaC = area == null ? null : area !== '~' ? ink(store.get(area)?.c) : ink();
   return { R, span, area, areaName, areaC, groups, gi, gKey, ps: inR, mine, total, ptotal, guessed, prevOk: !!f0 && pa >= f0 && R.k !== 'all', elapsed, any: P.length > 0 };
 }
 
@@ -315,7 +317,7 @@ function flow(M) {
 function year(M) {
   const R = M.R, T = today(), end = R.k === 'year' ? R.b : (R.b < T ? R.b : T), e = pd(end);
   const by = new Map(); for (const p of M.mine) { let v = by.get(p.d); if (!v) by.set(p.d, v = new Map()); const k = M.gKey(p); v.set(k, (v.get(k) || 0) + p.m); }
-  const colour = k => { const i = M.gi.get(k); if (i != null) return M.groups[i].c; if (M.area == null) { const a = k !== '~' && store.get(k); return a?.c || NOAREA; } return projColor(store.get(k) || {}); };
+  const colour = k => { const i = M.gi.get(k); if (i != null) return M.groups[i].c; if (M.area == null) { const a = k !== '~' && store.get(k); return ink(a?.c); } return projColor(store.get(k) || {}); };
   const st = 10, cell = 8.4, dim = !(R.k === 'year' || R.k === 'all');
   let months = '', run = 0, best = 0, bestDay = null, days = 0, tot = 0;
   for (let m = 11; m >= 0; m--) {
@@ -325,8 +327,8 @@ function year(M) {
       const d = fd(new Date(f.getFullYear(), f.getMonth(), k + 1)), c = lead0 + k, x = (c % 7) * st, y = Math.floor(c / 7) * st;
       if (d > T) { g += `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2" class="st-dz"/>`; continue; }
       const v = by.get(d), t = v ? sum([...v.values()]) : 0;
-      let fill = 'rgba(255,255,255,.06)';
-      if (t > 0) { let lk = null, lm = -1; v.forEach((m2, k2) => { if (m2 > lm) { lm = m2; lk = k2; } }); const lvl = t < 60 ? 1 : t < 150 ? 2 : t < 270 ? 3 : 4; fill = mix(BG, colour(lk), [0, .3, .52, .76, 1][lvl]); run++; days++; tot += t; best = Math.max(best, run); if (!bestDay || t > bestDay.t) bestDay = { t, d }; } else run = 0;
+      let fill = mix(bg(), cssVar('--fg', '#E8E2D6'), .07);
+      if (t > 0) { let lk = null, lm = -1; v.forEach((m2, k2) => { if (m2 > lm) { lm = m2; lk = k2; } }); const lvl = t < 60 ? 1 : t < 150 ? 2 : t < 270 ? 3 : 4; fill = mix(bg(), colour(lk), [0, .3, .52, .76, 1][lvl]); run++; days++; tot += t; best = Math.max(best, run); if (!bestDay || t > bestDay.t) bestDay = { t, d }; } else run = 0;
       const out = dim && (d < R.a || d > R.b);
       g += `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2" fill="${fill}"${out ? ' opacity=".4"' : ''}${d === T ? ' class="st-today"' : ''} data-act="st-at" data-k="day" data-d="${d}"><title>${MONTHS[f.getMonth()].slice(0, 3)} ${k + 1}: ${t ? fmtH(t) : 'nothing recorded'}</title></rect>`;
     }
