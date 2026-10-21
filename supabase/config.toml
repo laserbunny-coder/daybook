@@ -7,6 +7,10 @@ verify_jwt = true
 [functions.calendar]
 verify_jwt = true
 
+# Inkwell, the writing app, asks Claude for alternates here.
+[functions.inkwell]
+verify_jwt = true
+
 # The Claude connector checks its own secret address instead of a sign-in.
 [functions.mcp]
 verify_jwt = false
