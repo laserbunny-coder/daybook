@@ -12,6 +12,69 @@ A personal planner for projects, tasks and Google Calendar, on a phone and a com
 
 To set it up, follow [SETUP.md](SETUP.md).
 
+## A look around
+
+These screenshots use made-up sample data. Daybook's default look is Ink, a warm dark theme.
+
+**The week in time blocks.** Tasks sit next to your Google Calendar events, which show as striped outlines so they read as fixed time. A stopwatch marks time you actually recorded.
+
+![Week view in time blocks](screenshots/week-time-blocks.webp)
+
+**The week as a list.** The same week without times, for when you just want to know what's on each day.
+
+![Week view as a list](screenshots/week-list.webp)
+
+**Quiet.** Everything but your tasks fades away. Tap the date for the controls.
+
+![Quiet mode](screenshots/quiet.webp)
+
+**One day, with the timer running.** Press ▶ on a task to record how long it really takes.
+
+![Day view with a timer running](screenshots/day-time-blocks.webp)
+
+**Projects.** Areas like Business, Filmmaking and Personal hold projects, which break down into sub-projects and steps. Checking off a step moves its project forward.
+
+![Projects board](screenshots/projects.webp)
+
+**Open any task** to see its notes, steps, repeat, milestone and recorded time.
+
+![Task details](screenshots/task-details.webp)
+
+**Roadmap.** Every project as a bar on a timeline, with milestones and hard deadlines. The strip along the top weighs each week's plans against the hours you have free.
+
+![Roadmap](screenshots/roadmap.webp)
+
+**Stats.** Where your time went, by area and project, with a year of days in squares.
+
+![Stats](screenshots/stats.webp)
+
+**Ask Claude.** Ask it to plan your week, break a task into steps, or point out what's at risk. Every change it makes can be undone.
+
+![Ask Claude planning the week](screenshots/ask-claude.webp)
+
+**Notes from Claude.** A Claude chat you plan with can leave you a note about what it changed.
+
+![A note from Claude](screenshots/notes-from-claude.webp)
+
+### On a phone
+
+Daybook installs to the home screen and syncs with the computer.
+
+<p>
+  <img src="screenshots/phone-time-blocks.webp" width="240" alt="Today in time blocks on a phone">
+  <img src="screenshots/phone-list.webp" width="240" alt="Today as a list on a phone">
+  <img src="screenshots/phone-week.webp" width="240" alt="The week on a phone">
+</p>
+<p>
+  <img src="screenshots/phone-quiet.webp" width="240" alt="Quiet mode on a phone">
+  <img src="screenshots/phone-projects.webp" width="240" alt="Projects on a phone">
+  <img src="screenshots/phone-roadmap.webp" width="240" alt="Roadmap on a phone">
+</p>
+<p>
+  <img src="screenshots/phone-stats.webp" width="240" alt="Stats on a phone">
+  <img src="screenshots/phone-ask.webp" width="240" alt="Ask Claude on a phone">
+</p>
+
 ## How it's built
 
 - A plain HTML, CSS and JavaScript web app with no build step (`index.html`, `app.css`, `js/`). It installs to the home screen and works offline (`sw.js`, `manifest.webmanifest`).
