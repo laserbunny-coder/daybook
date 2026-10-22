@@ -41,11 +41,13 @@ jobs:
         if: steps.ready.outputs.ok == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         run: |
           args=()
           [ -n "$ANTHROPIC_API_KEY" ] && args+=("ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
+          [ -n "$OPENAI_API_KEY" ] && args+=("OPENAI_API_KEY=$OPENAI_API_KEY")
           [ -n "$GOOGLE_CLIENT_ID" ] && args+=("GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID")
           [ -n "$GOOGLE_CLIENT_SECRET" ] && args+=("GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET")
           if [ ${#args[@]} -gt 0 ]; then supabase secrets set --project-ref "$PROJECT_REF" "${args[@]}"; fi
