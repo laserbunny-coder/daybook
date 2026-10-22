@@ -448,8 +448,8 @@ function nowHTML(d) { if (d !== today()) return ''; const m = nowMin(); if (m < 
 function timed(days) {
   const hrs = []; for (let h = H0 + 1; h < H1; h++) hrs.push(h);
   return `<div class="tw hscroll vscroll"><div class="tg${days.length === 1 ? ' one' : ''}" style="--cols:${days.length};--hours:${H1 - H0}">
-    <div class="trow thead"><div class="gut"></div>${days.map(d => `<button class="th${dayCls(d)}" data-act="goday" data-d="${d}" data-day="${d}">${days.length > 1 && isMon(d) ? weekLabel(d) : ''}${DAYN[pd(d).getDay()]} <b>${pd(d).getDate()}</b></button>`).join('')}</div>
-    <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray${isMon(d) ? ' mon' : ''}" data-drop="tray" data-date="${d}">${eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all"${evTint(e)}>${esc(e.t)}</div>`).join('')}${dayItems(d).filter(n => n.s == null).map(n => chipHTML(n, { compact: days.length > 1 })).join('')}${S.new?.at === 'tray' && S.new.d === d ? newHTML() : `<button class="tadd" data-act="new-tray" data-d="${d}" aria-label="Add an all-day task to ${esc(dayShort(d))}" title="Add a task for the whole day"><span aria-hidden="true">+</span></button>`}</div>`).join('')}</div>
+    <div class="thd"><div class="trow thead"><div class="gut"></div>${days.map(d => `<button class="th${dayCls(d)}" data-act="goday" data-d="${d}" data-day="${d}">${days.length > 1 && isMon(d) ? weekLabel(d) : ''}${DAYN[pd(d).getDay()]} <b>${pd(d).getDate()}</b></button>`).join('')}</div>
+    <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray${isMon(d) ? ' mon' : ''}" data-drop="tray" data-date="${d}">${eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all"${evTint(e)}>${esc(e.t)}</div>`).join('')}${dayItems(d).filter(n => n.s == null).map(n => chipHTML(n, { compact: days.length > 1 })).join('')}${S.new?.at === 'tray' && S.new.d === d ? newHTML() : `<button class="tadd" data-act="new-tray" data-d="${d}" aria-label="Add an all-day task to ${esc(dayShort(d))}" title="Add a task for the whole day"><span aria-hidden="true">+</span></button>`}</div>`).join('')}</div></div>
     <div class="trow tbody"><div class="gut hrs">${hrs.map(h => `<div class="hl" style="top:${hpx(h - H0)}">${h % 12 || 12}${h < 12 ? 'am' : 'pm'}</div>`).join('')}</div>
     ${days.map(d => `<div class="col${d === today() ? ' today' : ''}${isMon(d) ? ' mon' : ''}" data-drop="col" data-date="${d}">${blocksHTML(d)}${nowHTML(d)}${S.new?.at === 'col' && S.new.d === d ? newHTML() : ''}</div>`).join('')}</div>
   </div></div>`;
@@ -1473,10 +1473,8 @@ function gridEdge(x, y) {
 function autoScroll() {
   if (!D) return; const el = document.elementFromPoint(D.x, D.y);
   const v = el?.closest('.vscroll, .dr-b'), h = el?.closest('.hscroll'); let moved = false;
-  const pin = v?.matches('.tw') ? { top: v.querySelector('.thead')?.getBoundingClientRect().bottom, left: v.querySelector('.tbody > .gut')?.getBoundingClientRect().right } : {};
-  // A block carried up stops at the first hour rather than sliding "Any time" under the pointer, where letting go would take its time away
-  const floor = D.timed && v?.matches('.tw') ? Math.min(v.scrollTop, v.querySelector('.ttray')?.offsetHeight || 0) : 0;
-  if (v) { const r = v.getBoundingClientRect(), top = pin.top ?? r.top; if (D.y < top + 40) { if (v.scrollTop > floor) { v.scrollTop = Math.max(floor, v.scrollTop - 10); moved = true; } } else if (D.y > r.bottom - 50) { v.scrollTop += 10; moved = true; } }
+  const pin = v?.matches('.tw') ? { top: v.querySelector('.thd')?.getBoundingClientRect().bottom, left: v.querySelector('.tbody > .gut')?.getBoundingClientRect().right } : {};
+  if (v) { const r = v.getBoundingClientRect(), top = pin.top ?? r.top; if (D.y < top + 40) { if (v.scrollTop > 0) { v.scrollTop = Math.max(0, v.scrollTop - 10); moved = true; } } else if (D.y > r.bottom - 50) { v.scrollTop += 10; moved = true; } }
   if (h && D.kind !== 'resize') { const r = h.getBoundingClientRect(), left = pin.left ?? r.left; if (D.x < left + 30) { h.scrollLeft -= 10; moved = true; } else if (D.x > r.right - 40) { h.scrollLeft += 10; moved = true; } }
   if (moved) moveDrag(D.x, D.y); requestAnimationFrame(autoScroll);
 }
