@@ -1,10 +1,11 @@
 // Inkwell (the writing app) asks Claude for alternates: other words that fit
 // a sentence, or rewrites of a paragraph; and voice captures are written out
-// and outlined here (capture.ts). It lives here because Inkwell syncs
+// and outlined here (capture.ts), and shared links get a snapshot (snapshot.ts). It lives here because Inkwell syncs
 // through this same Supabase project and uses the same Claude key.
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import { cors, json, userFrom } from "../_shared/common.ts";
 import { capture } from "./capture.ts";
+import { snapshot } from "./snapshot.ts";
 
 const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
 
@@ -92,6 +93,7 @@ Deno.serve(async (req) => {
 
   const body = await req.json().catch(() => null) as Body | null;
   if (body && (body as { mode: string }).mode === "capture") return capture(client, user.id, body as never);
+  if (body && (body as { mode: string }).mode === "snapshot") return snapshot(client, user.id, body as never);
   if (!body || !["word", "paragraph"].includes(body.mode) || typeof body.paragraph !== "string" || !body.paragraph.trim()) {
     return json({ error: "Missing paragraph" }, 400);
   }
