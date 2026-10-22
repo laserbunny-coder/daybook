@@ -3,6 +3,7 @@
 // summary from Claude, so a saved link is still useful if the page disappears.
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import { admin, json } from "../_shared/common.ts";
+import { tagFor } from "./enrich.ts";
 
 const PAGE_LIMIT = 3 * 1024 * 1024;
 const IMAGE_LIMIT = 8 * 1024 * 1024;
@@ -86,7 +87,7 @@ async function summarise(client: Anthropic, page: { url: string; title: string; 
   return String(JSON.parse(text.text).summary ?? "").trim().slice(0, 500);
 }
 
-export async function snapshot(client: Anthropic, userId: string, body: { url?: string }): Promise<Response> {
+export async function snapshot(client: Anthropic, userId: string, body: { url?: string; tags?: string[]; words?: string }): Promise<Response> {
   let url: URL;
   try { url = new URL(String(body.url ?? "")); } catch { return json({ error: "Not a web address" }, 400); }
   if (!allowed(url)) return json({ error: "That address can't be saved" }, 400);
@@ -115,5 +116,7 @@ export async function snapshot(client: Anthropic, userId: string, body: { url?: 
   }
   let summary = "";
   try { summary = await summarise(client, { url: url.href, title, description, text: readable(html) }); } catch (err) { console.error(err); }
-  return json({ title: title.slice(0, 200), summary, site, image });
+  let tag = "";
+  try { tag = await tagFor(client, [body.words, title, site, summary || description].filter(Boolean).join("\n"), body.tags); } catch (err) { console.error(err); }
+  return json({ title: title.slice(0, 200), summary, site, image, tag });
 }
