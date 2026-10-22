@@ -6,6 +6,7 @@ import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import { cors, json, userFrom } from "../_shared/common.ts";
 import { capture } from "./capture.ts";
 import { snapshot } from "./snapshot.ts";
+import { lookup } from "./enrich.ts";
 
 const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
 
@@ -94,6 +95,12 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => null) as Body | null;
   if (body && (body as { mode: string }).mode === "capture") return capture(client, user.id, body as never);
   if (body && (body as { mode: string }).mode === "snapshot") return snapshot(client, user.id, body as never);
+  if (body && (body as { mode: string }).mode === "lookup") {
+    const b = body as unknown as { text?: string; list?: string };
+    if (typeof b.text !== "string" || !b.text.trim()) return json({ error: "Missing title" }, 400);
+    try { return json(await lookup(client, b.text, String(b.list ?? ""))); } catch (err) { console.error(err); return json({ error: "Couldn't look that up. Try again." }, 502); }
+  }
+
   if (!body || !["word", "paragraph"].includes(body.mode) || typeof body.paragraph !== "string" || !body.paragraph.trim()) {
     return json({ error: "Missing paragraph" }, 400);
   }

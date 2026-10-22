@@ -3,6 +3,7 @@
 // adds a short tidy outline. Claude never rewrites the words themselves.
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import { admin, json } from "../_shared/common.ts";
+import { refsIn, tagFor } from "./enrich.ts";
 
 const OUTLINE_SYSTEM = `You help a writer and filmmaker keep their ideas. They record ideas out loud (often while driving or walking) and the recording has been written out word for word. Under it, you add a short, tidy outline of the idea so it's easy to scan later.
 
@@ -62,7 +63,7 @@ async function outlineOf(client: Anthropic, transcript: string): Promise<string[
   return (out.outline ?? []).filter((s: unknown) => typeof s === "string").slice(0, 12);
 }
 
-type CaptureBody = { file?: string; transcript?: string; duration?: number };
+type CaptureBody = { file?: string; transcript?: string; duration?: number; tags?: string[] };
 
 export async function capture(client: Anthropic, userId: string, body: CaptureBody): Promise<Response> {
   let transcript = typeof body.transcript === "string" ? body.transcript.trim() : "";
@@ -80,8 +81,12 @@ export async function capture(client: Anthropic, userId: string, body: CaptureBo
     console.error(e);
     return json({ error: e.message, code: e.code ?? null }, e.status ?? 500);
   }
-  // The words are kept even if the outline can't be made this time.
-  let outline: string[] = [];
-  try { outline = await outlineOf(client, transcript); } catch (err) { console.error(err); }
-  return json({ transcript, outline });
+  // The words are kept even if Claude's part can't be done this time.
+  const quiet = <T>(p: Promise<T>, empty: T) => p.catch((err) => { console.error(err); return empty; });
+  const [outline, tag, refs] = await Promise.all([
+    quiet(outlineOf(client, transcript), [] as string[]),
+    quiet(tagFor(client, transcript, body.tags), ""),
+    quiet(refsIn(client, transcript), [] as { label: string; url: string }[]),
+  ]);
+  return json({ transcript, outline, tag, refs });
 }
