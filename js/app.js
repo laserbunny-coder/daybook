@@ -75,7 +75,12 @@ function linkify(text) {
   }
   return out + esc(text.slice(last));
 }
-const linkLabel = u => { const h = new URL(u).hostname.replace(/^www\./, ''); return h === 'thymer.com' || h.endsWith('.thymer.com') ? 'Open in Thymer' : 'Open ' + h; };
+const linkLabel = u => {
+  const url = new URL(u), h = url.hostname.replace(/^www\./, '');
+  if (h === 'thymer.com' || h.endsWith('.thymer.com')) return 'Open in Thymer';
+  if (h === 'laserbunny-coder.github.io' && url.pathname.startsWith('/inkwell')) return 'Open in Inkwell';
+  return 'Open ' + h;
+};
 
 /* Rendering */
 function ckHTML(n) {
