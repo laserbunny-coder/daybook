@@ -126,7 +126,7 @@ function pickerHTML(n, dep) {
   const days = [...Array(7)].map((_, i) => add(today(), i));
   return `<div class="pick" style="--dep:${dep}">${days.map(d => `<button data-act="setday" data-id="${n.id}" data-d="${d}" class="${n.d === d ? 'on' : ''}">${d === today() ? 'Today' : DAYN[pd(d).getDay()] + ' ' + pd(d).getDate()}</button>`).join('')}<label class="pick-date"><span>Other day</span><input type="date" data-pickdate="${n.id}" value="${n.d || ''}"></label>${n.d ? `<button data-act="setday" data-id="${n.id}" data-d="">Unschedule</button>` : ''}</div>`;
 }
-const addRow = (pid, dep) => S.adding === pid ? `<form class="tr add" data-form="add" data-p="${pid}" style="--dep:${dep}"><span class="caret-sp"></span><input id="add-in" placeholder="New task, press Enter" autocomplete="off" enterkeyhint="done"></form>` : '';
+const addRow = (pid, dep) => S.adding === pid ? `<form class="tr add" data-form="add" data-p="${pid}" style="--dep:${dep}"><span class="caret-sp"></span><input id="add-in" placeholder="New task, press Enter" autocomplete="off" enterkeyhint="enter"></form>` : '';
 function treeRows(n, dep) {
   const kids = children(n.id), isP = kids.length > 0;
   let h = `<div class="tr${isDone(n) ? ' done' : ''}" style="--dep:${dep};--pc:${colorOf(n)}" data-drag data-id="${n.id}">
@@ -212,7 +212,7 @@ function renderSide() {
     ${groups.map(g => areaHTML(g)).join('')}
     <div class="sec">Inbox <small>loose tasks</small></div>
     <div class="tree" data-drop="sib" data-g="loose">${loose.map(n => treeRows(n, 0)).join('')}</div>
-    <form class="qa" data-form="inbox"><input id="qa-in" placeholder="+ Add a task" autocomplete="off" aria-label="Add a task to the inbox" enterkeyhint="done"></form>
+    <form class="qa" data-form="inbox"><input id="qa-in" placeholder="+ Add a task" autocomplete="off" aria-label="Add a task to the inbox" enterkeyhint="enter"></form>
     ${footHTML()}
   </div>`;
   el.querySelector('.side-b').scrollTop = sc;
@@ -498,7 +498,7 @@ function renderBoard(el) {
   <div class="board hscroll" id="board">${groups.map(g => areaHTML(g, true)).join('')}
     <section class="area bcol inbox" data-drop="inbox"><div class="area-h"><span class="area-t">Inbox</span><small>loose tasks</small></div>
       <div class="bcol-b vscroll"><div class="tree" data-drop="sib" data-g="loose">${loose.map(n => treeRows(n, 0)).join('')}</div>
-      <form class="qa" data-form="inbox"><input id="qa-in" placeholder="+ Add a task" autocomplete="off" aria-label="Add a task to the inbox" enterkeyhint="done"></form></div></section></div>`;
+      <form class="qa" data-form="inbox"><input id="qa-in" placeholder="+ Add a task" autocomplete="off" aria-label="Add a task to the inbox" enterkeyhint="enter"></form></div></section></div>`;
   const b = document.getElementById('board'); b.scrollLeft = hs; b.querySelectorAll('.bcol-b').forEach((c, i) => c.scrollTop = vs[i] || 0);
 }
 /* The Roadmap page (js/roadmap.js draws the timeline) */
@@ -665,6 +665,23 @@ function stepHTML(k) {
   return `<div class="step${isDone(k) ? ' done' : ''}" data-drag data-id="${k.id}" style="--pc:${colorOf(k)}">${ckHTML(k)}<button class="step-t" data-act="open" data-id="${k.id}" data-dragok>${esc(k.t || 'Untitled')}${k.notes ? ICON.note : ''}${k.link ? ICON.linkS : ''}</button>${kk ? `<span class="step-n">${p.done}/${p.total}</span>` : ''}${k.d ? `<span class="when set">${whenLabel(k)}</span>` : ''}<span class="chev" aria-hidden="true">›</span></div>`;
 }
 const grow = t => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
+/* Redraws the open item. While a new step is being typed, the add box stays the very same element,
+   so it keeps focus (and the phone keyboard stays up) as each step lands above it. */
+function setDetail(el, html) {
+  const keep = document.activeElement?.id === 'dt-add-in' && el.contains(document.activeElement) ? document.activeElement : null;
+  const t = document.createElement('div'); t.innerHTML = html;
+  const fresh = keep && t.querySelector('#dt-add-in'); const was = keep && keep.closest('.dt-body')?.dataset.id;
+  if (!fresh || fresh.closest('.dt-body')?.dataset.id !== was || fresh.placeholder !== keep.placeholder) { el.replaceChildren(...t.childNodes); return; }
+  // Swap in everything around the kept box, one level at a time up to the panel
+  let o = keep, f = fresh;
+  while (o !== el) {
+    const op = o.parentNode, fp = f.parentNode, kids = [...fp.childNodes], i = kids.indexOf(f);
+    [...op.childNodes].forEach(c => { if (c !== o) c.remove(); });
+    o.before(...kids.slice(0, i)); o.after(...kids.slice(i + 1));
+    if (op !== el) { [...op.attributes].forEach(a => { if (!fp.hasAttribute(a.name)) op.removeAttribute(a.name); }); [...fp.attributes].forEach(a => op.setAttribute(a.name, a.value)); }
+    o = op; f = fp;
+  }
+}
 function renderDetail() {
   const el = document.getElementById('detail'); let n = S.open && node(S.open);
   if (!n && S.open) { const o = splitOcc(S.open); if (o && node(o[0])) { S.open = o[0]; n = node(o[0]); } } // a repeat that's gone (its rule changed): show its series
@@ -679,7 +696,7 @@ function renderDetail() {
   if (!durs.includes(n.m || 60)) durs.push(n.m || 60);
   const count = leaves(n.id).length - (kids.length ? 0 : 1);
   const ser = store.seriesOf(n)?.r ? store.seriesOf(n) : null, rp = !!ser || !!n.rs; // a repeating task, or one of its repeats
-  el.innerHTML = `<div class="dt-back" data-act="close"></div>
+  setDetail(el, `<div class="dt-back" data-act="close"></div>
   <section class="dt${same ? ' still' : ''}" role="dialog" aria-modal="true" aria-label="${esc(n.t)}" style="--pc:${colorOf(n)}">
     <div class="dt-top"><button class="dt-up" data-act="${up ? 'open' : 'close'}" data-id="${up ? up.id : ''}">${ICON.prev}<span>${up ? esc(up.t) : 'Back'}</span></button><button class="ib" data-act="close" aria-label="Close">${ICON.close}</button></div>
     <div class="dt-body vscroll" data-id="${n.id}">
@@ -712,14 +729,14 @@ function renderDetail() {
       ${timeHTML(n)}
       ${rp ? '' : `<div class="dt-sec">Steps${kids.length ? `<small>${pr.done}/${pr.total}</small>` : ''}</div>
       <div class="dt-steps" data-drop="sib" data-g="p:${n.id}">${kids.map(stepHTML).join('')}
-        <form class="dt-add" data-form="step" data-p="${n.id}"><span class="plus-i" aria-hidden="true">+</span><input id="dt-add-in" placeholder="Add a step" autocomplete="off" aria-label="Add a step" enterkeyhint="done"></form></div>`}
+        <form class="dt-add" data-form="step" data-p="${n.id}"><span class="plus-i" aria-hidden="true">+</span><input id="dt-add-in" placeholder="Add a step" autocomplete="off" aria-label="Add a step" enterkeyhint="enter"></form></div>`}
       <div class="dt-foot">
         ${rp ? '<span></span>' : `<button class="dt-ask" data-act="dtbreak">✦ ${kids.length ? 'Ask Claude what else this needs' : 'Ask Claude to break this into steps'}</button>`}
         ${!S.confirmDel ? `<button class="dt-del" data-act="askdelete">Delete</button>`
           : ser && n.rs ? `<div class="confirm"><span>Delete ${esc(n.t || 'this')}?</span><button class="danger" data-act="delete">This one</button><button class="danger" data-act="delete-all">All repeats</button><button data-act="nodelete">Cancel</button></div>`
           : `<div class="confirm"><span>Delete ${esc(n.t || 'this')}${n.r ? ' and all its repeats' : count > 0 ? ` and its ${count} step${count > 1 ? 's' : ''}` : ''}?</span><button class="danger" data-act="delete">Delete</button><button data-act="nodelete">Cancel</button></div>`}
       </div>
-    </div></section>`;
+    </div></section>`);
   el.querySelectorAll('textarea').forEach(grow); el.querySelector('.dt-body').scrollTop = prevSc;
 }
 /* The time log: every stretch of time recorded on it, each one tap away from being corrected */
@@ -788,7 +805,7 @@ function swatchesHTML(n) {
 // An area opens like a project: rename it, see and add its projects, or delete it (its projects stay).
 function areaDetail(el, n, same) {
   const projs = areaGroups().groups.find(g => g.a?.id === n.id)?.projs || [];
-  el.innerHTML = `<div class="dt-back" data-act="close"></div>
+  setDetail(el, `<div class="dt-back" data-act="close"></div>
   <section class="dt${same ? ' still' : ''}" role="dialog" aria-modal="true" aria-label="${esc(n.t)}">
     <div class="dt-top"><button class="dt-up" data-act="close">${ICON.prev}<span>Back</span></button><button class="ib" data-act="close" aria-label="Close">${ICON.close}</button></div>
     <div class="dt-body vscroll" data-id="${n.id}">
@@ -798,11 +815,11 @@ function areaDetail(el, n, same) {
       ${swatchesHTML(n)}
       <div class="dt-sec">${projs.some(p => !isProj(p)) ? 'Projects and tasks' : 'Projects'}<small>${projs.length}</small></div>
       <div class="dt-steps" data-drop="area" data-area="${n.id}">${projs.map(stepHTML).join('')}
-        <form class="dt-add" data-form="area-project" data-area="${n.id}"><span class="plus-i" aria-hidden="true">+</span><input id="dt-add-in" placeholder="Add a project" autocomplete="off" aria-label="Add a project" enterkeyhint="done"></form></div>
+        <form class="dt-add" data-form="area-project" data-area="${n.id}"><span class="plus-i" aria-hidden="true">+</span><input id="dt-add-in" placeholder="Add a project" autocomplete="off" aria-label="Add a project" enterkeyhint="enter"></form></div>
       <div class="dt-foot"><span></span>
         ${S.confirmDel ? `<div class="confirm"><span>Delete the ${esc(n.t || 'untitled')} area?${projs.length ? ` Everything in it stays: projects under No area, tasks in the Inbox.` : ''}</span><button class="danger" data-act="delete">Delete</button><button data-act="nodelete">Cancel</button></div>` : `<button class="dt-del" data-act="askdelete">Delete area</button>`}
       </div>
-    </div></section>`;
+    </div></section>`);
 }
 /* "Waiting on": an item can wait on another one, such as "List footage" on "NAS live". Pick it by typing part of its name. */
 const pathOf = n => ancestors(n).map(a => a.t).join(' › ');
@@ -1261,8 +1278,8 @@ document.addEventListener('submit', e => {
   const inp = f.querySelector('input'); const v = inp.value.trim();
   if (f.dataset.form === 'link') { saveLink(); return; }
   if (f.dataset.form === 'wait') { const o = f.querySelector('.wait-opt'); if (o) { S.waitEdit = false; document.activeElement?.blur(); edit(S.open, { w: o.dataset.id }); } return; }
-  if (f.dataset.form === 'area-project') { if (v) { makeProject(v, f.dataset.area); inp.value = ''; renderDetail(); document.getElementById('dt-add-in')?.focus(); } return; }
-  if (f.dataset.form === 'step') { if (v) { store.create({ t: v, p: f.dataset.p, m: 30 }); S.col[f.dataset.p] = false; inp.value = ''; renderDetail(); document.getElementById('dt-add-in')?.focus(); } return; }
+  if (f.dataset.form === 'area-project') { if (v) { makeProject(v, f.dataset.area); inp.value = ''; renderDetail(); inp.scrollIntoView({ block: 'nearest' }); } else inp.blur(); return; }
+  if (f.dataset.form === 'step') { if (v) { store.create({ t: v, p: f.dataset.p, m: 30 }); S.col[f.dataset.p] = false; inp.value = ''; renderDetail(); inp.scrollIntoView({ block: 'nearest' }); } else inp.blur(); return; } // Enter on an empty box is done
   if (f.dataset.form === 'new') {
     if (!v) { closeNew(); return; }
     inp.value = ''; const at = S.new.at; addNew(v);
