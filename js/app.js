@@ -250,7 +250,7 @@ function listHTML(d) {
   const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a task to ${esc(dayShort(d))}"><span aria-hidden="true">+</span>${body ? '' : ' Add a task'}</button>`;
   return `${all}<div class="list${body ? '' : ' empty'}" data-drop="list" data-date="${d}">${body}${adder}</div>`;
 }
-/* Adding a task right on the plan: the + at the end of a day's list, or a tap on an empty time (or the "Any time" row) in Time blocks.
+/* Adding a task right on the plan: the + at the end of a day's list, or a tap on an empty time (or the + in the "Any time" row) in Time blocks.
    A small form opens in place with the title ready to type. It goes in the Inbox unless a project is picked. */
 // Each area is a choice of its own (the task then belongs to the area, in no project), with its projects indented under it
 function projOptions(sel) {
@@ -449,7 +449,7 @@ function timed(days) {
   const hrs = []; for (let h = H0 + 1; h < H1; h++) hrs.push(h);
   return `<div class="tw hscroll vscroll"><div class="tg${days.length === 1 ? ' one' : ''}" style="--cols:${days.length};--hours:${H1 - H0}">
     <div class="trow thead"><div class="gut"></div>${days.map(d => `<button class="th${dayCls(d)}" data-act="goday" data-d="${d}" data-day="${d}">${days.length > 1 && isMon(d) ? weekLabel(d) : ''}${DAYN[pd(d).getDay()]} <b>${pd(d).getDate()}</b></button>`).join('')}</div>
-    <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray${isMon(d) ? ' mon' : ''}" data-drop="tray" data-date="${d}">${eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all"${evTint(e)}>${esc(e.t)}</div>`).join('')}${dayItems(d).filter(n => n.s == null).map(n => chipHTML(n, { compact: days.length > 1 })).join('')}${S.new?.at === 'tray' && S.new.d === d ? newHTML() : ''}</div>`).join('')}</div>
+    <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray${isMon(d) ? ' mon' : ''}" data-drop="tray" data-date="${d}">${eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all"${evTint(e)}>${esc(e.t)}</div>`).join('')}${dayItems(d).filter(n => n.s == null).map(n => chipHTML(n, { compact: days.length > 1 })).join('')}${S.new?.at === 'tray' && S.new.d === d ? newHTML() : `<button class="tadd" data-act="new-tray" data-d="${d}" aria-label="Add an all-day task to ${esc(dayShort(d))}" title="Add a task for the whole day"><span aria-hidden="true">+</span></button>`}</div>`).join('')}</div>
     <div class="trow tbody"><div class="gut hrs">${hrs.map(h => `<div class="hl" style="top:${hpx(h - H0)}">${h % 12 || 12}${h < 12 ? 'am' : 'pm'}</div>`).join('')}</div>
     ${days.map(d => `<div class="col${d === today() ? ' today' : ''}${isMon(d) ? ' mon' : ''}" data-drop="col" data-date="${d}">${blocksHTML(d)}${nowHTML(d)}${S.new?.at === 'col' && S.new.d === d ? newHTML() : ''}</div>`).join('')}</div>
   </div></div>`;
@@ -1191,6 +1191,7 @@ document.addEventListener('click', e => {
     case 'setday': setDay(id, b.dataset.d || null); break;
     case 'add': S.adding = id; S.new = null; S.col[id] = false; render(); break;
     case 'new-day': if (Date.now() - newClosed > 400) openNew({ at: 'list', d: b.dataset.d }); break;
+    case 'new-tray': if (Date.now() - newClosed > 400) openNew({ at: 'tray', d: b.dataset.d }); break;
     case 'new-project': newProject(b.dataset.area); break;
     case 'new-area': newArea(); break;
     case 'page': if (quiet() && b.dataset.v === 'projects') setQuiet(false); // the full Projects board is its own page, outside Quiet
