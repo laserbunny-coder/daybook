@@ -282,6 +282,10 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .nt-p select{min-width:0;max-width:100%;border:0;background:transparent;color:inherit;font:inherit;font-weight:600;outline:none;padding:0;appearance:none;-webkit-appearance:none;text-overflow:ellipsis;cursor:pointer}
 .nt-p option,.nt-p optgroup{background:var(--solid);color:var(--fg)}
 .col>.nt{position:absolute;left:2px;right:2px;z-index:5;padding:6px 8px;gap:4px;border-radius:10px}
+/* The faint + at the foot of each day's "Any time" row: a task for the whole day, no time */
+.tadd{display:flex;align-items:flex-start;justify-content:center;flex:1 0 auto;min-height:22px;margin-top:-2px;padding-top:3px;border-radius:8px;color:var(--faint);font-size:17px;line-height:1;font-weight:500;opacity:.7;transition:color .15s,background .15s,opacity .15s}
+.tadd:hover,.tadd:focus-visible{color:var(--fg);background:var(--surface);opacity:1}
+.tray>.tadd:only-child{margin-top:0;padding-top:0;align-items:center} /* an empty day: the + sits in the middle */
 .tray>.nt{padding:6px 8px;gap:4px;border-radius:10px;font-size:13px}
 .ind{position:absolute;left:2px;right:2px;border:1.5px dashed var(--accent);border-radius:10px;background:color-mix(in srgb,var(--accent) 10%,transparent);z-index:3;pointer-events:none;font:500 10px var(--f-mono);color:var(--accent);padding:3px 6px;overflow:hidden}
 .ind-t{font:600 12px/1.3 var(--f-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
