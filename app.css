@@ -501,7 +501,10 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .sync.offline,.sync.error{color:var(--warn)}
 .foot-acts{display:flex;gap:14px;flex-wrap:wrap;margin-top:2px}
 .tip.warn{background:color-mix(in srgb,var(--warn) 14%,transparent)}
-.wcol.past{opacity:.7}
+/* Days gone by fade back, so today is where the plan comes into full strength. Anything left unchecked there
+   (red outline) stays at full strength: it still needs dealing with. */
+.wcol.past>:not(.list),.wcol.past .list>:not(.overdue,.nt),.th.past,.tray.past .tri>:not(.overdue,.nt),.col.past>:not(.overdue,.nt){opacity:.55}
+.wcol.past .list>.done,.tray.past .tri>.done,.col.past>.done{opacity:.4}
 .ev-all{font-size:11px;padding:3px 6px;border-radius:8px;border:1px dashed var(--evb);background:var(--evs) var(--evt);color:var(--ev-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pick-date{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
 .pick-date input{border:0;background:transparent;font:inherit;color:var(--fg);max-width:130px}
