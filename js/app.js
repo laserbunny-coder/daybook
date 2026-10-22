@@ -305,8 +305,8 @@ function weekLabel(d) {
   return `<span class="wkl">${name ? `<b>${name}</b><span>${range}</span>` : `<b>${range}</b>`}</span>`;
 }
 // Left unchecked on a day before today: wears a thin red outline until it's checked off or moved to today or later.
-// A repeat doesn't: the next one is already on its way.
-const overdue = n => !!n.d && !n.rs && n.d < today() && !isDone(n);
+// Each missed repeat does too; only the series itself (which isn't on any one day) never does.
+const overdue = n => !!n.d && !n.r && n.d < today() && !isDone(n);
 const dayCls = d => `${d === today() ? ' today' : ''}${d < today() ? ' past' : ''}${isMon(d) ? ' mon' : ''}`;
 function weekList(days) {
   return `<div class="wkx hscroll"><div class="wk" style="--n:${days.length}">${days.map(d => `<section class="wcol${dayCls(d)}" data-day="${d}">${isMon(d) ? weekLabel(d) : ''}
@@ -458,9 +458,9 @@ function timed(days) {
   const hrs = []; for (let h = H0 + 1; h < H1; h++) hrs.push(h);
   return `<div class="tw hscroll vscroll"><div class="tg${days.length === 1 ? ' one' : ''}" style="--cols:${days.length};--hours:${H1 - H0}">
     <div class="thd"><div class="trow thead"><div class="gut"></div>${days.map(d => `<button class="th${dayCls(d)}" data-act="goday" data-d="${d}" data-day="${d}">${days.length > 1 && isMon(d) ? weekLabel(d) : ''}${DAYN[pd(d).getDay()]} <b>${pd(d).getDate()}</b></button>`).join('')}</div>
-    <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray${isMon(d) ? ' mon' : ''}" data-drop="tray" data-date="${d}"><div class="tri">${trayHTML(d, days.length > 1)}</div></div>`).join('')}</div></div>
+    <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray${dayCls(d)}" data-drop="tray" data-date="${d}"><div class="tri">${trayHTML(d, days.length > 1)}</div></div>`).join('')}</div></div>
     <div class="trow tbody"><div class="gut hrs">${hrs.map(h => `<div class="hl" style="top:${hpx(h - H0)}">${h % 12 || 12}${h < 12 ? 'am' : 'pm'}</div>`).join('')}</div>
-    ${days.map(d => `<div class="col${d === today() ? ' today' : ''}${isMon(d) ? ' mon' : ''}" data-drop="col" data-date="${d}">${blocksHTML(d)}${nowHTML(d)}${S.new?.at === 'col' && S.new.d === d ? newHTML() : ''}</div>`).join('')}</div>
+    ${days.map(d => `<div class="col${dayCls(d)}" data-drop="col" data-date="${d}">${blocksHTML(d)}${nowHTML(d)}${S.new?.at === 'col' && S.new.d === d ? newHTML() : ''}</div>`).join('')}</div>
   </div></div>`;
 }
 /* Phone: the projects drawer. It pulls up out of the tab bar over the plan; hold anything in it and drag it onto the day.
