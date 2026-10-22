@@ -445,11 +445,20 @@ function blocksHTML(d) {
   }).join('');
 }
 function nowHTML(d) { if (d !== today()) return ''; const m = nowMin(); if (m < H0 * 60 || m > H1 * 60) return ''; return `<div class="now" style="top:${hpx((m - H0 * 60) / 60)}"></div>`; }
+/* A day's "Any time" tasks. In Week view a day with more than two shows the first and "+N more", which opens the whole list for that day. */
+let trayAll = null;
+function trayHTML(d, week) {
+  const rows = [...eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all"${evTint(e)}>${esc(e.t)}</div>`), ...dayItems(d).filter(n => n.s == null).map(n => chipHTML(n, { compact: week }))];
+  const all = !week || rows.length <= 2 || trayAll === d;
+  const more = all ? (week && rows.length > 2 ? `<button class="tmore" data-act="tray-all" data-d="">Show less</button>` : '') : `<button class="tmore" data-act="tray-all" data-d="${d}">+${rows.length - 1} more</button>`;
+  const add = S.new?.at === 'tray' && S.new.d === d ? newHTML() : `<button class="tadd" data-act="new-tray" data-d="${d}" aria-label="Add an all-day task to ${esc(dayShort(d))}" title="Add a task for the whole day"><span aria-hidden="true">+</span></button>`;
+  return (all ? rows : rows.slice(0, 1)).join('') + more + add;
+}
 function timed(days) {
   const hrs = []; for (let h = H0 + 1; h < H1; h++) hrs.push(h);
   return `<div class="tw hscroll vscroll"><div class="tg${days.length === 1 ? ' one' : ''}" style="--cols:${days.length};--hours:${H1 - H0}">
     <div class="thd"><div class="trow thead"><div class="gut"></div>${days.map(d => `<button class="th${dayCls(d)}" data-act="goday" data-d="${d}" data-day="${d}">${days.length > 1 && isMon(d) ? weekLabel(d) : ''}${DAYN[pd(d).getDay()]} <b>${pd(d).getDate()}</b></button>`).join('')}</div>
-    <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray${isMon(d) ? ' mon' : ''}" data-drop="tray" data-date="${d}">${eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all"${evTint(e)}>${esc(e.t)}</div>`).join('')}${dayItems(d).filter(n => n.s == null).map(n => chipHTML(n, { compact: days.length > 1 })).join('')}${S.new?.at === 'tray' && S.new.d === d ? newHTML() : `<button class="tadd" data-act="new-tray" data-d="${d}" aria-label="Add an all-day task to ${esc(dayShort(d))}" title="Add a task for the whole day"><span aria-hidden="true">+</span></button>`}</div>`).join('')}</div></div>
+    <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray${isMon(d) ? ' mon' : ''}" data-drop="tray" data-date="${d}"><div class="tri">${trayHTML(d, days.length > 1)}</div></div>`).join('')}</div></div>
     <div class="trow tbody"><div class="gut hrs">${hrs.map(h => `<div class="hl" style="top:${hpx(h - H0)}">${h % 12 || 12}${h < 12 ? 'am' : 'pm'}</div>`).join('')}</div>
     ${days.map(d => `<div class="col${d === today() ? ' today' : ''}${isMon(d) ? ' mon' : ''}" data-drop="col" data-date="${d}">${blocksHTML(d)}${nowHTML(d)}${S.new?.at === 'col' && S.new.d === d ? newHTML() : ''}</div>`).join('')}</div>
   </div></div>`;
@@ -586,7 +595,19 @@ function renderMain() {
     const s = stripScroller(); if (s) s.el.addEventListener('scroll', onStrip, { passive: true });
     stripTitle();
   }
+  trayObs.disconnect(); mb.querySelectorAll('.tw, .tri').forEach(x => trayObs.observe(x));
 }
+/* The "Any time" row is only as tall as the busiest day on screen, not the busiest of the days drawn off to either side.
+   Should a day still outgrow its cap, it scrolls inside its own cell, fading at the foot to show there's more. */
+function fitTray() {
+  const tw = document.querySelector('#mbody .tw'), row = tw?.querySelector('.ttray'); if (!row) return;
+  const r = tw.getBoundingClientRect(), gw = row.querySelector('.gut')?.offsetWidth || 0, cap = tw.querySelector('.tg.one') ? innerHeight * .3 : trayAll ? innerHeight * .45 : 1e4;
+  const cells = [...row.querySelectorAll('.tray')], need = t => t.firstElementChild.offsetHeight + 8;
+  const h = Math.min(cap, Math.max(28, ...cells.filter(t => { const b = t.getBoundingClientRect(); return b.right > r.left + gw && b.left < r.right; }).map(need)));
+  row.style.setProperty('--trh', h + 'px');
+  cells.forEach(t => t.classList.toggle('more', need(t) > h + 1));
+}
+const trayObs = new ResizeObserver(() => fitTray()); // whenever a day's tasks or the screen change size
 // A title too long for its block ends on the last line that fits, with an ellipsis, instead of being sliced through.
 // Rechecked whenever a block changes size, so it follows pinch-zoom and resizing.
 const fitObs = new ResizeObserver(es => {
@@ -636,7 +657,7 @@ function onStrip() {
   if (stripRaf) return;
   stripRaf = requestAnimationFrame(() => {
     stripRaf = 0; if (S.view !== 'week' || !W) return;
-    stripTitle(); if (D) return; // don't redraw under a drag
+    stripTitle(); fitTray(); if (D) return; // don't redraw under a drag
     const s = stripScroller(); if (!s) return; const el = s.el;
     const pos = s.x ? el.scrollLeft : el.scrollTop, size = s.x ? el.clientWidth : el.clientHeight, full = s.x ? el.scrollWidth : el.scrollHeight;
     const MAX = 126; // days kept drawn; the far end is let go as more are added
@@ -1208,6 +1229,7 @@ document.addEventListener('click', e => {
     case 'setday': setDay(id, b.dataset.d || null); break;
     case 'add': S.adding = id; S.new = null; S.col[id] = false; render(); break;
     case 'new-day': if (Date.now() - newClosed > 400) openNew({ at: 'list', d: b.dataset.d }); break;
+    case 'tray-all': trayAll = b.dataset.d || null; render(); break;
     case 'new-tray': if (Date.now() - newClosed > 400) openNew({ at: 'tray', d: b.dataset.d }); break;
     case 'new-project': newProject(b.dataset.area); break;
     case 'new-area': newArea(); break;
