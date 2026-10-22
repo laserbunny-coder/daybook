@@ -14,3 +14,7 @@ verify_jwt = true
 # The Claude connector checks its own secret address instead of a sign-in.
 [functions.mcp]
 verify_jwt = false
+
+# Inkwell's Claude connector, which also checks its own secret address.
+[functions.inkwell-mcp]
+verify_jwt = false
