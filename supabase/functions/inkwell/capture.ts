@@ -21,6 +21,17 @@ const OUTLINE_SCHEMA = {
 
 const OPENAI_LIMIT = 25 * 1024 * 1024;
 
+const HINT = "Someone thinking out loud: journaling about their day, talking through an idea, or dictating a story, a scene or dialogue for a film or show.";
+
+// True when a write-out is just the hint said back (no real speech).
+export function echoesHint(text: string): boolean {
+  const words = (s: string) => (s.toLowerCase().match(/[a-z']+/g) || []).filter((w) => w.length > 3);
+  const said = words(text);
+  if (!said.length) return !text.trim();
+  const hint = new Set(words(HINT));
+  return said.length <= 20 && said.filter((w) => hint.has(w)).length / said.length >= 0.85;
+}
+
 async function transcribe(blob: Blob, name: string, durationMs: number): Promise<string> {
   const key = Deno.env.get("OPENAI_API_KEY");
   if (!key) throw Object.assign(new Error("Writing out recordings isn't set up yet."), { code: "no-transcriber", status: 503 });
@@ -32,7 +43,11 @@ async function transcribe(blob: Blob, name: string, durationMs: number): Promise
   form.append("file", blob, name);
   form.append("model", model);
   form.append("response_format", "json");
-  form.append("prompt", "A writer and filmmaker talking through an idea for a story, a film, a show or a scene.");
+  // English, with a hint at what's usually said, which helps names and
+  // punctuation. On a near-silent recording the service can echo the hint
+  // back, so a write-out that is mostly the hint's own words is dropped.
+  form.append("language", "en");
+  form.append("prompt", HINT);
   const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}` },
@@ -41,7 +56,8 @@ async function transcribe(blob: Blob, name: string, durationMs: number): Promise
   if (res.status === 401) throw Object.assign(new Error("The speech service's key isn't set up correctly."), { code: "no-transcriber", status: 503 });
   if (!res.ok) throw Object.assign(new Error(`The speech service returned an error (${res.status}).`), { status: 502 });
   const out = await res.json();
-  return typeof out.text === "string" ? out.text.trim() : "";
+  const said = typeof out.text === "string" ? out.text.trim() : "";
+  return said && !echoesHint(said) ? said : "";
 }
 
 async function outlineOf(client: Anthropic, transcript: string): Promise<string[]> {
