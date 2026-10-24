@@ -22,3 +22,7 @@ verify_jwt = false
 # Scribe, the dictation app, checks its own device secret instead of a sign-in.
 [functions.scribe]
 verify_jwt = false
+
+# Inkwell's share links: readers open them without signing in; the link's own secret is checked.
+[functions.inkwell-share]
+verify_jwt = false
