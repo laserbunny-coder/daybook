@@ -18,3 +18,7 @@ verify_jwt = false
 # Inkwell's Claude connector, which also checks its own secret address.
 [functions.inkwell-mcp]
 verify_jwt = false
+
+# Scribe, the dictation app, checks its own device secret instead of a sign-in.
+[functions.scribe]
+verify_jwt = false

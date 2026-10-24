@@ -53,7 +53,7 @@ jobs:
           if [ ${#args[@]} -gt 0 ]; then supabase secrets set --project-ref "$PROJECT_REF" "${args[@]}"; fi
       - name: Deploy server functions
         if: steps.ready.outputs.ok == 'true'
-        run: supabase functions deploy ask calendar mcp inkwell inkwell-mcp --project-ref "$PROJECT_REF" --use-api
+        run: supabase functions deploy ask calendar mcp inkwell inkwell-mcp scribe --project-ref "$PROJECT_REF" --use-api
 
   site:
     name: Publish the app
