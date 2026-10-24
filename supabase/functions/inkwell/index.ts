@@ -1,7 +1,7 @@
 // Inkwell (the writing app) asks Claude for alternates: other words that fit
 // a sentence, or rewrites of a paragraph; and voice captures are written out
 // and outlined here (capture.ts), shared links get a snapshot (snapshot.ts), a day's page gets a
-// review (review.ts), the plot grid gets a thread filled in or its promises checked (grid.ts), tags get sorted into groups (tags.ts), and recordings are written up in a mode, for the day
+// review (review.ts), the plot grid gets a thread filled in or its promises checked (grid.ts), a script gets its breakdown, shot lists, generation prompts and captions (production.ts), tags get sorted into groups (tags.ts), and recordings are written up in a mode, for the day
 // page or straight into a draft (voice.ts). It lives here because Inkwell syncs
 // through this same Supabase project and uses the same Claude key.
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
@@ -13,6 +13,7 @@ import { lookup } from "./enrich.ts";
 import { review } from "./review.ts";
 import { voice, voiceModes } from "./voice.ts";
 import { grid } from "./grid.ts";
+import { production } from "./production.ts";
 
 const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
 
@@ -108,6 +109,7 @@ Deno.serve(async (req) => {
   }
   if (body && (body as { mode: string }).mode === "review") return review(client, body as never);
   if (body && (body as { mode: string }).mode === "grid") return grid(client, body as never);
+  if (body && (body as { mode: string }).mode === "production") return production(client, body as never);
   if (body && (body as { mode: string }).mode === "tags") return sortTags(client, body as never);
   if (body && (body as { mode: string }).mode === "snapshot") return snapshot(client, user.id, body as never);
   if (body && (body as { mode: string }).mode === "lookup") {
