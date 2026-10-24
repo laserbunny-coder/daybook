@@ -19,11 +19,16 @@ function allowed(u: URL): boolean {
   return true;
 }
 
-async function fetchLimited(url: string, limit: number, accept: string): Promise<{ res: Response; bytes: Uint8Array } | null> {
+// YouTube shows servers a "Before you continue" consent page unless told the
+// choice was already made.
+const YOUTUBE = /(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/i;
+const headersFor = (u: URL, accept: string): Record<string, string> => ({ "User-Agent": UA, Accept: accept, ...(YOUTUBE.test(u.hostname) ? { Cookie: "SOCS=CAI; CONSENT=YES+" } : {}) });
+
+async function fetchLimited(url: string, limit: number, accept: string): Promise<{ res: Response; bytes: Uint8Array; at: URL } | null> {
   let at = new URL(url);
   for (let hop = 0; hop < 5; hop++) {
     if (!allowed(at)) return null;
-    const res = await fetch(at, { headers: { "User-Agent": UA, Accept: accept }, redirect: "manual", signal: AbortSignal.timeout(12000) });
+    const res = await fetch(at, { headers: headersFor(at, accept), redirect: "manual", signal: AbortSignal.timeout(12000) });
     if (res.status >= 300 && res.status < 400 && res.headers.get("location")) { at = new URL(res.headers.get("location")!, at); continue; }
     if (!res.ok || !res.body) return null;
     const reader = res.body.getReader();
@@ -39,7 +44,7 @@ async function fetchLimited(url: string, limit: number, accept: string): Promise
     const bytes = new Uint8Array(size);
     let o = 0;
     for (const p of parts) { bytes.set(p, o); o += p.length; }
-    return { res, bytes };
+    return { res, bytes, at };
   }
   return null;
 }
@@ -60,6 +65,27 @@ function meta(html: string, keys: string[]): string {
 function readable(html: string): string {
   return decode(html.replace(/<(script|style|noscript|svg|nav|footer|header)[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]+>/g, " ")).slice(0, 12000);
 }
+
+// Video sites say what a video is through oEmbed, which works even when the
+// page itself is a wall of script or a consent screen.
+const OEMBED: [RegExp, string][] = [
+  [YOUTUBE, "https://www.youtube.com/oembed?format=json&url="],
+  [/(^|\.)vimeo\.com$/i, "https://vimeo.com/api/oembed.json?url="],
+];
+type Video = { title: string; author: string; site: string; thumbnail: string };
+export async function videoInfo(url: URL): Promise<Video | null> {
+  const found = OEMBED.find(([re]) => re.test(url.hostname));
+  if (!found) return null;
+  try {
+    const got = await fetchLimited(found[1] + encodeURIComponent(url.href), 256 * 1024, "application/json");
+    if (!got) return null;
+    const o = JSON.parse(new TextDecoder().decode(got.bytes));
+    return { title: decode(String(o.title ?? "")), author: decode(String(o.author_name ?? "")), site: String(o.provider_name ?? ""), thumbnail: String(o.thumbnail_url ?? "") };
+  } catch { return null; }
+}
+
+// A consent screen, sign-in wall or bot check isn't the page they saved.
+export const walled = (title: string, at: URL) => /^consent\.|^accounts\./i.test(at.hostname) || /^(before you continue|sign in|log in|just a moment)/i.test(title);
 
 const newId = (prefix: string) => {
   const t = Date.now().toString(36).padStart(9, "0");
@@ -91,20 +117,22 @@ export async function snapshot(client: Anthropic, userId: string, body: { url?: 
   let url: URL;
   try { url = new URL(String(body.url ?? "")); } catch { return json({ error: "Not a web address" }, 400); }
   if (!allowed(url)) return json({ error: "That address can't be saved" }, 400);
-  let got;
-  try { got = await fetchLimited(url.href, PAGE_LIMIT, "text/html,application/xhtml+xml"); } catch { got = null; }
-  if (!got) return json({ error: "The page couldn't be read" }, 422);
-  const type = got.res.headers.get("content-type") ?? "";
-  const html = type.includes("html") ? new TextDecoder().decode(got.bytes) : "";
-  const title = meta(html, ["og:title", "twitter:title"]) || decode(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "");
+  const [got, video] = await Promise.all([
+    fetchLimited(url.href, PAGE_LIMIT, "text/html,application/xhtml+xml").catch(() => null),
+    videoInfo(url),
+  ]);
+  const type = got?.res.headers.get("content-type") ?? "";
+  let html = got && type.includes("html") ? new TextDecoder().decode(got.bytes) : "";
+  if (html && walled(meta(html, ["og:title"]) || decode(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? ""), got!.at)) html = "";
+  const title = video?.title || meta(html, ["og:title", "twitter:title"]) || decode(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "");
   const description = meta(html, ["og:description", "twitter:description", "description"]);
-  const site = meta(html, ["og:site_name"]) || url.hostname.replace(/^www\./, "");
-  const imageUrl = meta(html, ["og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"]);
+  const site = video?.site || meta(html, ["og:site_name"]) || url.hostname.replace(/^www\./, "");
+  const imageUrl = meta(html, ["og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"]) || video?.thumbnail || "";
 
   let image: { id: string; type: string; size: number; name: string } | null = null;
   if (imageUrl) {
     try {
-      const pic = await fetchLimited(new URL(imageUrl, got.res.url || url).href, IMAGE_LIMIT, "image/*");
+      const pic = await fetchLimited(new URL(imageUrl, got?.res.url || url).href, IMAGE_LIMIT, "image/*");
       const picType = pic?.res.headers.get("content-type")?.split(";")[0] ?? "";
       if (pic && /^image\/(jpeg|png|webp|gif)$/.test(picType)) {
         const id = newId("fi");
@@ -114,9 +142,13 @@ export async function snapshot(client: Anthropic, userId: string, body: { url?: 
       }
     } catch (err) { console.error(err); }
   }
+  // A video page's text is mostly script; its title, channel and description say more.
+  const about = [video?.author ? `A video by ${video.author} on ${video.site || site}.` : "", description].filter(Boolean).join(" ");
   let summary = "";
-  try { summary = await summarise(client, { url: url.href, title, description, text: readable(html) }); } catch (err) { console.error(err); }
+  try { summary = await summarise(client, { url: url.href, title, description: about, text: video ? "" : readable(html) }); } catch (err) { console.error(err); }
+  // Even a page that couldn't be read gets a tag, from what they wrote and the address.
   let tag = "";
-  try { tag = await tagFor(client, [body.words, title, site, summary || description].filter(Boolean).join("\n"), body.tags); } catch (err) { console.error(err); }
+  try { tag = await tagFor(client, [body.words, title, site, summary || about, url.href].filter(Boolean).join("\n"), body.tags); } catch (err) { console.error(err); }
+  if (!title && !summary && !image && !tag) return json({ error: "The page couldn't be read" }, 422);
   return json({ title: title.slice(0, 200), summary, site, image, tag });
 }
