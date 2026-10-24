@@ -1203,3 +1203,52 @@ body.quiet .nb-dot{top:7px;right:7px}
 .block:not(.sess)>.sw-len{background:var(--hover)}
 .st-grid{stroke:var(--line)}.st-grid.base{stroke:var(--line2)}.st-face{stroke:var(--line)}.st-fut{fill:var(--hover)}
 @media (max-width:860px){.mh [data-act="look"]{display:none}} /* on a phone the switch lives under Projects, so the header keeps its two rows */
+
+/* Needs you: what's waiting on the person across their Claude projects. A quiet line under the Plan's header
+   opens the list. Marks: a diamond for a decision, two bars for blocked, a ring for something to review. */
+:root{--ny-dec:var(--accent);--ny-blk:var(--warn);--ny-rev:#8FB8A2}
+:root[data-look="paper"]{--ny-rev:#4E7F66}
+.nk{width:9px;height:9px;flex:none;display:inline-block;box-sizing:border-box}
+.nk.decision{background:var(--ny-dec);transform:rotate(45deg) scale(.8);border-radius:1.5px}
+.nk.blocked{background:linear-gradient(90deg,var(--ny-blk) 0 3px,transparent 3px 6px,var(--ny-blk) 6px 9px)}
+.nk.review{border:2px solid var(--ny-rev);border-radius:50%}
+.ny-line{display:flex;align-items:center;gap:8px;align-self:flex-start;margin:10px 20px 2px;padding:7px 12px;border:1px solid var(--line2);border-radius:10px;background:var(--panel);color:var(--muted);font-size:12.5px;line-height:1.2;max-width:calc(100% - 40px);flex:none;cursor:pointer;transition:background .15s,border-color .15s}
+.ny-line b{font:500 15px/1 var(--f-display);color:var(--fg)}
+.ny-line small{font-size:12px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ny-line .ny-arr{color:var(--faint);margin-left:4px}
+.ny-line.old{border-color:color-mix(in srgb,var(--danger) 45%,var(--line2))}
+.ny-line[aria-expanded="true"],.ny-line:hover{background:var(--hover)}
+.ny-marks{display:flex;gap:4px;align-items:center}
+@media (max-width:860px){.ny-line{align-self:stretch;margin:8px 16px 2px;max-width:none}.ny-line .ny-arr{margin-left:auto}}
+/* Quiet: just the marks and the count under the day name, centred */
+body.quiet .ny-line{align-self:center;margin:0 auto 6px;border-color:transparent;background:transparent;padding:4px 10px;font-size:11.5px}
+body.quiet .ny-line small,body.quiet .ny-line .ny-arr{display:none}
+body.quiet .ny-line b{font-size:13px}
+body.quiet .ny-line.old b{color:var(--danger)}
+.needs{z-index:49}
+.ny-legend{display:flex;gap:14px;padding:0 20px 4px 32px;font-size:11.5px;color:var(--faint)}
+.ny-legend span{display:flex;align-items:center;gap:6px}
+.ny .dt-body{gap:6px}
+.ny-g{display:flex;flex-direction:column}
+.ny-gh{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:14px 4px 8px}
+.ny-gh h3{margin:0;font:500 18px/1.2 var(--f-display);display:flex;align-items:baseline;gap:8px}
+.ny-gh h3 small{font:500 12px/1 var(--f-body);color:var(--faint)}
+.ny-gh a{font-size:12px;color:var(--faint);text-decoration:none;white-space:nowrap}
+.ny-gh a:hover{color:var(--fg)}
+.ny-row{position:relative;overflow:hidden;border-top:1px solid var(--line)}
+.ny-in{position:relative;display:flex;align-items:flex-start;gap:12px;padding:11px 4px;background:var(--pop);transform:translateX(var(--sx,0));transition:transform .18s ease}
+.ny-row.sw .ny-in{transition:none}
+.ny-in>.nk{margin-top:6px}
+.ny-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;color:inherit;text-decoration:none}
+.ny-t b{font-weight:500;font-size:14px;line-height:1.35;color:var(--fg)}
+.ny-t .ny-b{font-size:12.5px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ny-t small{font-size:11.5px;color:var(--faint)}
+.ny-old{color:var(--danger)}
+@media (hover:hover){a.ny-t:hover b{text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:3px}}
+.ny-ok{flex:none;color:var(--faint);margin-top:-2px}
+.ny-ok svg{width:15px;height:15px}
+@media (hover:hover){.ny-ok{opacity:.55}.ny-row:hover .ny-ok{opacity:1}.ny-ok:hover{color:var(--ny-rev)}}
+.ny-under{position:absolute;inset:0;display:flex;align-items:center;gap:6px;padding-left:16px;font-size:12.5px;color:var(--ny-rev);background:color-mix(in srgb,var(--ny-rev) 16%,var(--pop))}
+.ny-under svg{width:15px;height:15px}
+.ny-row.go .ny-under{background:color-mix(in srgb,var(--ny-rev) 30%,var(--pop))}
+@media (max-width:860px){.ny-legend{padding-left:16px}}
