@@ -59,10 +59,21 @@ export type Db = {
   /** Notes left for the person (post_note), newest first. */
   listNotes(limit: number, unreadOnly: boolean): Promise<Note[]>;
   addNote(n: Pick<Note, "author" | "title" | "body" | "link" | "task_ids">): Promise<Note>;
+  /** Needs you items (raise_needs_you), newest first; cleared ones only when asked. */
+  listNeeds(limit: number, includeCleared: boolean): Promise<Note[]>;
+  /** The open item a thread raised, by the thread's link. */
+  openNeed(link: string): Promise<Note | null>;
+  addNeed(n: Pick<Note, "author" | "title" | "body" | "link" | "kind" | "project" | "project_link">): Promise<Note>;
+  updateNeed(id: string, patch: Partial<Pick<Note, "author" | "title" | "body" | "kind" | "project" | "project_link" | "created_at" | "resolved_at">>): Promise<Note>;
+  getNeed(id: string): Promise<Note | null>;
 };
 
 /** A note Claude left for the person, shown in the app until they tap Got it, and kept in Notes after. */
-export type Note = { id: string; author: string; title: string; body: string; link: string; task_ids: string[]; created_at: string; read_at: string | null };
+export type Note = { id: string; author: string; title: string; body: string; link: string; task_ids: string[]; created_at: string; read_at: string | null;
+  /** Needs you items only: decision, blocked or review, the Claude project it came from, and when it was cleared. */
+  kind?: Kind | null; project?: string | null; project_link?: string | null; resolved_at?: string | null };
+export type Kind = "decision" | "blocked" | "review";
+const KINDS: Kind[] = ["decision", "blocked", "review"];
 
 /** What the Roadmap assumes until free hours are set (the app shows the same). */
 const FREE_DEFAULT = 10;
@@ -82,6 +93,7 @@ export const INSTRUCTIONS = `Daybook is this person's own task and calendar app.
 - Time tracking: the person records time in the app with a ▶ on a task or project (one at a time). time_log lists each stretch really worked (start, end, minutes; end is "recording now" while it runs). Checking a task off moves its block (day, start_time, duration_minutes) to when it was really done, and planned keeps where and how long it was planned, so compare planned with the real block and actual_minutes (the recorded total) to learn their pace. A stretch marked guessed wasn't recorded: it was checked off without the timer, so the app assumed it ended then and took as long as planned; don't read its length as real. Time on a project's steps is recorded on the project as a whole.
 - A task can repeat (daily, weekdays, weekly on chosen days, every N weeks, or monthly), with an optional last day: pass repeat to add_task or update_item. The task is then a series that starts on its day. Each repeat shows on its own day and is checked off on its own. list_tasks with from and to lists the repeats in that range: each has its own id (series id~date) and a series_id. To change one day's repeat (move it, check it off, rename it), use its id; to change every repeat, use the series_id. A repeat moved off the plan (day null) is skipped. repeat: null stops a series repeating. Repeating tasks count in each week's scheduled hours but have no bar on the Roadmap.
 - Notes: post_note leaves the person a note they see in the app as a card the next time they open it (unread notes stack into one card), with a button back to the chat it came from, and it stays in their Notes history. Use it to tell them what a scheduled check changed, such as a morning plan check, with a short title, a few lines, the link to this chat, and the ids of the tasks you changed. list_notes reads back what you already told them, and whether they've read it.
+- Needs you: a line on the person's Plan lists what's waiting on them across all their Claude projects, grouped by project, oldest first. When this chat needs them (a decision only they can make, work blocked on them, or something ready for them to review or try), raise_needs_you with one short line, the kind, the Claude project's name, and the link to this chat. A chat has at most one open item: raising again from the same link updates it (blocked → review, say) instead of adding another. clear_needs_you as soon as it no longer needs them, such as once they've answered. list_needs_you shows what's open.
 - Say what you changed in plain words, since the person sees your reply, not the tool calls.`;
 
 const str = (description: string) => ({ type: "string", description });
@@ -232,6 +244,49 @@ export const TOOLS = [
       properties: {
         unread_only: { type: ["boolean", "string"], enum: [true, false, "true", "false"], description: "Only notes they haven't marked read yet." },
         limit: { type: ["integer", "string"], description: "How many, 1 to 100. Defaults to 20." },
+      },
+    },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "raise_needs_you",
+    title: "Raise a Needs you item",
+    description: "Puts an item on the person's Needs you list in Daybook: the line on their Plan that shows what's waiting on them across all their Claude projects. Use it when this chat needs them: a decision only they can make, work blocked on them, or something ready for them to review or try. One item per chat: raising again with the same link updates the open item (its kind, title, details) instead of adding a second. Clear it with clear_needs_you once it no longer needs them.",
+    inputSchema: {
+      type: "object",
+      required: ["kind", "title", "project", "link"],
+      properties: {
+        kind: { type: "string", enum: KINDS, description: "decision: they need to choose something. blocked: work can't go on until they do something. review: something is ready for them to look at or try." },
+        title: str("One short line saying what's needed, such as Pick a look for the overview board (up to 120 characters)."),
+        project: str("The name of the Claude project this chat belongs to, such as Life Planning. Use the same name every time; the list groups by it."),
+        link: str("The address of this chat, so the person can jump straight to it. Must start with https:// or http://."),
+        project_link: str("The address of the Claude project itself, if you know it. Worked out from a claude.ai project thread link when left out."),
+        details: str("A few more lines, optional. Markdown is fine (up to 2000 characters)."),
+        from: str("Who it's from. Defaults to Claude."),
+      },
+    },
+  },
+  {
+    name: "clear_needs_you",
+    title: "Clear a Needs you item",
+    description: "Takes an item off the person's Needs you list once it no longer needs them, such as after they've answered or it's unblocked. Pass the chat's link (clears that chat's open item) or the item's id.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        link: str("The chat's address, as passed to raise_needs_you."),
+        id: str("The item's id, from raise_needs_you or list_needs_you."),
+      },
+    },
+  },
+  {
+    name: "list_needs_you",
+    title: "List Needs you items",
+    description: "What's on the person's Needs you list: open items, oldest first, with their kind, Claude project, link and how long they've been waiting. include_cleared also lists recently cleared ones.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: str("Only items from this Claude project."),
+        include_cleared: { type: ["boolean", "string"], enum: [true, false, "true", "false"], description: "Also list cleared items, newest first after the open ones." },
       },
     },
     annotations: { readOnlyHint: true },
@@ -597,7 +652,59 @@ function noteOut(t: Tree, n: Note) {
   return { id: n.id, from: n.author, title: n.title, message: n.body, link: n.link, ...(tasks.length ? { tasks } : {}), posted_at: localStamp(n.created_at, t.tz), read: !!n.read_at, ...(n.read_at ? { read_at: localStamp(n.read_at, t.tz) } : {}) };
 }
 
+/** A Needs you item as Claude reads it back. */
+function needOut(n: Note, tz: string | null) {
+  const days = Math.floor((Date.now() - Date.parse(n.created_at)) / 864e5);
+  return { id: n.id, kind: n.kind, title: n.title, ...(n.body ? { details: n.body } : {}), project: n.project, link: n.link, ...(n.project_link ? { project_link: n.project_link } : {}), from: n.author,
+    since: localStamp(n.created_at, tz), waiting_days: days, open: !n.resolved_at, ...(n.resolved_at ? { cleared_at: localStamp(n.resolved_at, tz) } : {}) };
+}
+/** A claude.ai project thread link (…/project/ID?thread=…) points into its project; the project's own address drops the thread. */
+function projectLinkOf(link: string): string | null {
+  const m = /^(https:\/\/claude\.ai\/(?:code\/)?project\/[\w-]+)[?#]/.exec(link);
+  return m ? m[1] : null;
+}
+
+async function runNeeds(name: string, args: Record<string, unknown>, db: Db): Promise<unknown> {
+  const tz = await db.timeZone();
+  if (name === "raise_needs_you") {
+    const kind = String(args.kind ?? "") as Kind;
+    if (!KINDS.includes(kind)) throw new Bad("kind must be decision, blocked or review.");
+    const title = textArg(args.title, "title", 120).trim(), project = textArg(args.project, "project", 60).trim();
+    if (!title) throw new Bad("title can't be empty.");
+    if (!project) throw new Bad("project can't be empty: the name of the Claude project this chat belongs to.");
+    if (!has(args, "link")) throw new Bad("link is required: the address of this chat, so the person can jump to it.");
+    const link = linkArg(args.link);
+    const body = has(args, "details") ? textArg(args.details, "details", 2000).trim() : "";
+    const project_link = has(args, "project_link") && args.project_link ? linkArg(args.project_link) : projectLinkOf(link);
+    const author = has(args, "from") ? textArg(args.from, "from", 40).trim() || "Claude" : "Claude";
+    const open = await db.openNeed(link);
+    if (open) {
+      // Still the same wait keeps its age; a new kind of wait starts over
+      const n = await db.updateNeed(open.id, { kind, title, body, project, project_link, author, ...(open.kind !== kind ? { created_at: new Date().toISOString() } : {}) });
+      return { updated: needOut(n, tz) };
+    }
+    return { raised: needOut(await db.addNeed({ kind, title, body, project, project_link, link, author }), tz) };
+  }
+  if (name === "clear_needs_you") {
+    let n: Note | null = null;
+    if (has(args, "id") && args.id) { n = await db.getNeed(String(args.id)); if (!n) throw new Bad(`No Needs you item with id ${args.id}.`); }
+    else if (has(args, "link") && args.link) n = await db.openNeed(linkArg(args.link));
+    else throw new Bad("Pass the chat's link or the item's id.");
+    if (!n) return { cleared: null, note: "Nothing open for that link; it may already be cleared." };
+    if (n.resolved_at) return { cleared: needOut(n, tz), note: "It was already cleared." };
+    return { cleared: needOut(await db.updateNeed(n.id, { resolved_at: new Date().toISOString() }), tz) };
+  }
+  const all = has(args, "include_cleared") ? boolArg(args.include_cleared, "include_cleared") : false;
+  const proj = typeof args.project === "string" ? args.project.trim().toLowerCase() : "";
+  let rows = await db.listNeeds(200, all);
+  if (proj) rows = rows.filter((n) => (n.project ?? "").toLowerCase() === proj);
+  const open = rows.filter((n) => !n.resolved_at).sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const done = rows.filter((n) => n.resolved_at).slice(0, 30);
+  return { open: open.map((n) => needOut(n, tz)), ...(all ? { cleared: done.map((n) => needOut(n, tz)) } : {}), ...(open.length ? {} : { note: "Nothing is waiting on them." }) };
+}
+
 export async function runTool(name: string, args: Record<string, unknown>, db: Db): Promise<unknown> {
+  if (["raise_needs_you", "clear_needs_you", "list_needs_you"].includes(name)) return runNeeds(name, args, db);
   if (name === "set_free_hours") { const h = hoursArg(args.hours); await db.setFreeHours(h); return { free_hours_per_week: h }; }
   const t = new Tree(await db.load());
   if (["list_tasks", "list_projects", "get_item", "update_item", "add_task", "post_note", "list_notes"].includes(name)) t.tz = await db.timeZone();

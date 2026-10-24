@@ -6,7 +6,7 @@ import { type Db, handle, type Note, type Row } from "./tools.ts";
 
 const COLS = "id,parent_id,title,notes,done,day,start_min,after_min,duration_min,sort,day_sort,color,due,link,kind,area_id,start,milestone,hard_deadline,waits_on,done_at,actual_minutes,time_log,planned,repeat_rule,series_id,occurs_on,deleted";
 
-const NOTE_COLS = "id,author,title,body,link,task_ids,created_at,read_at";
+const NOTE_COLS = "id,author,title,body,link,task_ids,created_at,read_at,kind,project,project_link,resolved_at";
 
 const headers = {
   ...cors,
@@ -68,7 +68,7 @@ function dbFor(userId: string): Db {
       if (e2) throw e2;
     },
     async listNotes(limit, unreadOnly) {
-      let q = sb.from("notes").select(NOTE_COLS).eq("user_id", userId);
+      let q = sb.from("notes").select(NOTE_COLS).eq("user_id", userId).is("kind", null);
       if (unreadOnly) q = q.is("read_at", null);
       const { data, error } = await q.order("created_at", { ascending: false }).limit(limit);
       if (error) throw error;
@@ -76,6 +76,34 @@ function dbFor(userId: string): Db {
     },
     async addNote(n) {
       const { data, error } = await sb.from("notes").insert({ ...n, user_id: userId }).select(NOTE_COLS).single();
+      if (error) throw error;
+      return data as Note;
+    },
+    async listNeeds(limit, includeCleared) {
+      let q = sb.from("notes").select(NOTE_COLS).eq("user_id", userId).not("kind", "is", null);
+      if (!includeCleared) q = q.is("resolved_at", null);
+      const { data, error } = await q.order("created_at", { ascending: false }).limit(limit);
+      if (error) throw error;
+      return data as Note[];
+    },
+    async openNeed(link) {
+      const { data, error } = await sb.from("notes").select(NOTE_COLS).eq("user_id", userId).eq("link", link).not("kind", "is", null).is("resolved_at", null).maybeSingle();
+      if (error) throw error;
+      return data as Note | null;
+    },
+    async getNeed(id) {
+      if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+      const { data, error } = await sb.from("notes").select(NOTE_COLS).eq("user_id", userId).eq("id", id).not("kind", "is", null).maybeSingle();
+      if (error) throw error;
+      return data as Note | null;
+    },
+    async addNeed(n) {
+      const { data, error } = await sb.from("notes").insert({ ...n, task_ids: [], user_id: userId }).select(NOTE_COLS).single();
+      if (error) throw error;
+      return data as Note;
+    },
+    async updateNeed(id, patch) {
+      const { data, error } = await sb.from("notes").update(patch).eq("user_id", userId).eq("id", id).select(NOTE_COLS).single();
       if (error) throw error;
       return data as Note;
     },
