@@ -153,7 +153,9 @@ export async function review(client: Anthropic, body: ReviewBody): Promise<Respo
   const ctx = prompt(body);
   if (!ctx.lines.length) return json({ error: "There's nothing on this day to look back over yet." }, 400);
   try {
-    const response = await client.beta.messages.create({
+    // Streamed: the SDK refuses a non-streamed request this large (it could
+    // run past its 10-minute limit), and a long review needs the room.
+    const response = await client.beta.messages.stream({
       model: "claude-opus-5-5",
       max_tokens: 32000,
       system: SYSTEM,
@@ -162,7 +164,7 @@ export async function review(client: Anthropic, body: ReviewBody): Promise<Respo
       betas: ["server-side-fallback-2026-07-01"],
       // @ts-ignore: server-side fallback parameter (beta)
       fallbacks: "default",
-    });
+    }).finalMessage();
     if (response.stop_reason === "refusal") return json({ error: "Claude wouldn't review this day." }, 422);
     if (response.stop_reason === "max_tokens") return json({ error: "Claude's review was cut off. Try again." }, 502);
     const text = response.content.find((b) => b.type === "text");
