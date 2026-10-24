@@ -8,7 +8,7 @@
 //   GET  …/scribe/modes                     -> { modes }
 //   POST …/scribe  multipart: audio, mode, app, duration (ms)
 //                                           -> { original, text, mode }
-//   POST …/scribe  multipart: action=make-mode, audio, [mode = id to change]
+//   POST …/scribe  multipart: action=make-mode, audio, [current = the mode being changed, as JSON]
 //                                           -> { said, mode }  (not saved yet)
 //   POST …/scribe  JSON { action: "redo", original, mode, app } -> { text, mode }
 //   POST …/scribe  JSON { action: "save-mode", mode: { id?, name, prompt, apps } } -> { mode }
@@ -167,11 +167,16 @@ Deno.serve(async (req) => {
       const said = await writeOut(form);
       if (typeof said !== "string") return said;
       if (!said) return reply({ error: "Didn't catch anything. Try again a little closer." }, 422);
-      const current = modes.find((m) => m.id === form.get("mode"));
+      // The mode being changed: sent whole (it may be an unsaved draft), else by id.
+      let current: Mode | undefined = modes.find((m) => m.id === form.get("mode"));
+      try {
+        const c = JSON.parse(String(form.get("current") ?? "null"));
+        if (c && typeof c === "object") current = { id: clean(c.id, 40), name: clean(c.name, 40), prompt: clean(c.prompt, 2000), apps: cleanApps(c.apps) };
+      } catch { /* not sent */ }
       const out = await ask(MODE_SYSTEM, current
         ? `The mode now:\nName: ${current.name}\nInstruction: ${current.prompt}\nApps: ${current.apps.join(", ") || "none"}\n\nThe change they asked for:\n${said}`
         : `The mode they asked for:\n${said}`, MODE_SCHEMA);
-      return reply({ said, mode: { id: current?.id ?? null, name: clean(out.name, 40), prompt: clean(out.prompt, 2000), apps: cleanApps(out.apps) } });
+      return reply({ said, mode: { id: current?.id || null, name: clean(out.name, 40), prompt: clean(out.prompt, 2000), apps: cleanApps(out.apps) } });
     }
 
     if (action === "save-mode" && body && typeof body.mode === "object" && body.mode) {
