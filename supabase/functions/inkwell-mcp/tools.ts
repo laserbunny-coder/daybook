@@ -328,7 +328,8 @@ const PART = 400;
 async function paragraphs(db: Db, chapter: Entry, from = 0) {
   const rows = (await db.kids([chapter.id])).filter((r) => ["para", "heading", "scene"].includes(r.kind) && !gone(r)).sort(bySort);
   const part = rows.slice(from, from + PART).map((r) => {
-    if (r.kind === "scene") return { id: r.id, section: r.title || "" };
+    // A script's sections nest (1 act, 2 sequence, 3 scene…) and can carry a summary.
+    if (r.kind === "scene") return { id: r.id, section: r.title || "", ...(Number(r.fields?.level) > 1 ? { level: Number(r.fields.level) } : {}), ...(r.fields?.synopsis ? { summary: String(r.fields.synopsis) } : {}) };
     const el = r.fields?.el as string | undefined;
     return {
       id: r.id, text: r.text || "",

@@ -32,8 +32,26 @@ export function echoesHint(text: string, hint = HINT): boolean {
   return said.length <= 20 && said.filter((w) => hinted.has(w)).length / said.length >= 0.85;
 }
 
+// Past this, a recording goes to Deepgram (when its key is set): it takes an
+// hour or more in one go and doesn't stop early on a long ramble.
+export const LONG_MS = 10 * 60 * 1000;
+
 // Scribe, the dictation app, writes out its recordings here too, with its own hint.
 export async function transcribe(blob: Blob, name: string, durationMs: number, hint = HINT): Promise<string> {
+  const long = !durationMs || durationMs > LONG_MS || blob.size > OPENAI_LIMIT;
+  if (long && Deno.env.get("DEEPGRAM_API_KEY")) {
+    try {
+      return await deepgram(blob, hint);
+    } catch (err) {
+      // Something wrong on Deepgram's side: a short enough one can still go to OpenAI.
+      if (blob.size > OPENAI_LIMIT || !Deno.env.get("OPENAI_API_KEY")) throw err;
+      console.error(err);
+    }
+  }
+  return await openai(blob, name, durationMs, hint);
+}
+
+async function openai(blob: Blob, name: string, durationMs: number, hint: string): Promise<string> {
   const key = Deno.env.get("OPENAI_API_KEY");
   if (!key) throw Object.assign(new Error("Writing out recordings isn't set up yet."), { code: "no-transcriber", status: 503 });
   if (blob.size > OPENAI_LIMIT) throw Object.assign(new Error("That recording is too long to write out in one go."), { status: 413 });
@@ -59,6 +77,30 @@ export async function transcribe(blob: Blob, name: string, durationMs: number, h
   const out = await res.json();
   const said = typeof out.text === "string" ? out.text.trim() : "";
   return said && !echoesHint(said, hint) ? said : "";
+}
+
+// Deepgram takes the recording as it is and writes it out with punctuation
+// and paragraphs. It has no hint, so nothing can be echoed back.
+async function deepgram(blob: Blob, _hint: string): Promise<string> {
+  const q = new URLSearchParams({ model: "nova-3", language: "en", smart_format: "true", punctuate: "true", paragraphs: "true" });
+  let res: Response;
+  try {
+    res = await fetch(`https://api.deepgram.com/v1/listen?${q}`, {
+      method: "POST",
+      headers: { Authorization: `Token ${Deno.env.get("DEEPGRAM_API_KEY")}`, "Content-Type": blob.type || "audio/webm" },
+      body: blob,
+      signal: AbortSignal.timeout(140_000),
+    });
+  } catch {
+    throw Object.assign(new Error("The speech service took too long. It'll try again."), { status: 504 });
+  }
+  if (res.status === 401 || res.status === 403) throw Object.assign(new Error("The long-recording speech service's key isn't set up correctly."), { status: 503 });
+  if (res.status === 402) throw Object.assign(new Error("The long-recording speech service is out of credit."), { status: 503 });
+  if (!res.ok) { console.error(await res.text().catch(() => "")); throw Object.assign(new Error(`The speech service returned an error (${res.status}).`), { status: 502 }); }
+  const out = await res.json();
+  const alt = out?.results?.channels?.[0]?.alternatives?.[0] ?? {};
+  const said = String(alt.paragraphs?.transcript ?? alt.transcript ?? "").trim();
+  return said;
 }
 
 async function outlineOf(client: Anthropic, transcript: string): Promise<string[]> {

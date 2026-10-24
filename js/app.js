@@ -582,7 +582,7 @@ function renderMain() {
     <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button></div>
     <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>${lookBtn()}
     <button class="ib q-only" data-act="qproj" aria-pressed="${qp || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
-    <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
+    <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>${qp ? '' : needLine()}
   <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
     ${S.tip ? `<div class="tip"><span>Tap a task to open it and add notes. Tap an empty time, or the + under a day, to add one. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
     ${S.mode === 'list' ? (S.view === 'week' ? weekList(days) : dayList(days[0])) : timed(days)}
@@ -894,7 +894,7 @@ function render() {
   cancelAnimationFrame(raf); raf = 0;
   const ae = document.activeElement; const fid = ae && ae.id && !document.getElementById('detail').contains(ae) ? ae.id : null;
   const val = fid ? ae.value : null;
-  renderSide(); renderMain(); renderTabs(); renderDetail(); renderRec(); renderNote(); renderNotes(); renderMsgs(); saveUI();
+  renderSide(); renderMain(); renderTabs(); renderDetail(); renderRec(); renderNote(); renderNotes(); renderNeeds(); renderMsgs(); saveUI();
   if (S.view === 'week' && W?.jump && placeDay(W.jump, 0)) { W.jump = null; stripTitle(); } // a phone only lays the plan out once its tab is set
   if (S.adding) { const i = document.getElementById('add-in'); if (i) { if (fid === 'add-in') i.value = val; i.focus({ preventScroll: true }); } }
   else if (fid && fid !== 'askq') { const i = document.getElementById(fid); if (i) { if (val != null && 'value' in i) i.value = val; i.focus({ preventScroll: true }); } }
@@ -1011,6 +1011,63 @@ function renderNotes() {
   if (!first) notesEl.querySelector('.dt').classList.add('still');
   notesEl.querySelector('.dt-body').scrollTop = sc;
 }
+
+/* Needs you (js/notes.js): what's waiting on the person across their Claude projects, raised by threads through the
+   connector. A quiet line under the Plan's header, only while something is open; it opens the list, grouped by Claude
+   project, oldest first. Tap a row to jump to its thread; the check (or a swipe right on a phone) clears it. */
+const KIND = { decision: 'Decision', blocked: 'Blocked', review: 'Review' };
+const OLD_DAYS = 4; // waiting this long turns red, like an overdue task
+const needMark = k => `<i class="nk ${esc(k)}" aria-hidden="true"></i>`;
+function needLine() {
+  const L = notes.needs(); if (!L.length) return '';
+  const kinds = Object.keys(KIND).filter(k => L.some(n => n.kind === k)), projs = new Set(L.map(n => n.project || 'Claude')).size;
+  const old = L.some(n => needAge(n).old);
+  return `<button class="ny-line${old ? ' old' : ''}" data-act="needs" aria-expanded="${!!S.needsOpen}" title="What needs you across your Claude projects (M)"><span class="ny-marks">${kinds.map(needMark).join('')}</span><b>${L.length}</b><span>need${L.length === 1 ? 's' : ''} you</span><small>· ${projs === 1 ? esc(L[0].project || 'Claude') : projs + ' projects'}</small><span class="ny-arr">›</span></button>`;
+}
+function needAge(n) {
+  const ms = Date.now() - Date.parse(n.created_at), h = Math.floor(ms / 36e5), d = Math.floor(ms / 864e5);
+  return { old: d >= OLD_DAYS, text: h < 1 ? 'just now' : h < 24 ? `${h} hour${h === 1 ? '' : 's'}` : `${d} day${d === 1 ? '' : 's'}` };
+}
+const needsEl = document.createElement('div'); needsEl.id = 'needs'; needsEl.className = 'detail notes needs'; needsEl.hidden = true; document.body.appendChild(needsEl);
+function renderNeeds() {
+  const L = notes.needs();
+  if (!S.needsOpen) { needsEl.hidden = true; needsEl.innerHTML = ''; needsEl.h = null; return; }
+  const groups = new Map(); for (const n of L) { const p = n.project || 'Claude'; if (!groups.has(p)) groups.set(p, []); groups.get(p).push(n); } // oldest item first, so the longest wait leads
+  const row = n => { const age = needAge(n), u = safeLink(n.link);
+    return `<div class="ny-row" data-id="${esc(n.id)}"><div class="ny-under">${ICON_OK}<span>Clear</span></div><div class="ny-in">${needMark(n.kind)}
+      ${u ? `<a class="ny-t" href="${esc(u)}" target="_blank" rel="noopener">` : '<div class="ny-t">'}<b>${esc(n.title)}</b>${n.body ? `<span class="ny-b">${esc(n.body)}</span>` : ''}<small><span>${KIND[n.kind] || ''}</span> · <span class="${age.old ? 'ny-old' : ''}">${age.text}</span></small>${u ? '</a>' : '</div>'}
+      <button class="ib ny-ok" data-act="need-clear" data-id="${esc(n.id)}" aria-label="Clear ${esc(n.title)}" title="Clear">${ICON_OK}</button></div></div>`; };
+  const body = L.length ? [...groups].map(([p, ns]) => { const pl = safeLink(ns.find(n => n.project_link)?.project_link || '');
+    return `<section class="ny-g"><div class="ny-gh"><h3>${esc(p)}<small>${ns.length}</small></h3>${pl ? `<a href="${esc(pl)}" target="_blank" rel="noopener">Open ↗</a>` : ''}</div>${ns.map(row).join('')}</section>`; }).join('')
+    : '<div class="n-empty">Nothing needs you right now. When a thread in one of your Claude projects is waiting on you, it shows up here.</div>';
+  const h = `<div class="dt-back" data-act="needs-close"></div><div class="dt nl ny"><div class="dt-top"><h2 class="nl-t">Needs you${L.length ? ` <small>oldest first</small>` : ''}</h2><div class="nl-acts"><button class="ib" data-act="needs-close" aria-label="Close">${ICON.close}</button></div></div>
+    <div class="ny-legend">${Object.entries(KIND).map(([k, l]) => `<span>${needMark(k)}${l}</span>`).join('')}</div><div class="dt-body vscroll">${body}</div></div>`;
+  if (needsEl.h === h) return;
+  const first = needsEl.hidden, sc = first ? 0 : needsEl.querySelector('.dt-body')?.scrollTop || 0;
+  needsEl.h = h; needsEl.innerHTML = h; needsEl.hidden = false;
+  if (!first) needsEl.querySelector('.dt').classList.add('still');
+  needsEl.querySelector('.dt-body').scrollTop = sc;
+}
+function clearNeed(id) {
+  const n = notes.needs().find(x => x.id === id); if (!n) return;
+  notes.setCleared(id, true);
+  toast(`Cleared: ${n.title}`, `<button data-act="need-back" data-id="${esc(id)}">${ICON.undo}Undo</button>`);
+}
+// A phone swipe right on a row clears it, like checking off a task
+let nySw = null;
+needsEl.addEventListener('touchstart', e => { const r = e.target.closest('.ny-row'); if (!r || e.touches.length > 1) return; nySw = { r, x: e.touches[0].clientX, y: e.touches[0].clientY, dx: 0, on: false }; }, { passive: true });
+needsEl.addEventListener('touchmove', e => {
+  if (!nySw) return; const t = e.touches[0], dx = t.clientX - nySw.x, dy = t.clientY - nySw.y;
+  if (!nySw.on) { if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { nySw = null; return; } if (dx < 10) return; nySw.on = true; nySw.r.classList.add('sw'); }
+  nySw.dx = Math.max(0, dx); nySw.r.style.setProperty('--sx', nySw.dx + 'px'); nySw.r.classList.toggle('go', nySw.dx > 90);
+  if (e.cancelable) e.preventDefault();
+}, { passive: false });
+const nyEnd = () => {
+  if (!nySw) return; const { r, dx, on } = nySw; nySw = null; if (!on) return;
+  r.classList.remove('sw'); if (dx > 90) { r.style.setProperty('--sx', '110%'); setTimeout(() => clearNeed(r.dataset.id), 160); } else r.style.removeProperty('--sx');
+  const c = e => { e.preventDefault(); e.stopPropagation(); }; r.addEventListener('click', c, { capture: true, once: true }); setTimeout(() => r.removeEventListener('click', c, { capture: true }), 400);
+};
+needsEl.addEventListener('touchend', nyEnd); needsEl.addEventListener('touchcancel', nyEnd);
 
 /* Actions */
 let toastT, toastMsg = '', toastAt = 0;
@@ -1282,8 +1339,12 @@ document.addEventListener('click', e => {
     case 'signin': signIn(); break;
     case 'demo': enterDemo(); break;
     case 'signout': client.auth.signOut(); break;
-    case 'notes': setStrip(false); S.notesOpen = !S.notesOpen; render(); break;
+    case 'notes': setStrip(false); S.needsOpen = false; S.notesOpen = !S.notesOpen; render(); break;
     case 'notes-close': S.notesOpen = false; render(); break;
+    case 'needs': setStrip(false); S.notesOpen = false; S.needsOpen = !S.needsOpen; render(); break;
+    case 'needs-close': S.needsOpen = false; render(); break;
+    case 'need-clear': clearNeed(id); break;
+    case 'need-back': notes.setCleared(id, false); toast('Back on the list'); break;
     case 'notes-allread': notes.markRead(notes.unread().map(n => n.id)); break;
     case 'note-ok': notes.markRead([id]); break;
     case 'note-later': notes.unread().forEach(n => noteLater.add(n.id)); renderNote(); break;
@@ -1329,13 +1390,16 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && S.linkEdit) { S.linkEdit = false; document.activeElement?.blur(); renderDetail(); return; }
   if (e.key === 'Escape' && S.new) { closeNew(); return; }
   if (e.key === 'Escape' && S.notesOpen && !S.open) { S.notesOpen = false; render(); return; }
+  if (e.key === 'Escape' && S.needsOpen && !S.open) { S.needsOpen = false; render(); return; }
   if (e.key === 'Escape') { if (S.adding) { S.adding = null; render(); } else if (S.open) { S.open = null; renderDetail(); } else if (quiet() && !D) quietAway(); }
   // Q turns Quiet on and off, anywhere outside a text box
   if (key === 'q' && !D && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); if (S.open) { S.open = null; renderDetail(); } setQuiet(!S.min); return; }
   // R opens the Roadmap and goes back, anywhere outside a text box
   if (key === 'r' && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); toggleRoad(); return; }
   // N opens Notes from Claude and closes them again
-  if (key === 'n' && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); setStrip(false); S.notesOpen = !S.notesOpen; render(); return; }
+  if (key === 'n' && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); setStrip(false); S.needsOpen = false; S.notesOpen = !S.notesOpen; render(); return; }
+  // M opens what needs you across your Claude projects
+  if (key === 'm' && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); setStrip(false); S.notesOpen = false; S.needsOpen = !S.needsOpen; render(); return; }
   // S does the same for Stats
   if (key === 's' && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); toggleRoad('stats'); return; }
   if (key === 'l' && !D && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); setLook(look() === 'paper' ? 'ink' : 'paper'); return; }
@@ -1724,7 +1788,7 @@ async function boot() {
     if (session?.provider_refresh_token) {
       client.rpc('save_google_token', { refresh: session.provider_refresh_token }).then(() => calendar.ensure(add(today(), -7), add(today(), 28), true));
     }
-    if (event === 'SIGNED_OUT') { store.stopCloud(); notes.stop(); S.notesOpen = false; user = null; S.demo = false; saveUI(); showWelcome(true); }
+    if (event === 'SIGNED_OUT') { store.stopCloud(); notes.stop(); S.notesOpen = false; S.needsOpen = false; user = null; S.demo = false; saveUI(); showWelcome(true); }
     else if (event === 'SIGNED_IN' && session?.user && (!user || user.id !== session.user.id)) enterCloud(session.user);
   });
   const { data: { session } } = await client.auth.getSession();
