@@ -84,7 +84,7 @@ Daybook installs to the home screen and syncs with the computer.
   - `ask` sends the question and a summary of the planner to Claude. Claude proposes changes, and the app applies them with an Undo button.
   - `mcp` is a Claude connector (an MCP server). Its address carries a secret made in the app, stored only as a hash in `mcp_tokens`. It can list, add and change tasks.
   - `inkwell` and `inkwell-mcp` serve Inkwell, the writing app that shares this database (`writing_entries`). `inkwell` asks Claude for alternates; `inkwell-mcp` is Inkwell's own Claude connector, with its own secret (hashed in `inkwell_mcp_tokens`). It reads any of the writing and only adds to it, marking what it adds as Claude's.
-  - `scribe` serves Scribe, the dictation app (repo laserbunny-coder/scribe): a recording comes in, is written out by the same speech service as Inkwell's Capture, and Claude rewrites it in a chosen style (`scribe/styles.ts`). Devices connect from Inkwell with their own secret (hashed in `scribe_tokens`).
+  - `scribe` serves Scribe, the dictation app (repo laserbunny-coder/scribe): a recording comes in, is written out by the same speech service as Inkwell's Capture, and Claude rewrites it in a chosen mode. Modes are per person (`scribe_modes`, starting from `scribe/modes.ts`) and can be made or changed by voice. Devices connect from Inkwell with their own secret (hashed in `scribe_tokens`).
 - GitHub Actions (`.github/workflows/deploy.yml`) updates the database and functions, then publishes the site to GitHub Pages on every push to `main`.
 
 Opening `index.html` without Supabase settings runs the app with sample data stored only in that browser.

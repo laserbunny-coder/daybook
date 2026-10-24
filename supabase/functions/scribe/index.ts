@@ -1,35 +1,60 @@
 // Scribe, the dictation app: a recording comes in from the phone keyboard (or
 // the Windows app), is written out by the same speech service as Inkwell's
-// Capture, then Claude rewrites it in the chosen style. The device proves who
-// it is with a secret made in Inkwell under "Connect Scribe"; only a hash of
-// it is kept (scribe_tokens).
+// Capture, then Claude rewrites it in the chosen mode (Text message, Email, …).
+// The device proves who it is with a secret made in Inkwell under "Connect
+// Scribe"; only a hash of it is kept (scribe_tokens). Modes are the person's
+// own (scribe_modes), starting from modes.ts.
 //
-//   GET  …/scribe/styles  -> { styles: [{ id, name, apps }] }
-//   POST …/scribe         multipart: audio (file), style, app, duration (ms)
-//                         -> { original, text, style }
+//   GET  …/scribe/modes                     -> { modes }
+//   POST …/scribe  multipart: audio, mode, app, duration (ms)
+//                                           -> { original, text, mode }
+//   POST …/scribe  multipart: action=make-mode, audio, [mode = id to change]
+//                                           -> { said, mode }  (not saved yet)
+//   POST …/scribe  JSON { action: "redo", original, mode, app } -> { text, mode }
+//   POST …/scribe  JSON { action: "save-mode", mode: { id?, name, prompt, apps } } -> { mode }
+//   POST …/scribe  JSON { action: "delete-mode", id } -> { ok }
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
-import { admin, cors, json } from "../_shared/common.ts";
+import { admin, cors } from "../_shared/common.ts";
 import { transcribe } from "../inkwell/capture.ts";
-import { STYLES, type Style } from "./styles.ts";
+import { type Mode, STARTER_MODES } from "./modes.ts";
 
 const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
 
 const headers = { ...cors, "Access-Control-Allow-Methods": "GET, POST, OPTIONS" };
+const reply = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { ...headers, "Content-Type": "application/json" } });
 
 const HINT = "Someone dictating a text message, an email or a note to type into their phone or computer.";
 
-const SYSTEM = `You turn a dictated voice note into the text the person meant to type, ready to send as is. It was spoken out loud and written out word for word, so it may ramble, repeat itself, correct itself ("no wait, Thursday") or include asides. Write the finished text in their own voice, as them, in the style they picked.
+const SYSTEM = `You turn a dictated voice note into the text the person meant to type, ready to send as is. It was spoken out loud and written out word for word, so it may ramble, repeat itself, correct itself ("no wait, Thursday") or include asides. Write the finished text in their own voice, as them, in the mode they picked.
 
 - Use only what they said. Never add facts, names, plans, promises or details of your own.
 - If they talk to you ("make this sound friendly", "scratch that last part"), follow it and leave the instruction out of the text.
 - Never answer questions in the note or reply to it: it's their message to someone else.
 - Plain text only, no Markdown. Only the finished text, with nothing before or after it.`;
 
-const SCHEMA = {
+const TEXT_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["text"],
   properties: { text: { type: "string", description: "The finished text, ready to type in." } },
+};
+
+const MODE_SYSTEM = `You help someone set up a mode in Scribe, their dictation keyboard. A mode is a short instruction, in plain words, for how their dictated words get rewritten before they're typed in (for example "A text message. Short and casual, keep my wording, no emoji."). They describe the mode they want out loud, or a change to one they have.
+
+- name: two or three words, like "Work Slack" or "Email".
+- prompt: the instruction, written as they'd say it, 1 to 4 sentences. Keep everything they asked for and add nothing they didn't. For a change, start from the current instruction and change only what they asked.
+- apps: the apps they said it's for, as Android app ids (Slack is "com.Slack", Gmail "com.google.android.gm", WhatsApp "com.whatsapp", Google Messages "com.google.android.apps.messaging", Outlook "com.microsoft.office.outlook", LinkedIn "com.linkedin.android", Discord "com.discord") plus the Windows program name when there's a desktop app ("slack.exe", "outlook.exe"). Only apps they named or that are already on the mode; empty if none.`;
+
+const MODE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["name", "prompt", "apps"],
+  properties: {
+    name: { type: "string" },
+    prompt: { type: "string" },
+    apps: { type: "array", items: { type: "string" } },
+  },
 };
 
 async function sha256(s: string): Promise<string> {
@@ -44,17 +69,30 @@ async function ownerOf(req: Request): Promise<string | null> {
   return data?.user_id ?? null;
 }
 
-async function rewrite(said: string, style: Style, app: string): Promise<string> {
+// The person's modes, in order; the starting set is copied in the first time.
+async function modesOf(userId: string): Promise<Mode[]> {
+  const sb = admin();
+  const { data, error } = await sb.from("scribe_modes").select("id,name,prompt,apps").eq("user_id", userId).order("sort").order("id");
+  if (error) throw error;
+  if (data.length) return data as Mode[];
+  const rows = STARTER_MODES.map((m, i) => ({ ...m, user_id: userId, sort: i * 10 }));
+  const { error: e2 } = await sb.from("scribe_modes").upsert(rows, { onConflict: "user_id,id", ignoreDuplicates: true });
+  if (e2) throw e2;
+  return STARTER_MODES;
+}
+
+const clean = (s: unknown, n: number) => (typeof s === "string" ? s.trim().slice(0, n) : "");
+const cleanApps = (a: unknown) =>
+  (Array.isArray(a) ? a : []).filter((x) => typeof x === "string" && x.trim()).map((x: string) => x.trim().slice(0, 100)).slice(0, 20);
+
+async function ask(system: string, content: string, schema: { [key: string]: unknown }): Promise<Record<string, unknown>> {
   const response = await client.beta.messages.create({
     model: "claude-opus-5-5",
     max_tokens: 16000,
-    system: SYSTEM,
-    messages: [{
-      role: "user",
-      content: `Style: ${style.name}. ${style.prompt}${app ? `\n\nThey're typing into: ${app}` : ""}\n\nWhat they said:\n${said.slice(0, 60000)}`,
-    }],
+    system,
+    messages: [{ role: "user", content }],
     // Low effort keeps it quick enough to wait for with the keyboard open.
-    output_config: { effort: "low", format: { type: "json_schema", schema: SCHEMA } },
+    output_config: { effort: "low", format: { type: "json_schema", schema } },
     betas: ["server-side-fallback-2026-07-01"],
     // @ts-ignore: server-side fallback parameter (beta)
     fallbacks: "default",
@@ -62,42 +100,105 @@ async function rewrite(said: string, style: Style, app: string): Promise<string>
   if (response.stop_reason !== "end_turn") throw new Error(`Claude stopped early (${response.stop_reason}).`);
   const text = response.content.find((b) => b.type === "text");
   if (!text || text.type !== "text") throw new Error("No answer came back.");
-  return String(JSON.parse(text.text).text ?? "").trim();
+  return JSON.parse(text.text);
 }
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers });
-  const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...headers, "Content-Type": "application/json" } });
+async function rewrite(said: string, mode: Mode, app: string): Promise<string> {
+  if (!mode.prompt.trim()) return said;
+  const out = await ask(SYSTEM, `Mode: ${mode.name}. ${mode.prompt}${app ? `\n\nThey're typing into: ${app}` : ""}\n\nWhat they said:\n${said.slice(0, 60000)}`, TEXT_SCHEMA);
+  return String(out.text ?? "").trim() || said;
+}
 
-  if (!await ownerOf(req)) return reply({ error: "Scribe isn't connected. Open Scribe and tap Connect.", code: "not-connected" }, 401);
-
-  if (req.method === "GET" && new URL(req.url).pathname.endsWith("/styles")) {
-    return reply({ styles: STYLES.map(({ id, name, apps }) => ({ id, name, apps })) });
-  }
-  if (req.method !== "POST") return reply({ error: "Not found" }, 404);
-
-  const form = await req.formData().catch(() => null);
-  const audio = form?.get("audio");
-  if (!form || !(audio instanceof File) || !audio.size) return reply({ error: "No recording came through." }, 400);
-  const style = STYLES.find((s) => s.id === form.get("style")) ?? STYLES[0];
-  const app = String(form.get("app") ?? "").slice(0, 100);
-
-  let original = "";
+// Writes out an uploaded recording; errors come back as a ready reply.
+async function writeOut(form: FormData): Promise<string | Response> {
+  const audio = form.get("audio");
+  if (!(audio instanceof File) || !audio.size) return reply({ error: "No recording came through." }, 400);
   try {
-    original = await transcribe(audio, audio.name || "scribe.m4a", Number(form.get("duration")) || 0, HINT);
+    return await transcribe(audio, audio.name || "scribe.m4a", Number(form.get("duration")) || 0, HINT);
   } catch (err) {
     const e = err as Error & { code?: string; status?: number };
     console.error(e);
     return reply({ error: e.message, code: e.code ?? null }, e.status ?? 500);
   }
-  if (!original) return reply({ original: "", text: "", style: style.id });
-  if (!style.prompt) return reply({ original, text: original, style: style.id });
+}
+
+const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "mode";
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers });
+
+  const userId = await ownerOf(req);
+  if (!userId) return reply({ error: "Scribe isn't connected. Open Scribe and tap Connect.", code: "not-connected" }, 401);
 
   try {
-    return reply({ original, text: await rewrite(original, style, app), style: style.id });
+    if (req.method === "GET" && new URL(req.url).pathname.endsWith("/modes")) return reply({ modes: await modesOf(userId) });
+    if (req.method !== "POST") return reply({ error: "Not found" }, 404);
+
+    const isForm = (req.headers.get("Content-Type") ?? "").includes("multipart/form-data");
+    const form = isForm ? await req.formData().catch(() => null) : null;
+    const body = isForm ? null : await req.json().catch(() => null) as Record<string, unknown> | null;
+    const action = String(form?.get("action") ?? body?.action ?? "dictate");
+    const modes = await modesOf(userId);
+    const pick = (id: unknown) => modes.find((m) => m.id === id) ?? modes[0];
+
+    if (action === "dictate" && form) {
+      const said = await writeOut(form);
+      if (typeof said !== "string") return said;
+      const mode = pick(form.get("mode"));
+      if (!said) return reply({ original: "", text: "", mode: mode.id });
+      const app = clean(form.get("app"), 100);
+      try {
+        return reply({ original: said, text: await rewrite(said, mode, app), mode: mode.id });
+      } catch (err) {
+        // The words still come back, so nothing said is lost.
+        console.error(err);
+        return reply({ original: said, text: said, mode: mode.id, warning: "Claude couldn't rewrite it this time, so here are your words as said." });
+      }
+    }
+
+    if (action === "redo" && body) {
+      const said = clean(body.original, 60000);
+      if (!said) return reply({ error: "Nothing to redo." }, 400);
+      const mode = pick(body.mode);
+      return reply({ text: await rewrite(said, mode, clean(body.app, 100)), mode: mode.id });
+    }
+
+    if (action === "make-mode" && form) {
+      const said = await writeOut(form);
+      if (typeof said !== "string") return said;
+      if (!said) return reply({ error: "Didn't catch anything. Try again a little closer." }, 422);
+      const current = modes.find((m) => m.id === form.get("mode"));
+      const out = await ask(MODE_SYSTEM, current
+        ? `The mode now:\nName: ${current.name}\nInstruction: ${current.prompt}\nApps: ${current.apps.join(", ") || "none"}\n\nThe change they asked for:\n${said}`
+        : `The mode they asked for:\n${said}`, MODE_SCHEMA);
+      return reply({ said, mode: { id: current?.id ?? null, name: clean(out.name, 40), prompt: clean(out.prompt, 2000), apps: cleanApps(out.apps) } });
+    }
+
+    if (action === "save-mode" && body && typeof body.mode === "object" && body.mode) {
+      const m = body.mode as Record<string, unknown>;
+      const name = clean(m.name, 40);
+      if (!name) return reply({ error: "A mode needs a name." }, 400);
+      let id = clean(m.id, 40);
+      if (!id) { id = slug(name); while (modes.some((x) => x.id === id)) id = `${slug(name)}-${Math.floor(Math.random() * 1000)}`; }
+      const at = modes.findIndex((x) => x.id === id);
+      const row = { user_id: userId, id, name, prompt: clean(m.prompt, 2000), apps: cleanApps(m.apps), sort: at >= 0 ? at * 10 : modes.length * 10, updated_at: new Date().toISOString() };
+      const { error } = await admin().from("scribe_modes").upsert(row, { onConflict: "user_id,id" });
+      if (error) throw error;
+      return reply({ mode: { id, name: row.name, prompt: row.prompt, apps: row.apps } });
+    }
+
+    if (action === "delete-mode" && body) {
+      if (modes.length <= 1) return reply({ error: "Keep at least one mode." }, 400);
+      const { error } = await admin().from("scribe_modes").delete().eq("user_id", userId).eq("id", clean(body.id, 40));
+      if (error) throw error;
+      return reply({ ok: true });
+    }
+
+    return reply({ error: "Not found" }, 404);
   } catch (err) {
-    // The words still come back, so nothing said is lost.
     console.error(err);
-    return reply({ original, text: original, style: style.id, warning: "Claude couldn't rewrite it this time, so here are your words as said." });
+    if (err instanceof Anthropic.RateLimitError) return reply({ error: "Claude is busy right now. Try again in a minute." }, 429);
+    if (err instanceof Anthropic.APIError) return reply({ error: `Claude returned an error (${err.status}).` }, 502);
+    return reply({ error: "Something went wrong in Scribe's server step." }, 500);
   }
 });

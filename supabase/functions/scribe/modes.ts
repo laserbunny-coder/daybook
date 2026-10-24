@@ -1,10 +1,12 @@
-// Scribe's styles: how a dictation is rewritten before it's typed in. Each
-// one is plain words for Claude. `apps` are Android app ids (and later Windows
-// program names) where the style is picked on its own; the first style is the
-// default everywhere else. To change a style, edit it here and publish.
-export type Style = { id: string; name: string; apps: string[]; prompt: string };
+// Scribe's starting modes: how a dictation is rewritten before it's typed in.
+// Each one is plain words for Claude. `apps` are Android app ids and Windows
+// program names where the mode picks itself; the first mode is the default
+// everywhere else. These are copied to a person's own modes (scribe_modes)
+// the first time Scribe asks for them; after that they change them there, by
+// voice from the keyboard or by asking Claude.
+export type Mode = { id: string; name: string; apps: string[]; prompt: string };
 
-export const STYLES: Style[] = [
+export const STARTER_MODES: Mode[] = [
   {
     id: "text",
     name: "Text message",
@@ -39,9 +41,9 @@ export const STYLES: Style[] = [
     prompt: "Clean up only: remove ums, false starts, repeats and filler, fix punctuation and capitals, and apply any corrections they made out loud ('no, I mean Thursday'). Change nothing else.",
   },
   {
-    id: "raw",
-    name: "Word for word",
+    id: "idea",
+    name: "Idea",
     apps: [],
-    prompt: "",
+    prompt: "A note to self about an idea, often a long ramble. Keep every idea, image, line and question they said, in their words, but put it in a sensible order, merge repeats, and break it into short paragraphs. Don't judge or add to the idea.",
   },
 ];

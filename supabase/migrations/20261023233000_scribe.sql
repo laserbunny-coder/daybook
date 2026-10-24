@@ -46,3 +46,23 @@ revoke all on function public.new_scribe_token(text) from public, anon;
 revoke all on function public.revoke_scribe_tokens() from public, anon;
 grant execute on function public.new_scribe_token(text) to authenticated;
 grant execute on function public.revoke_scribe_tokens() to authenticated;
+
+-- Scribe's modes (Text message, Email, …): how a dictation is rewritten.
+-- Kept per person so the phone and the computer share them, and so they can
+-- be made or changed by voice from the keyboard. The server step reads and
+-- writes them; the starting set comes from scribe/modes.ts.
+create table if not exists public.scribe_modes (
+  user_id     uuid not null references auth.users on delete cascade,
+  id          text not null,
+  name        text not null,
+  prompt      text not null default '',
+  apps        text[] not null default '{}',
+  sort        int not null default 0,
+  updated_at  timestamptz not null default now(),
+  primary key (user_id, id)
+);
+
+alter table public.scribe_modes enable row level security;
+revoke all on public.scribe_modes from anon;
+create policy "own scribe modes" on public.scribe_modes
+  for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
