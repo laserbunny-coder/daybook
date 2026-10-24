@@ -16,7 +16,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import { admin, cors } from "../_shared/common.ts";
 import { transcribe } from "../inkwell/capture.ts";
-import { type Mode, type Model, MODELS, STARTER_MODES } from "./modes.ts";
+import { cleanApps, deleteMode, type Mode, type Model, MODEL_IDS, modelOf, MODELS, modesOf, saveMode } from "./modes.ts";
 
 const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
 
@@ -71,25 +71,7 @@ async function ownerOf(req: Request): Promise<string | null> {
   return data?.user_id ?? null;
 }
 
-// The person's modes, in order; the starting set is copied in the first time.
-async function modesOf(userId: string): Promise<Mode[]> {
-  const sb = admin();
-  const { data, error } = await sb.from("scribe_modes").select("id,name,prompt,apps,model").eq("user_id", userId).order("sort").order("id");
-  if (error) throw error;
-  if (data.length) return data as Mode[];
-  const rows = STARTER_MODES.map((m, i) => ({ ...m, user_id: userId, sort: i * 10 }));
-  const { error: e2 } = await sb.from("scribe_modes").upsert(rows, { onConflict: "user_id,id", ignoreDuplicates: true });
-  if (e2) throw e2;
-  return STARTER_MODES;
-}
-
 const clean = (s: unknown, n: number) => (typeof s === "string" ? s.trim().slice(0, n) : "");
-const cleanApps = (a: unknown) =>
-  (Array.isArray(a) ? a : []).filter((x) => typeof x === "string" && x.trim()).map((x: string) => x.trim().slice(0, 100)).slice(0, 20);
-
-const MODEL_IDS: Record<Model, string> = { haiku: "claude-haiku-5-5", sonnet: "claude-sonnet-5-5", opus: "claude-opus-5-5" };
-const modelOf = (m: unknown): Model | null => (MODELS as unknown[]).includes(m) ? m as Model : null;
-
 async function ask(system: string, content: string, schema: { [key: string]: unknown }, model: Model = "opus"): Promise<Record<string, unknown>> {
   const request = {
     model: MODEL_IDS[model],
@@ -130,8 +112,6 @@ async function writeOut(form: FormData): Promise<string | Response> {
     return reply({ error: e.message, code: e.code ?? null }, e.status ?? 500);
   }
 }
-
-const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "mode";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers });
@@ -189,25 +169,13 @@ Deno.serve(async (req) => {
     }
 
     if (action === "save-mode" && body && typeof body.mode === "object" && body.mode) {
-      const m = body.mode as Record<string, unknown>;
-      const name = clean(m.name, 40);
-      if (!name) return reply({ error: "A mode needs a name." }, 400);
-      let id = clean(m.id, 40);
-      if (!id) { id = slug(name); while (modes.some((x) => x.id === id)) id = `${slug(name)}-${Math.floor(Math.random() * 1000)}`; }
-      const at = modes.findIndex((x) => x.id === id);
-      // A phone app from before models came in sends none: keep what the mode had.
-      const model = modelOf(m.model) ?? (at >= 0 ? modes[at].model : null) ?? "opus";
-      const row = { user_id: userId, id, name, prompt: clean(m.prompt, 2000), apps: cleanApps(m.apps), model, sort: at >= 0 ? at * 10 : modes.length * 10, updated_at: new Date().toISOString() };
-      const { error } = await admin().from("scribe_modes").upsert(row, { onConflict: "user_id,id" });
-      if (error) throw error;
-      return reply({ mode: { id, name: row.name, prompt: row.prompt, apps: row.apps, model } });
+      const saved = await saveMode(userId, modes, body.mode as Record<string, unknown>);
+      return typeof saved === "string" ? reply({ error: saved }, 400) : reply({ mode: saved });
     }
 
     if (action === "delete-mode" && body) {
-      if (modes.length <= 1) return reply({ error: "Keep at least one mode." }, 400);
-      const { error } = await admin().from("scribe_modes").delete().eq("user_id", userId).eq("id", clean(body.id, 40));
-      if (error) throw error;
-      return reply({ ok: true });
+      const why = await deleteMode(userId, modes, body.id);
+      return why ? reply({ error: why }, 400) : reply({ ok: true });
     }
 
     return reply({ error: "Not found" }, 404);
