@@ -10,7 +10,7 @@ const SYSTEM = `You help a writer and filmmaker look back over one day's page in
 
 Write two things.
 
-1. summary: three or four plain sentences on what the day was like and what was on their mind, in the second person ("You spent the morning..."). Warm but not gushing, no advice, no judging, nothing they didn't say.
+1. summary: what the day was like and what was on their mind, in the second person ("You spent the morning..."), in plain words. Its length follows the day: a light page gets a few sentences; a full page with many entries can take up to three or four short paragraphs (separated by a blank line), giving the context they need to make the choices below. Never pad it. Warm but not gushing, no advice, no judging, nothing they didn't say.
 
 2. threads: the things on the page someone might want to act on or come back to, each a short title and a one-sentence gist, with the labels of the lines it comes from. One thread can draw on several lines; a line can belong to only one thread. Leave out lines that are just a passing remark, a feeling already said in the summary, or something already done, unless there's something in it to keep. A day with nothing to act on has no threads. For each thread, suggest one of:
    - daybook: a concrete thing to do. Give the task a short title that starts with a verb, as they'd write it on their own list, and pick the area it belongs in from their areas (use its id), or "" if none clearly fits.
@@ -146,7 +146,7 @@ export function tidy(out: { summary?: string; threads?: Thread[]; still?: { mull
     const m = ctx.mulling[Number(String(s.mulling).replace(/^M/i, "")) - 1];
     if (m && !still.some((x) => x.id === m.id)) still.push({ id: m.id, note: str(s.note, 300).trim() });
   }
-  return { summary: str(out.summary, 2000).trim(), threads: threads.slice(0, 20), still: still.slice(0, 3) };
+  return { summary: str(out.summary, 6000).trim(), threads: threads.slice(0, 20), still: still.slice(0, 3) };
 }
 
 export async function review(client: Anthropic, body: ReviewBody): Promise<Response> {
