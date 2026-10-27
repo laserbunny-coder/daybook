@@ -240,9 +240,15 @@ function score(d, now, grace) {
   const first = Qs.find(q => q.s != null && q.st !== 'swiped'); if (relic('wood', d) && first?.st === 'kept') bonus += 5; // the Dawn Lantern
   if (mk?.st === 'kept') bonus += mk.g; // the dragon's mark, kept: double
   return { d, Qs, tw, mark: mk || null, total, bonus, you: held + bonus, dragon: total - held, bank: Qs.reduce((a, q) => a + q.bank, 0) + bonus, need: Math.ceil(total * WIN),
-    ember: tw === 'ember' && Qs.filter(q => q.st !== 'swiped').length < 3 };
+    ember: tw === 'ember' && Qs.filter(q => q.st !== 'swiped').length < 3, ...standsOf(Qs, total, bonus) };
 }
 
+/** Where the day's gold is: secured in the keep, still out in the field, or carried off by the dragon.
+    The keep holds as soon as enough is secured, and the day falls once too little is left out there to get there. */
+function standsOf(Qs, total, bonus) {
+  const secured = Qs.reduce((a, q) => a + q.bank, 0) + bonus, field = Qs.filter(q => q.st === 'open').reduce((a, q) => a + q.g, 0), need = Math.ceil(total * WIN);
+  return { secured, field, holds: total > 0 && secured >= need, falls: total > 0 && secured + field < need };
+}
 /** The whole realm as of now: every finished day since it began, today live, the vault, the dragon. */
 export function realm() {
   const T = today(), now = new Date(), start = Q.start || T, days = [];
@@ -289,8 +295,9 @@ function fallback(r, R) {
   if (lastTaken && r.dragon > 0 && Date.now() - lastTaken.by < 3 * 3600e3) return pick([`${lastTaken.n.t} went unguarded, so ${lastTaken.dragon} gold is mine. Check it off and I will give back half.`, `I took ${lastTaken.dragon} gold while ${lastTaken.n.t} sat there. Delicious.`], seed);
   if (r.mark?.st === 'open' && PHASE(m) === 'morning') return pick([`I have marked ${r.mark.n.t}. Keep it and it pays double. I'm betting you won't.`, `My mark is on ${r.mark.n.t} today. ${r.mark.g * 2} gold if you keep it. I like my odds.`], seed);
   if (r.dragon === 0) return PHASE(m) === 'morning' ? pick(['Morning. Every coin is still in your vault. I am patient.', `${r.total} gold on the table today. I only need you to look away once.`], seed) : pick(['Nothing for me yet. Annoying.', 'Still not a coin. I am getting hungry.'], seed);
-  if (r.you < r.need) return `I'm ahead of the line. You need ${r.need - r.you} back to hold the keep${next ? `, and ${next.n.t} is your next chance` : ''}.`;
-  return next ? `${r.you - r.need} above the line. ${next.n.t}${next.byMin != null ? ` is mine at ${fmtT(next.byMin)}` : ' is still out there'}.` : 'Not much left for me to take.';
+  if (r.holds) return pick([`Your keep holds today. Fine. I'll still take whatever you leave in the field${next ? `, starting with ${next.n.t}` : ''}.`, 'Your walls held. The rest of the field is still fair game.'], seed);
+  if (r.falls) return pick(['Too little left out there for you now. Today is mine. Rematch at dawn.', 'The day is mine. Sleep well, keeper. I know I will.'], seed);
+  return next ? `${r.need - r.secured} more to secure before your keep holds. ${next.n.t}${next.byMin != null ? ` is mine at ${fmtT(next.byMin)}` : ' is still out there'}.` : 'Not much left for me to take.';
 }
 const LINES = 'daybook-quest-lines';
 let asking = null, lastAsk = 0;
@@ -312,7 +319,7 @@ export function line(r, R) {
 async function askDragon(r, R, phase) {
   const facts = {
     time: fmtT(new Date().getHours() * 60 + new Date().getMinutes()), phase,
-    gold_on_table: r.total, you_hold: r.you, bonus_from_events_attended: r.bonus, dragon_has: r.dragon, need_to_win: r.need,
+    gold_on_table: r.total, secured_in_keep: r.secured, still_in_field: r.field, keep_already_holds_today: r.holds, day_already_lost: r.falls, you_hold_if_rest_kept: r.you, bonus_from_events_attended: r.bonus, dragon_has: r.dragon, need_to_win: r.need,
     dragons_mark: r.mark ? { quest: r.mark.n.t, state: r.mark.st, pays_if_kept: r.mark.g * 2 } : null,
     quests: r.Qs.map(q => ({ title: q.n.t, gold: q.g, ...(q.mark ? { marked: true } : {}), planned: q.s != null ? fmtT(q.s) : 'any time', swoops_at: q.byMin != null ? fmtT(q.byMin) : 'midnight', state: q.st })),
     dragon_form: DRAGONS[R.lvl].name, dragon_took_last_7_days: R.last7, your_win_streak: R.streak, dragon_hunting: R.hunt.name,
@@ -467,7 +474,7 @@ const RECKONED = 'daybook-keep-reckoned';
 /** Compares the day with how it looked last time, and plays what changed: gold into the keep, a dive, a new building. */
 function happenings(R) {
   const r = R.byDay.get(today()); if (!r) return;
-  const now = { d: r.d, st: new Map(r.Qs.map(q => [q.n.id, q.st])), built: villageAt(R.vault) };
+  const now = { d: r.d, st: new Map(r.Qs.map(q => [q.n.id, q.st])), built: villageAt(R.vault), holds: r.holds };
   fx = fx.filter(e => tick - e.t0 < 60);
   // midnight's reckoning: the first time the app is open on a new day, yesterday's verdict plays out at the gate
   const y = add(today(), -1), ry = R.byDay.get(y);
@@ -485,6 +492,7 @@ function happenings(R) {
       else if (p.st === 'taken' && was === 'open') dove = dove || p;
     }
     if (dove && !fx.some(e => e.kind === 'swoop' && tick - e.t0 < SWOOP)) { fx.push({ kind: 'swoop', t0: tick, slot: dove.slot, of: dove.of, g: dove.g }); sfx.roar(); }
+    if (now.holds && !seen.holds) { fx.push({ kind: 'held', t0: tick + 6 }); setTimeout(sfx.thud, 6 * 180 + 1400); setTimeout(sfx.fanfare, 6 * 180 + 1900); }
     if (now.built > seen.built) { fx.push({ kind: 'built', t0: tick }); setTimeout(sfx.fanfare, 900); }
   }
   seen = now;
@@ -516,7 +524,7 @@ const STORY = [
   ['Hold the Keep', 'Every day has a dragon: the hours that slip away. Here, it has wings, and it plays against you.'],
   ['Each dawn, the sun pays you the day', "Every quest on your plan, each task and habit, comes with gold, more for the longer ones. It's all yours from the start."],
   ['Do a quest, and its gold goes into your keep', 'Gold in the keep is safe. Over the weeks it builds your village, then a castle, then a kingdom.'],
-  ['Leave it out, and the dragon takes it', "Once a quest's time passes, the dragon circles for a while, then dives. Finish it late to chase down half. Keep most of the day's gold, and the keep holds."],
+  ['Leave it out, and the dragon takes it', "Once a quest's time passes, the dragon circles for a while, then dives. Finish it late to chase down half. Secure most of the day's gold, and the keep holds."],
 ];
 let step = null;
 export const help = () => { step = 0; };
@@ -536,11 +544,11 @@ const STATE_TXT = { kept: 'Safe in the keep', late: 'Chased down: half back', ta
 const moveTxt = q => q.free ? 'Moved for free: the Hydra Scale paid' : `${q.to ? 'Moved to ' + (q.to === today() ? 'today' : DAYN[pd(q.to).getDay()] + ' ' + pd(q.to).getDate()) : 'Taken off the plan'}, swiped`;
 export function html(d, R, opts = {}) {
   const r = dayView(d, R), T = today(), D = DRAGONS[R.lvl], H = R.hunt, C = d === today() ? R.camp : null, B = d === today() ? report(R) : null;
-  const pct = r.total ? Math.min(100, r.you / r.total * 100) : 100, linePct = WIN * 100;
+  const sec = r.ahead ? 0 : r.secured, fld = r.ahead ? r.total : r.field, all = Math.max(1, r.total + r.bonus), linePct = WIN * r.total / all * 100;
   const n = villageAt(R.vault), next = BUILDINGS[n];
   const said = esc(line(r, R));
-  const cap = r.rest ? 'No quests on this day' : r.ahead ? `${r.total} gold on the table` : r.dragon === 0 ? (d < T ? 'Not a coin lost' : 'All yours so far') : r.you >= r.need ? `${r.you - r.need} above the line` : `${r.need - r.you} below the line`;
-  const head = d < T && !r.before && !r.rest ? (r.win ? 'The keep held' : 'The dragon won') : d > T ? 'Quests ahead' : r.before ? 'Before the realm began' : '';
+  const cap = r.rest ? 'No quests on this day' : r.ahead ? `${r.total} gold will be out in the field` : r.holds ? (d < T ? `Held with ${sec - r.need} to spare` : `The keep holds${fld ? '. The rest still builds your village' : ''}`) : r.falls ? (d < T ? `${r.need - sec} short` : `Too little left out there to hold today`) : `${r.need - sec} more to hold the keep`;
+  const head = d < T && !r.before && !r.rest ? (r.win ? 'The keep held' : 'The dragon won') : d > T ? 'Quests ahead' : r.before ? 'Before the realm began' : d === T && r.holds ? 'The keep holds' : d === T && r.falls ? 'The day is lost' : '';
   const quest = q => {
     const nt = esc(q.n.t || 'Untitled'), cls = q.st === 'open' && !r.ahead && q === r.Qs.find(x => x.st === 'open') ? 'open next' : q.st;
     if (q.st === 'swiped') return `<div class="qx swiped"><span class="qx-t"></span><span class="qx-ck" aria-hidden="true"></span><button class="qx-n" data-act="open" data-id="${q.n.id}"><b>${nt}</b><small>${moveTxt(q)}</small></button><span class="qx-g">−${q.g}</span></div>`;
@@ -568,11 +576,11 @@ export function html(d, R, opts = {}) {
     ${R.ruins.length ? `<div class="q-ruin">The dragon burned your ${esc(listOf(R.ruins.map(b => b.toLowerCase())))}. Win a day to rebuild ${R.ruins.length > 1 ? 'one' : 'it'}.</div>`
       : R.lost % BURN_AFTER === BURN_AFTER - 1 && d === T && standing(R.vault).length > 1 ? `<div class="q-ruin warn">The dragon has broken your gate ${R.lost} nights running. Lose today and it gets in and burns your ${esc(standing(R.vault).slice(-1)[0].toLowerCase())}.</div>`
       : R.lost && d === T ? `<div class="q-ruin warn">At midnight the dragon smashed your gate. Hold the keep today and the villagers will patch it up.</div>` : ''}
-    ${head ? `<div class="q-head">${head}</div>` : ''}
+    ${head ? `<div class="q-head${head === 'The dragon won' || head === 'The day is lost' ? ' lost' : ''}">${head}</div>` : ''}
     <div class="q-score">
-      <div class="q-sides"><div><small>Your gold</small><b class="you">${r.you}</b></div><div class="r"><small>The dragon</small><b class="dr">${r.dragon}</b></div></div>
-      <div class="q-rope" role="img" aria-label="You hold ${r.you} of ${r.total} gold; keep ${r.need} to win"><i style="width:${pct.toFixed(1)}%"></i><u style="left:${linePct}%"></u></div>
-      <div class="q-cap"><span>${cap}</span><span>Keep ${r.need || 0} to hold</span></div>
+      <div class="q-sides"><div><small>In the keep</small><b class="you">${sec}</b></div><div class="m"><small>In the field</small><b class="fld">${fld}</b></div><div class="r"><small>The dragon's</small><b class="dr">${r.dragon}</b></div></div>
+      <div class="q-rope${r.holds ? ' holds' : ''}" role="img" aria-label="${sec} gold secured in the keep, ${fld} still in the field, ${r.dragon} taken by the dragon. Secure ${r.need} to hold the keep."><i style="width:${(sec / all * 100).toFixed(1)}%"></i><s style="width:${(r.dragon / all * 100).toFixed(1)}%"></s><u style="left:${linePct.toFixed(1)}%"></u></div>
+      <div class="q-cap"><span>${cap}</span><span>Secure ${r.need || 0} to hold</span></div>
       <div class="q-say"><i class="q-face" aria-hidden="true"></i><p>${said}</p></div>
     </div>
     <div class="q-bar"><button class="q-pill" data-act="q-kingdom"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 14V3m0 0h8l-2 2.5L11 8H3"/></svg>Kingdom</button><button class="q-pill" data-act="q-routine"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4.5h10M3 8h10M3 11.5h6"/></svg>${opts.noHabits ? 'Set up your routine' : 'Your habits'}</button>${opts.remind ? `<button class="q-pill${opts.remind.act === 'off' ? ' on' : ''}" data-act="q-remind" data-v="${opts.remind.act || 'info'}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M4 11V7a4 4 0 0 1 8 0v4l1 1.5H3z"/><path d="M6.5 14a1.6 1.6 0 0 0 3 0"/></svg>${opts.remind.act === 'off' ? 'Reminders on' : 'Reminders'}</button>` : ''}</div>
