@@ -3,6 +3,7 @@
 import * as quest from './quest.js';
 import { CAMPAIGN_DAYS, HOME, MARCH_AT, REGIONS, regionOf, TITLES } from './regions.js';
 import { esc, fmtShort } from './util.js';
+import { screen, mount } from './crt.js';
 
 let onChange = () => {}, sel = null, askRetreat = false, anim = 0;
 const el = document.createElement('div'); el.className = 'kg-sheet'; el.hidden = true; document.body.appendChild(el);
@@ -12,6 +13,7 @@ function close() { el.hidden = true; clearInterval(anim); }
 
 /* ---------- the map, in pixels ---------- */
 const W = 192, H = 112, ALL = [HOME, ...REGIONS];
+const mapSrc = Object.assign(document.createElement('canvas'), { width: W, height: H });
 const hash = (x, y) => { let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
 const owner = new Array(W * H);
 for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { // each pixel belongs to the nearest region's heart, with ragged borders
@@ -19,15 +21,31 @@ for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { // each pixel belongs 
   ALL.forEach((r, i) => { const d = (x - r.seed[0]) ** 2 + (y - r.seed[1]) ** 2 * 1.4 + (hash(x >> 3, y >> 3) - .5) * 700 + (hash(x >> 1, y >> 1) - .5) * 200; if (d < bd) { bd = d; best = i; } });
   owner[y * W + x] = best;
 }
+// The land itself, shaded like 16-bit terrain: hills lit from the upper left, ordered dithering between tones
+const RAMPS = {
+  vale: ['#1a2c14', '#24401a', '#325620', '#446c28', '#5c8632', '#7aa23e'], wood: ['#08160c', '#0e2414', '#163a1e', '#22522a', '#36703a', '#4e8a46'],
+  marsh: ['#1e2614', '#2c361a', '#3c4a22', '#4e5e2c', '#647438', '#7a8a48'], frost: ['#56627e', '#7a8aa4', '#9aaac4', '#bccae0', '#dce6f4', '#ffffff'],
+  storm: ['#0e1a2e', '#14243e', '#1c3252', '#264466', '#34587e', '#4a7098'], ember: ['#1a0a08', '#2e120c', '#461a10', '#5e2414', '#7a301a', '#9a4220'],
+  spires: ['#1e1a2e', '#2a2440', '#383054', '#4a406a', '#5e5482', '#7a6aa0'], fog: ['#3a3446', '#4a4456', '#5a5468', '#6a6478', '#7a748a', '#8a849a'] };
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(v => (v + .5) / 16);
+const lands = new Map();
+const hgt = (x, y) => Math.sin(x / 7.3) * Math.cos(y / 6.1) * 1.4 + Math.sin((x + y) / 4.1) * .8 + (hash(x >> 2, y >> 2) - .5) * 1.6 + (hash(x >> 1, y >> 1) - .5) * .7;
+function land(heldN) {
+  if (lands.has(heldN)) return lands.get(heldN);
+  const cv = Object.assign(document.createElement('canvas'), { width: W, height: H }), c = cv.getContext('2d');
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = owner[y * W + x], r = ALL[i], fog = r.locked && heldN < r.locked;
+    const edge = x > 0 && y > 0 && (owner[y * W + x - 1] !== i || owner[(y - 1) * W + x] !== i);
+    const Rm = RAMPS[fog ? 'fog' : r.id], l = .5 + (hgt(x - 1, y - 1) - hgt(x, y)) * .55 + (r.id === 'storm' ? Math.sin(x / 2 + y) * .08 : 0);
+    const f = Math.max(0, Math.min(.999, l)) * Rm.length, k = Math.floor(f), tone = Rm[Math.min(Rm.length - 1, f - k > BAYER[(y & 3) * 4 + (x & 3)] ? k + 1 : k)];
+    c.fillStyle = edge ? '#100c0a' : tone; c.fillRect(x, y, 1, 1);
+  }
+  lands.set(heldN, cv); return cv;
+}
 function paint(cv, R, t) {
   const c = cv.getContext('2d'), P = (col, x, y, w = 1, h = 1) => { c.fillStyle = col; c.fillRect(x, y, w, h); };
   const si = ALL.findIndex(r => r.id === sel), held = new Set(R.held), campId = R.camp?.id;
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const i = owner[y * W + x], r = ALL[i];
-    const edge = x > 0 && y > 0 && (owner[y * W + x - 1] !== i || owner[(y - 1) * W + x] !== i);
-    const fog = r.locked && R.held.length < r.locked;
-    P(edge ? '#15130f' : fog ? (hash(x, y) > .7 ? '#6a6478' : '#4a4456') : hash(x, y) > .85 ? r.col[1] : r.col[0], x, y);
-  }
+  c.drawImage(land(R.held.length), 0, 0);
   for (let y = 4; y < H - 4; y += 6) for (let x = 3; x < W - 4; x += 7) { // a little terrain
     const r = ALL[owner[y * W + x]], n = hash(x * 3, y * 7); if (n < .5) continue; const ox = x + Math.round(n * 3);
     if (r.id === 'wood' || r.id === 'vale') { P('#14301c', ox - 1, y - 1, 3, 2); P('#14301c', ox, y - 2); P('#4a3220', ox, y + 1); }
@@ -76,15 +94,15 @@ function draw() {
   const R = quest.realm(), rank = TITLES.indexOf(R.title);
   el.innerHTML = `<div class="kg-bg" data-kg="close"></div><div class="kg-panel" role="dialog" aria-label="Your kingdom">
     <div class="kg-top"><div><small>${esc(R.title)}</small><b>Your kingdom</b></div><button class="rt-x" data-kg="close" aria-label="Close">×</button></div>
-    <div class="kg-map"><canvas id="kg-map" width="${W}" height="${H}" aria-label="Map of the kingdom"></canvas><span class="kg-held">${R.held.length} of ${REGIONS.length} held</span></div>
+    <div class="kg-map"><div id="kg-map"></div><span class="kg-held">${R.held.length} of ${REGIONS.length} held</span></div>
     <div class="kg-picks">${REGIONS.map(r => `<button class="kg-pick${r.id === sel ? ' on' : ''}${R.held.includes(r.id) ? ' held' : ''}" data-kg="pick" data-id="${r.id}">${esc(r.name)}</button>`).join('')}</div>
     ${regionCard(R)}
     <div class="kg-titles">${TITLES.map((t, i) => `<span class="${i === rank ? 'cur' : i < rank ? 'past' : ''}">${esc(t)}</span>`).join('<i>›</i>')}</div>
   </div>`;
-  const cv = el.querySelector('#kg-map'); let t = 0; paint(cv, R, t);
-  clearInterval(anim); if (!matchMedia('(prefers-reduced-motion: reduce)').matches) anim = setInterval(() => { if (el.hidden || !cv.isConnected) { clearInterval(anim); return; } paint(cv, R, ++t); }, 500);
-  cv.addEventListener('click', e => { const b = cv.getBoundingClientRect(), x = Math.floor((e.clientX - b.left) / b.width * W), y = Math.floor((e.clientY - b.top) / b.height * H);
-    const r = ALL[owner[y * W + x]]; if (r && r.id !== 'vale') { sel = r.id; askRetreat = false; draw(); } });
+  const scr = screen('map', W, H), cv = scr.cv; let t = 0; paint(mapSrc, R, t); scr.show(mapSrc); mount(scr, el.querySelector('#kg-map'), 'Map of the kingdom');
+  clearInterval(anim); if (!matchMedia('(prefers-reduced-motion: reduce)').matches) anim = setInterval(() => { if (el.hidden || !cv.isConnected) { clearInterval(anim); return; } paint(mapSrc, R, ++t); scr.show(mapSrc); }, 400);
+  cv.onclick = e => { const b = cv.getBoundingClientRect(), x = Math.floor((e.clientX - b.left) / b.width * W), y = Math.floor((e.clientY - b.top) / b.height * H);
+    const r = ALL[owner[y * W + x]]; if (r && r.id !== 'vale') { sel = r.id; askRetreat = false; draw(); } };
 }
 el.addEventListener('click', e => {
   const b = e.target.closest('[data-kg]'); if (!b) return;

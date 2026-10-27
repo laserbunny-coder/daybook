@@ -11,6 +11,8 @@ import { hasKids, isDone } from './tree.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { add, DAYN, esc, fmtT, lsGet, lsSet, pd, today, weekStart, daysBetween } from './util.js';
 import { CAMPAIGN_DAYS, MARCH_AT, REGIONS, regionOf, titleFor } from './regions.js';
+import { paint, phaseOf, SW, SH } from './scene16.js';
+import { screen, mount } from './crt.js';
 
 const KEY = 'daybook-quest';
 const WIN = 0.7;
@@ -168,8 +170,8 @@ export const BUILDINGS = [
 ];
 const dragonAt = hoard => { let i = 0; DRAGONS.forEach((x, j) => { if (hoard >= x.at) i = j; }); return i; };
 export const villageAt = vault => BUILDINGS.filter(b => vault >= b[0]).length; // how many buildings stand
-// The buildings you can see, oldest first: a castle replaces the keep, and the campfire goes once the keep stands
-const standing = vault => { const up = BUILDINGS.slice(0, villageAt(vault)).map(b => b[1]); return up.filter(b => !(b === 'Stone keep' && up.includes('Castle')) && !(b === 'Campfire' && up.includes('Stone keep'))); };
+// The buildings you can see, oldest first: the castle replaces the keep and its walls, the keep the campfire, the walls the tent
+const standing = vault => { const up = BUILDINGS.slice(0, villageAt(vault)).map(b => b[1]); return up.filter(b => !(b === 'Stone keep' && up.includes('Castle')) && !(b === 'Campfire' && up.includes('Stone keep')) && !(b === 'Tent' && up.includes('Castle walls')) && !(b === 'Castle walls' && up.includes('Castle'))); };
 
 const plannedDay = n => (n.pl ? n.pl.day : n.d) ?? null;
 const doneAt = n => { const e = (n.tl || []).filter(x => x.end).pop(); return e ? new Date(e.end) : null; };
@@ -337,99 +339,17 @@ export function week(R, anchor = today()) {
   });
 }
 
-/* ---------- the picture: the village and the dragon, in pixels ---------- */
-const DRAGON = [ // facing left; k body, d dark, e eye, w wing, f belly
-  '...........ww...',
-  '..........wwww..',
-  '.........wwwwww.',
-  '..kk....wwwwwww.',
-  '.kekk...wwwwww..',
-  'kkkkkk.kkkwww...',
-  '...kkkkkkkkkk...',
-  '....kfffkkkkkkk.',
-  '....kkkkkkk..kkk',
-  '....d.d..d.d...k',
-];
-const DRAGON_UP = [
-  '................',
-  '................',
-  '..kk............',
-  '.kekk...wwwwww..',
-  'kkkkkk.wwwwwwwww',
-  '...kkkkkkwwwwww.',
-  '....kfffkkkkkkk.',
-  '....kkkkkkk..kkk',
-  '....d.d..d.d...k',
-  '................',
-];
-const SKY = {
-  night: ['#0d1026', '#141836', '#1b2046', '#232858'], dawn: ['#2b2a4a', '#5a3f5e', '#a2596a', '#e08f6e'],
-  day: ['#4f86b8', '#6a9cc8', '#8ab3d6', '#b5cfe2'], dusk: ['#2a2346', '#5b3157', '#a44b4e', '#d9784a'],
-};
-const skyOf = m => m < 6 * 60 || m >= 21 * 60 ? 'night' : m < 8 * 60 ? 'dawn' : m < 18 * 60 ? 'day' : 'dusk';
-function sprite(c, rows, x, y, s, pal) {
-  rows.forEach((row, j) => [...row].forEach((ch, i) => { if (ch !== '.') { c.fillStyle = pal[ch]; c.fillRect(x + i * s, y + j * s, s, s); } }));
+/* ---------- the picture: the village (or a campaign camp) and the dragon, in 16-bit (scene16.js, crt.js) ---------- */
+const CAMP = [[0, 'Campfire'], [40, 'Tent'], [100, 'Hut'], [180, 'Well'], [280, 'Watchtower']]; // a campaign's camp grows on the gold kept there
+const src = typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: SW, height: SH }) : null;
+/** What the picture shows right now. */
+export function sceneOf(R) {
+  const C = R.camp?.begun ? R.camp : null, m = new Date().getHours() * 60 + new Date().getMinutes();
+  const held = REGIONS.filter(x => R.held.includes(x.id));
+  return C ? { land: C.id === 'spires' ? 'spires' : C.id, phase: phaseOf(m), buildings: CAMP.filter(b => C.gold >= b[0]).map(b => b[1]), ruins: [], held, lvl: R.lvl, hoard: R.last7, gold: 0, camp: true, campInk: C.reg.ink }
+    : { land: 'vale', phase: phaseOf(m), buildings: standing(R.vault), ruins: R.ruins, held, lvl: R.lvl, hoard: R.last7, gold: R.vault };
 }
-const R_ = (c, col, x, y, w, h) => { c.fillStyle = col; c.fillRect(x, y, w, h); };
-function roof(c, col, x, y, w) { for (let i = 0; i < Math.ceil(w / 2); i++) R_(c, col, x + i, y - i, w - i * 2, 1); }
-// Each building draws itself standing on the ground line g, from its left edge x
-const DRAW = {
-  'Campfire': (c, x, g, t) => { R_(c, '#5b3a22', x, g - 2, 7, 2); R_(c, '#f2a33a', x + 2, g - 5 - (t % 2), 3, 3); R_(c, '#ffe08a', x + 3, g - 4, 1, 2); },
-  'Tent': (c, x, g) => { for (let i = 0; i < 6; i++) R_(c, i < 3 ? '#c9b48a' : '#a8916a', x + i, g - 6 + Math.abs(3 - i), 1, 6 - Math.abs(3 - i)); R_(c, '#3a2a1a', x + 3, g - 3, 1, 3); },
-  'Hut': (c, x, g) => { R_(c, '#8a6440', x, g - 6, 9, 6); roof(c, '#b8873a', x - 1, g - 7, 11); R_(c, '#3a2a1a', x + 4, g - 4, 2, 4); },
-  'Well': (c, x, g) => { R_(c, '#7c7f86', x, g - 3, 6, 3); R_(c, '#5b3a22', x, g - 8, 1, 5); R_(c, '#5b3a22', x + 5, g - 8, 1, 5); R_(c, '#9c4a32', x - 1, g - 9, 8, 1); },
-  'Farm': (c, x, g) => { for (let i = 0; i < 4; i++) R_(c, i % 2 ? '#6c8a3a' : '#d9b54a', x + i * 3, g - 2, 3, 2); R_(c, '#8a2f2a', x + 3, g - 9, 7, 7); roof(c, '#5a2220', x + 2, g - 10, 9); },
-  'Watchtower': (c, x, g) => { R_(c, '#7c7f86', x + 1, g - 16, 5, 16); R_(c, '#7c7f86', x, g - 18, 7, 2); [0, 2, 4, 6].forEach(i => R_(c, '#7c7f86', x + i, g - 19, 1, 1)); R_(c, '#1a1a24', x + 3, g - 12, 1, 2); },
-  'Mill': (c, x, g, t) => { R_(c, '#c9b48a', x + 1, g - 11, 6, 11); roof(c, '#8a6440', x, g - 12, 8); const k = t % 2; R_(c, '#e8e2d6', x + 3 - 4 * k, g - 13, 1 + 8 * k, 1 + 0 * k); R_(c, '#e8e2d6', x + 3, g - 17 + 4 * (1 - k), 1, 1 + 8 * (1 - k)); },
-  'Smithy': (c, x, g, t) => { R_(c, '#6a5a4a', x, g - 7, 10, 7); roof(c, '#3a3440', x - 1, g - 8, 12); R_(c, '#3a3440', x + 7, g - 12, 2, 4); R_(c, t % 2 ? '#f2a33a' : '#c46a2a', x + 2, g - 4, 3, 2); },
-  'Stone keep': (c, x, g) => { R_(c, '#8e9098', x, g - 16, 14, 16); [0, 3, 6, 9, 12].forEach(i => R_(c, '#8e9098', x + i, g - 18, 2, 2)); R_(c, '#2a2430', x + 5, g - 6, 4, 6); R_(c, '#2a2430', x + 3, g - 12, 1, 2); R_(c, '#2a2430', x + 10, g - 12, 1, 2); R_(c, '#5b3a22', x + 6, g - 25, 1, 7); R_(c, '#e3b663', x + 7, g - 25, 4, 3); },
-  'Market': (c, x, g) => { [['#b8473a', 0], ['#3a6ab8', 6]].forEach(([col, o]) => { R_(c, '#8a6440', x + o, g - 4, 5, 4); R_(c, col, x + o - 1, g - 6, 7, 2); }); },
-  'Castle walls': (c, x, g) => { R_(c, '#7c7f86', x, g - 7, 22, 7); for (let i = 0; i < 22; i += 3) R_(c, '#7c7f86', x + i, g - 9, 2, 2); R_(c, '#2a2430', x + 9, g - 5, 4, 5); },
-  'Great hall': (c, x, g) => { R_(c, '#a0927e', x, g - 10, 16, 10); roof(c, '#5a2220', x - 1, g - 11, 18); for (let i = 2; i < 16; i += 4) R_(c, '#e3b663', x + i, g - 7, 2, 3); },
-  'Castle': (c, x, g) => { R_(c, '#9a9ca6', x, g - 24, 8, 24); R_(c, '#9a9ca6', x + 18, g - 24, 8, 24); R_(c, '#8e9098', x + 6, g - 18, 14, 18); [0, 3, 6, 18, 21, 24].forEach(i => R_(c, '#9a9ca6', x + i, g - 26, 2, 2)); roof(c, '#3a6ab8', x - 1, g - 25, 10); roof(c, '#3a6ab8', x + 17, g - 25, 10); R_(c, '#2a2430', x + 11, g - 7, 4, 7); },
-};
-// Where each building stands, left to right; the keep and castle take the middle
-const SLOTS = { 'Campfire': 70, 'Tent': 58, 'Hut': 44, 'Well': 82, 'Farm': 22, 'Watchtower': 6, 'Mill': 92, 'Smithy': 30, 'Stone keep': 62, 'Market': 80, 'Castle walls': 52, 'Great hall': 34, 'Castle': 58 };
-const ORDER = ['Farm', 'Watchtower', 'Great hall', 'Smithy', 'Hut', 'Castle walls', 'Tent', 'Stone keep', 'Castle', 'Campfire', 'Market', 'Well', 'Mill'];
-const W_ = 160, H_ = 64;
-// A burned building: drawn on its own, charred, with smoke rising and an ember or two
-let scratch = null;
-function ruin(c, b, g, t) {
-  scratch = scratch || Object.assign(document.createElement('canvas'), { width: W_, height: H_ });
-  const o = scratch.getContext('2d'); o.globalCompositeOperation = 'source-over'; o.clearRect(0, 0, W_, H_);
-  DRAW[b](o, SLOTS[b], g, 0);
-  o.globalCompositeOperation = 'source-atop'; o.fillStyle = 'rgba(24,16,14,.78)'; o.fillRect(0, 0, W_, H_);
-  const px = o.getImageData(0, 0, W_, H_).data; let x0 = W_, x1 = 0, y0 = H_;
-  for (let y = 0; y < H_; y++) for (let x = 0; x < W_; x++) if (px[(y * W_ + x) * 4 + 3]) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); }
-  c.drawImage(scratch, 0, 0);
-  if (x1 < x0) return;
-  const mx = Math.round((x0 + x1) / 2);
-  for (let i = 0; i < 4; i++) { const k = (t + i) % 4; R_(c, `rgba(140,134,128,${0.55 - k * 0.12})`, mx - 1 + ((i + t) % 3) - 1, y0 - 2 - k * 3, 2, 2); }
-  R_(c, t % 2 ? '#f2a33a' : '#c4503a', x0 + 1 + (t % 3), g - 2, 1, 1); R_(c, '#c4503a', x1 - 1 - (t % 2), g - 3, 1, 1);
-}
-export function draw(canvas, R, tick = 0) {
-  const c = canvas.getContext('2d'); if (!c) return;
-  const m = new Date().getHours() * 60 + new Date().getMinutes(), sky = SKY[skyOf(m)], g = 56;
-  sky.forEach((col, i) => R_(c, col, 0, i * 12, W_, 12)); R_(c, sky[3], 0, 48, W_, 16);
-  if (skyOf(m) === 'night') for (let i = 0; i < 22; i++) R_(c, '#e8e2d6', (i * 37) % W_, (i * 13) % 34, 1, 1);
-  else { const sx = skyOf(m) === 'day' ? 24 + (m - 480) / 600 * 110 : skyOf(m) === 'dawn' ? 18 : 140; R_(c, '#ffe9a8', sx, 10, 5, 5); R_(c, '#ffe9a8', sx - 1, 11, 7, 3); }
-  // far hills, and the dragon's crag on the right
-  for (let x = 0; x < W_; x++) { const h = 8 + Math.round(4 * Math.sin(x / 9) + 3 * Math.sin(x / 4.3)); R_(c, '#3b4a52', x, g - h, 1, h); }
-  for (let x = 112; x < W_; x++) { const h = Math.max(0, Math.round(28 - Math.abs(x - 140) * 1.1)); R_(c, '#2e3540', x, g - h, 1, h); }
-  R_(c, '#3f5a2e', 0, g, W_, H_ - g); R_(c, '#567a3a', 0, g, W_, 1);
-  const shown = standing(R.vault), ruins = R.ruins || [];
-  ORDER.filter(b => shown.includes(b)).forEach(b => ruins.includes(b) ? ruin(c, b, g, tick) : DRAW[b](c, SLOTS[b], g, tick));
-  // the vault's gold, piled by the keep
-  const pile = Math.min(6, Math.floor(R.vault / 200));
-  for (let i = 0; i <= pile; i++) R_(c, i % 2 ? '#e3b663' : '#c99a3a', 100 - i, g - 1 - Math.floor(i / 2), 2 + i * 2 > 10 ? 10 : 2 + i * 2, 1);
-  // the dragon on its crag, bigger as it feeds; its hoard beneath
-  const lvl = R.lvl, s = lvl >= 2 ? 3 : 2, pal = { k: lvl >= 3 ? '#a8302a' : '#c4503a', d: '#5a1a16', e: '#ffe08a', w: lvl >= 3 ? '#6a1e2a' : '#8a3a3a', f: '#e3b663' };
-  const dx = 160 - 16 * s - 4, dy = g - 28 - 10 * s + (lvl >= 1 ? 0 : 6) + (tick % 2);
-  sprite(c, tick % 2 ? DRAGON_UP : DRAGON, dx, dy, s, pal);
-  const hp = Math.min(8, Math.ceil(R.last7 / 25));
-  for (let i = 0; i < hp; i++) R_(c, '#e3b663', 136 + (i % 4) * 3, g - 3 - Math.floor(i / 4) * 2, 2, 1);
-  if (lvl >= 1 && tick % 4 === 0) { R_(c, '#f2a33a', dx - 3 * s, dy + 5 * s, 3 * s, s); R_(c, '#ffe08a', dx - 5 * s, dy + 5 * s, 2 * s, s); }
-}
+export function draw(R, tick = 0) { const scr = screen('quest', SW, SH); paint(src, sceneOf(R), tick); scr.show(src); return scr; }
 
 /* ---------- the view ---------- */
 /** The campaign under way, or how the last one ended (shown the day it was settled). */
@@ -480,7 +400,7 @@ export function html(d, R, opts = {}) {
   const wk = week(R, d).map(w => `<div class="qw-d${w.d === d ? ' on' : ''}"><i class="${w.res === 'W' ? 'w' : w.res === 'L' ? 'l' : w.res === 'rest' ? 'r' : w.res === 'live' ? 't' : ''}">${w.res === 'W' || w.res === 'L' ? w.res : w.res === 'rest' ? '–' : w.res === 'live' ? '•' : ''}</i>${DAYN[pd(w.d).getDay()]}</div>`).join('');
   const wins = week(R, d).filter(w => w.res === 'W').length, losses = week(R, d).filter(w => w.res === 'L').length;
   return `<div class="qv">
-    <div class="q-scene"><canvas id="q-canvas" width="${W_}" height="${H_}" aria-label="Your village${n ? ': ' + BUILDINGS.slice(0, n).map(b => b[1]).join(', ') : ''}, and the dragon on its crag"></canvas>
+    <div class="q-scene"><div id="q-canvas" class="q-tv" data-label="${esc(C?.begun ? `Your camp in ${C.reg.name}` : `Your village${n ? ': ' + BUILDINGS.slice(0, n).map(b => b[1]).join(', ') : ''}`)}, and the dragon on its crag"></div>
       <div class="q-tags"><span>${esc(C?.begun ? C.reg.name : BUILDINGS[n - 1]?.[1] || 'Campfire')}${R.streak ? ` · ${R.streak} day streak` : ''}</span><span class="dr">${esc(C?.begun ? C.reg.dragon : D.name)}</span></div></div>
     ${campCard(C, R)}
     ${R.ruins.length ? `<div class="q-ruin">The dragon burned your ${esc(listOf(R.ruins.map(b => b.toLowerCase())))}. Win a day to rebuild ${R.ruins.length > 1 ? 'one' : 'it'}.</div>`
@@ -507,9 +427,9 @@ export function html(d, R, opts = {}) {
 let anim = 0, tick = 0;
 /** Starts the picture moving (a slow flap and flicker), and stops when it's gone from the page. */
 export function mounted(R) {
-  cancelAnimationFrame(anim); clearInterval(anim);
-  const cv = document.getElementById('q-canvas'); if (!cv) return;
-  draw(cv, R, tick);
+  clearInterval(anim);
+  const el = document.getElementById('q-canvas'); if (!el) return;
+  mount(draw(R, tick), el, el.dataset.label);
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  anim = setInterval(() => { const el = document.getElementById('q-canvas'); if (!el) { clearInterval(anim); return; } tick++; draw(el, R, tick); }, 700);
+  anim = setInterval(() => { if (!document.getElementById('q-canvas')) { clearInterval(anim); return; } tick++; draw(R, tick); }, 180);
 }
