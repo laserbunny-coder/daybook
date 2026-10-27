@@ -4,7 +4,8 @@
 // late wins back half. Keep 70% and you win the day. Kept gold builds your village over the weeks;
 // the gold the dragon took lately is what it grows on, and a bigger dragon swoops sooner.
 // Everything here is worked out from the plan itself (planned day and time, when it was checked off),
-// so nothing new is stored but the day the realm began.
+// so nothing new is stored but the day the realm began, and the swipes: moving a quest off its day
+// doesn't dodge the dragon, it still takes a quarter of the gold (all of it, if it had already taken it).
 import * as store from './store.js';
 import { hasKids, isDone } from './tree.js';
 import { add, DAYN, esc, fmtT, lsGet, lsSet, pd, today, weekStart, daysBetween } from './util.js';
@@ -12,18 +13,42 @@ import { add, DAYN, esc, fmtT, lsGet, lsSet, pd, today, weekStart, daysBetween }
 const KEY = 'daybook-quest';
 const WIN = 0.7;
 let client = null, onUpdate = () => {};
-let Q = { start: null, ...lsGet(KEY, {}) };
+let Q = { start: null, swipes: {}, ...lsGet(KEY, {}) };
+let me = null;
 const saveQ = () => lsSet(KEY, Q);
 
 export function init(o) { client = o.client ?? client; onUpdate = o.update ?? onUpdate; }
 /** The day the realm began: set the first time Quest is opened, and kept on the account so every device agrees. */
 export function begin(u) {
+  me = u || null;
+  const sw = u?.user_metadata?.quest_swipes; // swipes made on another device
+  if (sw) for (const [d, m] of Object.entries(sw)) Q.swipes[d] = { ...m, ...Q.swipes[d] };
   const theirs = u?.user_metadata?.quest_start;
   if (theirs && theirs !== Q.start && (!Q.start || theirs < Q.start)) { Q.start = theirs; saveQ(); }
   if (!Q.start) { Q.start = today(); saveQ(); }
   if (client && u && theirs !== Q.start) client.auth.updateUser({ data: { quest_start: Q.start } }).catch(() => {});
 }
 export const started = () => Q.start;
+
+/** Called for each change the person makes. A quest that leaves a day that has come (today or before) without being
+    checked off is swiped: a quarter of its gold, or all of it once the dragon had taken it. Putting it back undoes the swipe. */
+export function moved(id, before, after) {
+  if (!Q.start || !('d' in before) || before.d == null || after.done || before.done) return;
+  const T = today(), d = before.d; if (d > T || d < Q.start || after.d === d) return;
+  const n = store.get(id) || skipped(id); if (!n || n.done || n.k === 'area' || n.r) return;
+  if (Q.swipes[d]?.[id]) return;
+  const s = 's' in before ? before.s : n.s, m = ('m' in before ? before.m : n.m) ?? 60, g = gold(m);
+  const lvl = realm().lvl, end = s != null ? Math.min(s + m + DRAGONS[lvl].grace, 24 * 60) : 24 * 60;
+  const taken = d < T || new Date() > at(d, end);
+  (Q.swipes[d] = Q.swipes[d] || {})[id] = { t: n.t || 'Untitled', g: taken ? g : Math.max(2, Math.round(g / 4)) };
+  for (const k of Object.keys(Q.swipes)) if (daysBetween(k, T) > 21) delete Q.swipes[k];
+  saveQ();
+  if (client && me) client.auth.updateUser({ data: { quest_swipes: Q.swipes } }).then(({ data }) => { if (data?.user) me = data.user; }).catch(() => {});
+}
+// The swipes that still stand on day d: the quest is still off that day
+const skipped = id => { const n = store.peek(id); return n?.x && n.rs ? n : null; }; // a repeat skipped for the day
+const swipesOn = d => Object.entries(Q.swipes[d] || {}).filter(([id]) => { const n = store.get(id) || skipped(id); return !n || n.done && plannedDay(n) === d ? false : plannedDay(n) !== d; })
+  .map(([id, w]) => { const n = store.get(id) || skipped(id); return { n: n || { id, t: w.t }, s: null, m: 0, g: w.g, st: 'swiped', you: 0, dragon: w.g, bank: 0, to: n?.d ?? null }; });
 
 /* ---------- the rules ---------- */
 export function gold(m) { m = m || 60; return m <= 15 ? 5 : m <= 30 ? 10 : m <= 60 ? 15 : m <= 90 ? 20 : m <= 150 ? 25 : 30; }
@@ -67,7 +92,7 @@ function judge(q, d, now, grace) {
   return q;
 }
 function score(d, now, grace) {
-  const Qs = questsOn(d).map(q => judge(q, d, now, grace));
+  const Qs = questsOn(d).map(q => judge(q, d, now, grace)).concat(swipesOn(d));
   const total = Qs.reduce((a, q) => a + q.g, 0), you = Qs.reduce((a, q) => a + q.you, 0);
   return { d, Qs, total, you, dragon: total - you, bank: Qs.reduce((a, q) => a + q.bank, 0), need: Math.ceil(total * WIN) };
 }
@@ -233,6 +258,7 @@ export function draw(canvas, R, tick = 0) {
 
 /* ---------- the view ---------- */
 const STATE_TXT = { kept: 'Kept', late: 'Late, half back', taken: 'Taken', open: '' };
+const moveTxt = q => `${q.to ? 'Moved to ' + (q.to === today() ? 'today' : DAYN[pd(q.to).getDay()] + ' ' + pd(q.to).getDate()) : 'Taken off the plan'}, swiped`;
 export function html(d, R, opts = {}) {
   const r = dayView(d, R), T = today(), D = DRAGONS[R.lvl];
   const pct = r.total ? r.you / r.total * 100 : 100, linePct = WIN * 100;
@@ -242,6 +268,7 @@ export function html(d, R, opts = {}) {
   const head = d < T && !r.before && !r.rest ? (r.win ? 'The keep held' : 'The dragon won') : d > T ? 'Quests ahead' : r.before ? 'Before the realm began' : '';
   const rows = r.Qs.map(q => {
     const nt = esc(q.n.t || 'Untitled'), cls = q.st === 'open' && !r.ahead && q === r.Qs.find(x => x.st === 'open') ? 'open next' : q.st;
+    if (q.st === 'swiped') return `<div class="qx swiped"><span class="qx-t"></span><span class="qx-ck" aria-hidden="true"></span><button class="qx-n" data-act="open" data-id="${q.n.id}"><b>${nt}</b><small>${moveTxt(q)}</small></button><span class="qx-g">−${q.g}</span></div>`;
     const sub = q.st === 'open' ? (q.byMin != null ? `Dragon swoops at ${fmtT(q.byMin)}` : 'Any time today') : q.st === 'taken' ? 'Taken by the dragon. Check it off to win half back' : STATE_TXT[q.st];
     const pts = q.st === 'taken' ? `−${q.g}` : q.st === 'late' ? `+${q.you}` : `${q.st === 'kept' ? '+' : ''}${q.g}`;
     return `<div class="qx ${cls}" data-id="${q.n.id}"><span class="qx-t">${q.s != null ? fmtT(q.s) : ''}</span><button class="qx-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Mark ${nt} ${q.done ? 'not done' : 'done'}"></button><button class="qx-n" data-act="open" data-id="${q.n.id}"><b>${nt}</b>${r.ahead ? '' : `<small>${sub}</small>`}</button><span class="qx-g">${pts}</span></div>`;
