@@ -1,7 +1,7 @@
 // Keeps the app opening instantly and working offline. Data requests to
 // Supabase and Google always go to the network.
-const VERSION = 'daybook-v2';
-const SHELL = ['./', 'index.html', 'app.css', 'manifest.webmanifest', 'js/app.js', 'js/store.js', 'js/calendar.js', 'js/ai.js', 'js/tree.js', 'js/util.js', 'js/roadmap.js', 'js/repeat.js', 'js/track.js', 'js/stats.js', 'js/notes.js', 'js/voice.js', 'js/quest.js', 'js/vendor/supabase.js', 'icons/icon-192.png'];
+const VERSION = 'daybook-v3';
+const SHELL = ['./', 'index.html', 'app.css', 'manifest.webmanifest', 'js/app.js', 'js/store.js', 'js/calendar.js', 'js/ai.js', 'js/tree.js', 'js/util.js', 'js/roadmap.js', 'js/repeat.js', 'js/track.js', 'js/stats.js', 'js/notes.js', 'js/voice.js', 'js/quest.js', 'js/remind.js', 'js/routine.js', 'js/vendor/supabase.js', 'icons/icon-192.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
@@ -22,4 +22,18 @@ self.addEventListener('fetch', e => {
     if (res.ok || res.type === 'opaque') { const copy = res.clone(); caches.open(VERSION).then(c => c.put(e.request, copy)); }
     return res;
   }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(r => r || caches.match('index.html'))));
+});
+
+// Reminders (js/remind.js): the server pushes a title and a line; tapping one opens Daybook on Quest.
+self.addEventListener('push', e => {
+  let d = {}; try { d = e.data ? e.data.json() : {}; } catch { d = { body: e.data?.text() }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Daybook', { body: d.body || '', tag: d.tag || undefined, renotify: !!d.tag, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', data: { url: d.url || './' } }));
+});
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = new URL(e.notification.data?.url || './', self.registration.scope).href;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(ws => {
+    const w = ws.find(c => c.url.startsWith(self.registration.scope));
+    return w ? w.navigate(url).then(c => (c || w).focus()).catch(() => w.focus()) : self.clients.openWindow(url);
+  }));
 });

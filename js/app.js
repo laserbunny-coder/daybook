@@ -8,6 +8,8 @@ import * as stats from './stats.js';
 import * as track from './track.js';
 import * as notes from './notes.js';
 import * as quest from './quest.js';
+import * as remind from './remind.js';
+import * as routine from './routine.js';
 import { cleanRule, ruleText, splitOcc, WEEK } from './repeat.js';
 import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fd, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
 import { ancestors, children, colorOf, dayItems, glow, hasKids, ink, look, isDone, isProj, leaves, node, PALETTE, progress, rootOf } from './tree.js';
@@ -610,7 +612,7 @@ let QR = null;
 function questHTML(d) {
   QR = quest.realm();
   const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a quest to ${esc(dayShort(d))}"><span aria-hidden="true">+</span> Add a quest</button>`;
-  return quest.html(d, QR, { adder });
+  return quest.html(d, QR, { adder, noHabits: !routine.habits().length, remind: remind.state() });
 }
 /* The "Any time" row is only as tall as the busiest day on screen, not the busiest of the days drawn off to either side.
    Should a day still outgrow its cap, it scrolls inside its own cell, fading at the foot to show there's more. */
@@ -1284,6 +1286,8 @@ document.addEventListener('click', e => {
     case 'delete-all': { const s = store.seriesOf(node(S.open)); S.open = null; S.confirmDel = false; if (s) { store.remove(s.id); toast(`Deleted ${s.t || 'item'} and all its repeats`); } break; }
     case 'color': store.update(S.open, { c: b.dataset.c }); break;
     case 'toggle': toggle(id); break;
+    case 'q-routine': routine.open(); break;
+    case 'q-remind': if (b.dataset.v === 'on') remind.enable(later).then(r => { if (r === 'on') toast('Reminders are on. A test one is on its way.'); else if (r === 'error') toast("Couldn't turn reminders on. Try again in a moment."); }); else remind.disable(later); break;
     case 'rec': if (track.isRec(node(id))) track.stop(id); else track.start(id); break;
     case 'rec-stop': { const r = track.running(); if (r) track.stop(r.id); break; }
     case 'rec-done': { const r = track.running(); if (r) toggle(r.id); break; }
@@ -1768,22 +1772,26 @@ function showWelcome(show) { document.getElementById('welcome').hidden = !show; 
 function enterDemo() {
   S.demo = true; saveUI(); user = null; showWelcome(false);
   store.useLocal('daybook-sample', store.sampleData); calendar.useSample(); notes.useLocal(['s4', 's3', 's26']);
-  initAI({ cloud: false, client: null }); quest.init({ client: null }); if (S.mode === 'quest') quest.begin(null); render();
+  initAI({ cloud: false, client: null }); quest.init({ client: null }); remind.init(null); routine.init({ client: null }); if (S.mode === 'quest') quest.begin(null); render();
 }
 async function enterCloud(u) {
   user = u; S.demo = false; if (u.user_metadata?.free_hours) S.free = u.user_metadata.free_hours; saveUI(); showWelcome(false);
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; // so Claude reads and writes finish times in local time
   if (tz && u.user_metadata?.tz !== tz) client.auth.updateUser({ data: { tz } }).catch(() => {});
-  calendar.useGoogle(client, u.id); initAI({ cloud: true, client }); notes.useCloud(client, u); quest.init({ client }); if (S.mode === 'quest' || u.user_metadata?.quest_start) quest.begin(u);
+  calendar.useGoogle(client, u.id); initAI({ cloud: true, client }); notes.useCloud(client, u); quest.init({ client }); if (S.mode === 'quest' || u.user_metadata?.quest_start) quest.begin(u); remind.init(client); routine.init({ client });
   render();
   await store.useCloud(client, u);
   calendar.ensure(add(today(), -7), add(today(), 28), true);
 }
+store.onChange(kind => { if (kind !== 'sync' && kind !== 'step') remind.later(); });
 store.onChange((kind, st) => { if (kind === 'occ') { if (!S.open && !('done' in st.patch) && !('tl' in st.patch)) occOffer = occOffer || st; return; } if (kind === 'step') return onStep(st); if (kind === 'sync') { if (!D) later(); return; } if (!D) later(); });
 calendar.onCalendarChange(() => { if (!D) later(); });
 notes.onChange(() => { if (!D) later(); renderMsgs(); });
 initAI({ anchor: () => S.anchor, showPlan, render: later });
 quest.init({ update: later });
+routine.init({ done: k => { if (k) { quest.begin(user); S.mode = 'quest'; S.view = 'day'; S.anchor = today(); render(); toast(`Routine saved: ${k} habit${k > 1 ? 's' : ''}. The dragon is watching.`); } } });
+// A reminder opens Daybook on Quest (see sw.js)
+if (new URLSearchParams(location.search).has('quest')) { S.mode = 'quest'; S.view = 'day'; S.anchor = today(); history.replaceState(null, '', location.pathname); }
 initVoice(q => ask(q, { voice: true }), msg => toast(msg, '', 5000));
 setInterval(() => { if (today() !== shown) { shown = today(); if (S.anchor === add(today(), -1)) S.anchor = today(); later(); } else if (track.running() && !D) later(); // what's recording grows in Time blocks
   else if (S.mode === 'quest' && !D) later(); // the dragon swoops on the minute
