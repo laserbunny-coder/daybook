@@ -165,6 +165,29 @@ async function askDragon(r, R, phase) {
   } catch { return null; }
 }
 
+/* ---------- reminders (see remind.js) ---------- */
+/** What to send over the coming week, and when: a morning count of the gold at stake, each timed quest as it
+    starts, a warning 15 minutes before the dragon swoops on one, and at 8pm whatever is still out. */
+export function plan(days = 7) {
+  const R = realm(), grace = DRAGONS[R.lvl].grace, now = new Date(), out = [];
+  const push = (key, t, title, body) => { if (t > now) out.push({ key, at: t.toISOString(), title, body, tag: key }); };
+  for (let i = 0; i < days; i++) {
+    const d = add(today(), i), Qs = questsOn(d).map(q => judge(q, d, now, grace)).filter(q => !q.done);
+    if (!Qs.length) continue;
+    const total = Qs.reduce((a, q) => a + q.g, 0), first = Qs.find(q => q.s != null);
+    const morn = Math.min(first ? Math.max(first.s - 30, 6 * 60) : 9 * 60, 9 * 60);
+    push(`${d}|morning`, at(d, morn), `${total} gold on the table today`, `${Qs.length} quest${Qs.length > 1 ? 's' : ''}${first ? `, starting with ${first.n.t} at ${fmtT(first.s)}` : ''}. The dragon is watching.`);
+    for (const q of Qs) {
+      if (q.s == null) continue;
+      if (q.s > morn) push(`${q.n.id}|start`, at(d, q.s), `${q.n.t}, now`, `Worth ${q.g} gold. The dragon swoops at ${fmtT(q.byMin)}.`);
+      push(`${q.n.id}|warn`, at(d, q.byMin - 15), `The dragon is circling`, `It takes ${q.n.t} in 15 minutes. Check it off to keep ${q.g} gold.`);
+    }
+    const loose = Qs.filter(q => q.s == null);
+    if (loose.length) push(`${d}|evening`, at(d, 20 * 60), `${loose.reduce((a, q) => a + q.g, 0)} gold still out`, `${loose.map(q => q.n.t).slice(0, 3).join(', ')}${loose.length > 3 ? ' and more' : ''}. The dragon feeds at midnight.`);
+  }
+  return out;
+}
+
 /* ---------- the week ---------- */
 export function week(R, anchor = today()) {
   const ws = weekStart(anchor), T = today();
@@ -285,11 +308,14 @@ export function html(d, R, opts = {}) {
       <div class="q-cap"><span>${cap}</span><span>Keep ${r.need || 0} to win</span></div>
       <div class="q-say"><i class="q-face" aria-hidden="true"></i><p>${said}</p></div>
     </div>
+    ${opts.noHabits && d >= T ? `<div class="q-setup"><b>Set up your routine</b><p>Tell Claude about your ideal day and it drafts your daily habits. Every habit becomes a quest the dragon watches.</p><button class="q-btn" data-act="q-routine">Set up with Claude</button></div>` : ''}
     <div class="q-list">${rows || `<div class="q-empty">No quests on this day. Plan a task or a habit for it, and the dragon will start watching.</div>`}${opts.adder || ''}</div>
     <div class="q-foot">
       <div class="q-week">${wk}</div>
       <p>This week: <b class="you">you ${wins}</b>, <b class="dr">the dragon ${losses}</b></p>
       <p class="q-vault">Vault <b>${R.vault.toLocaleString()} gold</b>${next ? ` · next, a ${esc(next[1].toLowerCase())} at ${next[0].toLocaleString()}` : ' · the castle is complete'}</p>
+      ${opts.remind ? `<div class="q-tool"><p>${esc(opts.remind.txt)}</p>${opts.remind.act ? `<button class="q-btn${opts.remind.act === 'off' ? ' quiet' : ''}" data-act="q-remind" data-v="${opts.remind.act}">${esc(opts.remind.btn)}</button>` : ''}</div>` : ''}
+      ${opts.noHabits ? '' : '<button class="q-link" data-act="q-routine">Add habits with Claude</button>'}
       <p class="q-dragon">The dragon took ${R.last7} gold this week, so it's a ${esc(D.name.toLowerCase())}: it swoops ${D.grace} minutes after a quest's time ends.</p>
     </div>
   </div>`;
