@@ -1381,3 +1381,5 @@ body.quiet .ny-line.old b{color:var(--danger)}
 .rt-hq{display:flex;gap:6px}
 .rt-hdel,.rt-hno{font:inherit;font-size:12.5px;padding:5px 10px;border-radius:8px;border:1px solid var(--line2);background:transparent;color:var(--fg);cursor:pointer}
 .rt-hdel{background:var(--drg-soft);color:var(--drg);border-color:transparent}
+.q-ruin{margin:-4px 0 0;padding:8px 12px;border-radius:10px;background:var(--drg-soft);color:var(--drg);font-size:13px}
+.q-ruin.warn{background:transparent;border:1px dashed color-mix(in srgb,var(--drg) 55%,transparent)}
