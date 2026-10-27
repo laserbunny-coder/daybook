@@ -1287,6 +1287,7 @@ document.addEventListener('click', e => {
     case 'color': store.update(S.open, { c: b.dataset.c }); break;
     case 'toggle': toggle(id); break;
     case 'q-routine': routine.open(); break;
+    case 'q-bonus': quest.claim(b.dataset.d, +b.dataset.i); render(); break;
     case 'q-remind': if (b.dataset.v === 'info') { toast(remind.state().txt, '', 7000); break; } if (b.dataset.v === 'off' && b.classList.contains('q-pill')) { toast('Reminders are on here.', '<button data-act="q-remind" data-v="off">Turn off</button>', 7000); break; } if (b.dataset.v === 'on') remind.enable(later).then(r => { if (r === 'on') toast('Reminders are on. A test one is on its way.'); else if (r === 'error') toast("Couldn't turn reminders on. Try again in a moment."); else toast(remind.state().txt, '', 7000); }); else remind.disable(later); break;
     case 'rec': if (track.isRec(node(id))) track.stop(id); else track.start(id); break;
     case 'rec-stop': { const r = track.running(); if (r) track.stop(r.id); break; }

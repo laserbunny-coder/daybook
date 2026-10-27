@@ -14,7 +14,8 @@ import { add, DAYN, esc, fmtT, lsGet, lsSet, pd, today, weekStart, daysBetween }
 const KEY = 'daybook-quest';
 const WIN = 0.7;
 let client = null, onUpdate = () => {};
-let Q = { start: null, swipes: {}, ...lsGet(KEY, {}) };
+let Q = { start: null, swipes: {}, bonus: {}, ...lsGet(KEY, {}) };
+Q.bonus = Q.bonus || {};
 let me = null;
 const saveQ = () => lsSet(KEY, Q);
 
@@ -24,6 +25,8 @@ export function begin(u) {
   me = u || null;
   const sw = u?.user_metadata?.quest_swipes; // swipes made on another device
   if (sw) for (const [d, m] of Object.entries(sw)) Q.swipes[d] = { ...m, ...Q.swipes[d] };
+  const bo = u?.user_metadata?.quest_bonus; // events claimed on another device
+  if (bo) for (const [d, m] of Object.entries(bo)) Q.bonus[d] = { ...m, ...Q.bonus[d] };
   const theirs = u?.user_metadata?.quest_start;
   if (theirs && theirs !== Q.start && (!Q.start || theirs < Q.start)) { Q.start = theirs; saveQ(); }
   if (!Q.start) { Q.start = today(); saveQ(); }
@@ -43,9 +46,27 @@ export function moved(id, before, after) {
   const taken = d < T || new Date() > at(d, end);
   (Q.swipes[d] = Q.swipes[d] || {})[id] = { t: n.t || 'Untitled', g: taken ? g : Math.max(2, Math.round(g / 4)) };
   for (const k of Object.keys(Q.swipes)) if (daysBetween(k, T) > 21) delete Q.swipes[k];
-  saveQ();
-  if (client && me) client.auth.updateUser({ data: { quest_swipes: Q.swipes } }).then(({ data }) => { if (data?.user) me = data.user; }).catch(() => {});
+  saveQ(); sync();
 }
+const sync = () => { if (client && me) client.auth.updateUser({ data: { quest_swipes: Q.swipes, quest_bonus: Q.bonus } }).then(({ data }) => { if (data?.user) me = data.user; }).catch(() => {}); };
+
+/* ---------- event bonuses ---------- */
+// Showing up to a calendar event earns a little gold on top of the day's quests. It can be claimed once the event
+// has begun, on any day of the realm up to today; tapping it again gives it back.
+export const BONUS = 3;
+const evKey = e => `${e.s}|${e.t}`;
+const bonusOn = d => Object.values(Q.bonus[d] || {}).reduce((a, b) => a + b.g, 0);
+export const claimed = (d, e) => !!Q.bonus[d]?.[evKey(e)];
+export const claimable = (d, e) => !e.allDay && !!Q.start && d >= Q.start && (d < today() || new Date() >= at(d, e.s));
+export function claim(d, i) {
+  const e = eventsOn(d)[i]; if (!e) return;
+  const k = evKey(e), B = (Q.bonus[d] = Q.bonus[d] || {});
+  if (B[k]) delete B[k]; else if (claimable(d, e)) B[k] = { t: e.t, g: BONUS }; else return;
+  if (!Object.keys(B).length) delete Q.bonus[d];
+  for (const x of Object.keys(Q.bonus)) if (daysBetween(x, today()) > 60) delete Q.bonus[x];
+  saveQ(); sync();
+}
+
 // The swipes that still stand on day d: the quest is still off that day
 const skipped = id => { const n = store.peek(id); return n?.x && n.rs ? n : null; }; // a repeat skipped for the day
 const swipesOn = d => Object.entries(Q.swipes[d] || {}).filter(([id]) => { const n = store.get(id) || skipped(id); return !n || n.done && plannedDay(n) === d ? false : plannedDay(n) !== d; })
@@ -110,8 +131,9 @@ function judge(q, d, now, grace) {
 }
 function score(d, now, grace) {
   const Qs = questsOn(d).map(q => judge(q, d, now, grace)).concat(swipesOn(d));
-  const total = Qs.reduce((a, q) => a + q.g, 0), you = Qs.reduce((a, q) => a + q.you, 0);
-  return { d, Qs, total, you, dragon: total - you, bank: Qs.reduce((a, q) => a + q.bank, 0), need: Math.ceil(total * WIN) };
+  const total = Qs.reduce((a, q) => a + q.g, 0), held = Qs.reduce((a, q) => a + q.you, 0), bonus = bonusOn(d);
+  // event bonuses add to what you hold and help win the day, but the dragon can't take them
+  return { d, Qs, total, bonus, you: held + bonus, dragon: total - held, bank: Qs.reduce((a, q) => a + q.bank, 0) + bonus, need: Math.ceil(total * WIN) };
 }
 
 /** The whole realm as of now: every finished day since it began, today live, the vault, the dragon. */
@@ -169,7 +191,7 @@ export function line(r, R) {
 async function askDragon(r, R, phase) {
   const facts = {
     time: fmtT(new Date().getHours() * 60 + new Date().getMinutes()), phase,
-    gold_on_table: r.total, you_hold: r.you, dragon_has: r.dragon, need_to_win: r.need,
+    gold_on_table: r.total, you_hold: r.you, bonus_from_events_attended: r.bonus, dragon_has: r.dragon, need_to_win: r.need,
     quests: r.Qs.map(q => ({ title: q.n.t, gold: q.g, planned: q.s != null ? fmtT(q.s) : 'any time', swoops_at: q.byMin != null ? fmtT(q.byMin) : 'midnight', state: q.st })),
     dragon_form: DRAGONS[R.lvl].name, dragon_took_last_7_days: R.last7,
     vault: R.vault, village: BUILDINGS.slice(0, villageAt(R.vault)).map(b => b[1]),
@@ -301,7 +323,7 @@ const STATE_TXT = { kept: 'Kept', late: 'Late, half back', taken: 'Taken', open:
 const moveTxt = q => `${q.to ? 'Moved to ' + (q.to === today() ? 'today' : DAYN[pd(q.to).getDay()] + ' ' + pd(q.to).getDate()) : 'Taken off the plan'}, swiped`;
 export function html(d, R, opts = {}) {
   const r = dayView(d, R), T = today(), D = DRAGONS[R.lvl];
-  const pct = r.total ? r.you / r.total * 100 : 100, linePct = WIN * 100;
+  const pct = r.total ? Math.min(100, r.you / r.total * 100) : 100, linePct = WIN * 100;
   const n = villageAt(R.vault), next = BUILDINGS[n];
   const said = esc(line(r, R));
   const cap = r.rest ? 'No quests on this day' : r.ahead ? `${r.total} gold on the table` : r.dragon === 0 ? (d < T ? 'Not a coin lost' : 'All yours so far') : r.you >= r.need ? `${r.you - r.need} above the line` : `${r.need - r.you} below the line`;
@@ -315,8 +337,12 @@ export function html(d, R, opts = {}) {
   };
   // Calendar events sit among the quests by time, hatched like everywhere else in Daybook. They hold no gold.
   const evc = e => /^#[0-9a-f]{3,8}$/i.test(e.color || '') ? ` style="--evc:${e.color}"` : '';
-  const evRow = e => `<div class="qe"${evc(e)}><span class="qx-t">${e.allDay ? 'All day' : fmtT(e.s)}</span><span class="qe-t"><b>${esc(e.t)}</b>${e.allDay ? '' : `<small>${fmtT(e.s)} – ${fmtT(e.s + e.m)}</small>`}</span></div>`;
-  const ev = eventsOn(d), timedQ = r.Qs.filter(q => q.s != null && q.st !== 'swiped'), loose = r.Qs.filter(q => q.s == null || q.st === 'swiped');
+  // A timed event also holds a little bonus gold, claimed with a tap once it has begun.
+  const ev = eventsOn(d);
+  const evBonus = e => { if (e.allDay || d < R.start) return ''; const i = ev.indexOf(e), got = claimed(d, e), can = got || claimable(d, e);
+    return `<button class="qe-g${got ? ' got' : ''}" data-act="q-bonus" data-d="${d}" data-i="${i}"${can ? '' : ' disabled'} aria-label="${got ? `Give back the bonus for ${esc(e.t)}` : `I went to ${esc(e.t)}: claim ${BONUS} bonus gold`}" title="${got ? 'Bonus claimed. Tap to give it back' : can ? 'Went to it? Claim the bonus' : 'Claim once it starts'}">${got ? '✓ ' : ''}+${BONUS}</button>`; };
+  const evRow = e => `<div class="qe"${evc(e)}><span class="qx-t">${e.allDay ? 'All day' : fmtT(e.s)}</span><span class="qe-t"><b>${esc(e.t)}</b>${e.allDay ? '' : `<small>${fmtT(e.s)} – ${fmtT(e.s + e.m)}</small>`}</span>${evBonus(e)}</div>`;
+  const timedQ = r.Qs.filter(q => q.s != null && q.st !== 'swiped'), loose = r.Qs.filter(q => q.s == null || q.st === 'swiped');
   const seq = [...ev.filter(e => !e.allDay).map(e => [e.s, 0, evRow(e)]), ...timedQ.map(q => [q.s, 1, quest(q)])].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   const rows = ev.filter(e => e.allDay).map(evRow).join('') + seq.map(x => x[2]).join('') + loose.map(quest).join('');
   const wk = week(R, d).map(w => `<div class="qw-d${w.d === d ? ' on' : ''}"><i class="${w.res === 'W' ? 'w' : w.res === 'L' ? 'l' : w.res === 'rest' ? 'r' : w.res === 'live' ? 't' : ''}">${w.res === 'W' || w.res === 'L' ? w.res : w.res === 'rest' ? '–' : w.res === 'live' ? '•' : ''}</i>${DAYN[pd(w.d).getDay()]}</div>`).join('');
