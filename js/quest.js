@@ -8,6 +8,7 @@
 // doesn't dodge the dragon, it still takes a quarter of the gold (all of it, if it had already taken it).
 import * as store from './store.js';
 import { hasKids, isDone } from './tree.js';
+import { eventsOn, timedOn } from './calendar.js';
 import { add, DAYN, esc, fmtT, lsGet, lsSet, pd, today, weekStart, daysBetween } from './util.js';
 
 const KEY = 'daybook-quest';
@@ -38,7 +39,7 @@ export function moved(id, before, after) {
   const n = store.get(id) || skipped(id); if (!n || n.done || n.k === 'area' || n.r) return;
   if (Q.swipes[d]?.[id]) return;
   const s = 's' in before ? before.s : n.s, m = ('m' in before ? before.m : n.m) ?? 60, g = gold(m);
-  const lvl = realm().lvl, end = s != null ? Math.min(s + m + DRAGONS[lvl].grace, 24 * 60) : 24 * 60;
+  const end = deadline(d, s, m, DRAGONS[realm().lvl].grace) ?? 24 * 60;
   const taken = d < T || new Date() > at(d, end);
   (Q.swipes[d] = Q.swipes[d] || {})[id] = { t: n.t || 'Untitled', g: taken ? g : Math.max(2, Math.round(g / 4)) };
   for (const k of Object.keys(Q.swipes)) if (daysBetween(k, T) > 21) delete Q.swipes[k];
@@ -81,9 +82,25 @@ export function questsOn(d) {
   return L.sort((a, b) => (a.s ?? 1e4) - (b.s ?? 1e4) || (a.n.ds ?? a.n.o) - (b.n.ds ?? b.n.o));
 }
 /** How each quest stands at time `now`, with the dragon's grace (minutes after a timed quest ends). */
+/** When the dragon swoops on a quest planned at s for m minutes: when its block ends plus the dragon's grace.
+    It waits out your calendar: time in events inside that stretch is added on, and it never swoops mid-event. */
+export function deadline(d, s, m, grace) {
+  if (s == null) return null;
+  const ev = timedOn(d).map(e => [e.s, e.s + e.m]).sort((a, b) => a[0] - b[0]);
+  const base = s + m + grace; let end = base;
+  for (let k = 0; k < 6; k++) {
+    let busy = 0, cur = -1; // minutes of events between s and end, overlaps counted once
+    for (const [a, b] of ev) { const x = Math.max(a, s, cur), y = Math.min(b, end); if (y > x) busy += y - x; cur = Math.max(cur, Math.min(b, end)); }
+    let next = base + busy;
+    for (const [a, b] of ev) if (next > a && next < b) next = b;
+    if (next === end) break; end = next;
+  }
+  return Math.min(end, 24 * 60);
+}
 function judge(q, d, now, grace) {
-  const by = q.s != null ? at(d, Math.min(q.s + q.m + grace, 24 * 60)) : at(d, 24 * 60);
-  q.by = by; q.byMin = q.s != null ? Math.min(q.s + q.m + grace, 24 * 60) : null;
+  q.byMin = deadline(d, q.s, q.m, grace); q.shield = q.byMin != null && q.byMin > Math.min(q.s + q.m + grace, 24 * 60);
+  const by = at(d, q.byMin ?? 24 * 60);
+  q.by = by;
   if (q.done) { const t = doneAt(q.n); q.st = !t || t <= by ? 'kept' : 'late'; }
   else q.st = now > by ? 'taken' : 'open';
   q.you = q.st === 'kept' || q.st === 'open' ? q.g : q.st === 'late' ? Math.ceil(q.g / 2) : 0;
@@ -289,13 +306,19 @@ export function html(d, R, opts = {}) {
   const said = esc(line(r, R));
   const cap = r.rest ? 'No quests on this day' : r.ahead ? `${r.total} gold on the table` : r.dragon === 0 ? (d < T ? 'Not a coin lost' : 'All yours so far') : r.you >= r.need ? `${r.you - r.need} above the line` : `${r.need - r.you} below the line`;
   const head = d < T && !r.before && !r.rest ? (r.win ? 'The keep held' : 'The dragon won') : d > T ? 'Quests ahead' : r.before ? 'Before the realm began' : '';
-  const rows = r.Qs.map(q => {
+  const quest = q => {
     const nt = esc(q.n.t || 'Untitled'), cls = q.st === 'open' && !r.ahead && q === r.Qs.find(x => x.st === 'open') ? 'open next' : q.st;
     if (q.st === 'swiped') return `<div class="qx swiped"><span class="qx-t"></span><span class="qx-ck" aria-hidden="true"></span><button class="qx-n" data-act="open" data-id="${q.n.id}"><b>${nt}</b><small>${moveTxt(q)}</small></button><span class="qx-g">−${q.g}</span></div>`;
-    const sub = q.st === 'open' ? (q.byMin != null ? `Dragon swoops at ${fmtT(q.byMin)}` : 'Any time today') : q.st === 'taken' ? 'Taken by the dragon. Check it off to win half back' : STATE_TXT[q.st];
+    const sub = q.st === 'open' ? (q.byMin != null ? `Dragon swoops at ${fmtT(q.byMin)}${q.shield ? ', after your events' : ''}` : 'Any time today') : q.st === 'taken' ? 'Taken by the dragon. Check it off to win half back' : STATE_TXT[q.st];
     const pts = q.st === 'taken' ? `−${q.g}` : q.st === 'late' ? `+${q.you}` : `${q.st === 'kept' ? '+' : ''}${q.g}`;
     return `<div class="qx ${cls}" data-id="${q.n.id}"><span class="qx-t">${q.s != null ? fmtT(q.s) : ''}</span><button class="qx-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Mark ${nt} ${q.done ? 'not done' : 'done'}"></button><button class="qx-n" data-act="open" data-id="${q.n.id}"><b>${nt}</b>${r.ahead ? '' : `<small>${sub}</small>`}</button><span class="qx-g">${pts}</span></div>`;
-  }).join('');
+  };
+  // Calendar events sit among the quests by time, hatched like everywhere else in Daybook. They hold no gold.
+  const evc = e => /^#[0-9a-f]{3,8}$/i.test(e.color || '') ? ` style="--evc:${e.color}"` : '';
+  const evRow = e => `<div class="qe"${evc(e)}><span class="qx-t">${e.allDay ? 'All day' : fmtT(e.s)}</span><span class="qe-t"><b>${esc(e.t)}</b>${e.allDay ? '' : `<small>${fmtT(e.s)} – ${fmtT(e.s + e.m)}</small>`}</span></div>`;
+  const ev = eventsOn(d), timedQ = r.Qs.filter(q => q.s != null && q.st !== 'swiped'), loose = r.Qs.filter(q => q.s == null || q.st === 'swiped');
+  const seq = [...ev.filter(e => !e.allDay).map(e => [e.s, 0, evRow(e)]), ...timedQ.map(q => [q.s, 1, quest(q)])].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const rows = ev.filter(e => e.allDay).map(evRow).join('') + seq.map(x => x[2]).join('') + loose.map(quest).join('');
   const wk = week(R, d).map(w => `<div class="qw-d${w.d === d ? ' on' : ''}"><i class="${w.res === 'W' ? 'w' : w.res === 'L' ? 'l' : w.res === 'rest' ? 'r' : w.res === 'live' ? 't' : ''}">${w.res === 'W' || w.res === 'L' ? w.res : w.res === 'rest' ? '–' : w.res === 'live' ? '•' : ''}</i>${DAYN[pd(w.d).getDay()]}</div>`).join('');
   const wins = week(R, d).filter(w => w.res === 'W').length, losses = week(R, d).filter(w => w.res === 'L').length;
   return `<div class="qv">
