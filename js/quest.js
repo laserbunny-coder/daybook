@@ -9,7 +9,7 @@
 import * as store from './store.js';
 import { hasKids, isDone } from './tree.js';
 import { eventsOn, timedOn } from './calendar.js';
-import { add, DAYN, esc, fmtT, lsGet, lsSet, pd, today, weekStart, daysBetween } from './util.js';
+import { add, DAYN, MON, esc, fmtT, lsGet, lsSet, pd, today, weekStart, daysBetween } from './util.js';
 import { CAMPAIGN_DAYS, MARCH_AT, REGIONS, regionOf, titleFor } from './regions.js';
 import { paint, phaseOf, SW, SH } from './scene16.js';
 import { screen, mount } from './crt.js';
@@ -19,6 +19,7 @@ const WIN = 0.7;
 let client = null, onUpdate = () => {};
 let Q = { start: null, swipes: {}, bonus: {}, ...lsGet(KEY, {}) };
 Q.bonus = Q.bonus || {};
+Q.marks = Q.marks || {}; // the quest the dragon marked on each day
 Q.kg = { camp: null, past: [], won: {}, v: 0, ...(Q.kg || {}) }; // the kingdom: the campaign under way, past ones, regions held
 let me = null;
 const saveQ = () => lsSet(KEY, Q);
@@ -31,6 +32,8 @@ export function begin(u) {
   if (sw) for (const [d, m] of Object.entries(sw)) Q.swipes[d] = { ...m, ...Q.swipes[d] };
   const bo = u?.user_metadata?.quest_bonus; // events claimed on another device
   if (bo) for (const [d, m] of Object.entries(bo)) Q.bonus[d] = { ...m, ...Q.bonus[d] };
+  const mk = u?.user_metadata?.quest_marks; // the dragon's marks: the first device to pick one for a day wins
+  if (mk) { Object.assign(Q.marks, mk); saveQ(); }
   const kg = u?.user_metadata?.quest_kingdom; // whichever device changed the kingdom last wins
   if (kg && (kg.v || 0) > (Q.kg.v || 0)) { Q.kg = { camp: null, past: [], won: {}, ...kg }; saveQ(); }
   const theirs = u?.user_metadata?.quest_start;
@@ -58,7 +61,7 @@ export function moved(id, before, after) {
   for (const k of Object.keys(Q.swipes)) if (daysBetween(k, T) > 21) delete Q.swipes[k];
   saveQ(); sync();
 }
-const sync = () => { if (client && me) client.auth.updateUser({ data: { quest_swipes: Q.swipes, quest_bonus: Q.bonus, quest_kingdom: Q.kg } }).then(({ data }) => { if (data?.user) me = data.user; }).catch(() => {}); };
+const sync = () => { if (client && me) client.auth.updateUser({ data: { quest_swipes: Q.swipes, quest_bonus: Q.bonus, quest_marks: Q.marks, quest_kingdom: Q.kg } }).then(({ data }) => { if (data?.user) me = data.user; }).catch(() => {}); };
 
 /* ---------- event bonuses ---------- */
 // Showing up to a calendar event earns a little gold on top of the day's quests. It can be claimed once the event
@@ -93,6 +96,18 @@ export function twistOn(d) {
 /** A relic helps from the day after its region was claimed, so the days before stay as they were. */
 const relic = (id, d) => !!Q.kg.won?.[id] && Q.kg.won[id] < d;
 // The Storm Drake's lightning picks one timed quest a day, the same one on every device
+/* ---------- the dragon's mark ---------- */
+// The first time a day is looked at, the dragon marks one of its quests, one of the richest still open.
+// Keep that quest on time and it pays double; the extra is bonus gold the dragon can't take.
+const hash = s => Math.abs([...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7));
+function markDay(d, Qs) {
+  if (Q.marks[d] || d !== today() || !Q.start || d < Q.start) return;
+  const L = Qs.filter(q => q.st === 'open'); if (!L.length) return;
+  const top = Math.max(...L.map(q => q.g)), C = L.filter(q => q.g >= top - 5);
+  Q.marks[d] = C[hash(d) % C.length].n.id;
+  for (const k of Object.keys(Q.marks)) if (daysBetween(k, d) > 60) delete Q.marks[k];
+  saveQ(); sync();
+}
 const lightning = (d, L) => { const T = L.filter(q => q.s != null); if (!T.length) return null; const h = [...d].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) | 0, 17); return T[Math.abs(h) % T.length]; };
 /** The day's quests with its twist applied, each judged at time `now`. */
 function judged(d, now, grace) {
@@ -216,11 +231,14 @@ function judge(q, d, now, grace) {
 }
 function score(d, now, grace) {
   const tw = twistOn(d), Qs = judged(d, now, grace).concat(swipesOn(d));
+  markDay(d, Qs);
+  const mk = Qs.find(q => q.n.id === Q.marks[d] && q.st !== 'swiped'); if (mk) mk.mark = true;
   const total = Qs.reduce((a, q) => a + q.g, 0), held = Qs.reduce((a, q) => a + q.you, 0);
   // event bonuses add to what you hold and help win the day, but the dragon can't take them
   let bonus = bonusOn(d) * (tw === 'storm' ? 2 : 1);
   const first = Qs.find(q => q.s != null && q.st !== 'swiped'); if (relic('wood', d) && first?.st === 'kept') bonus += 5; // the Dawn Lantern
-  return { d, Qs, tw, total, bonus, you: held + bonus, dragon: total - held, bank: Qs.reduce((a, q) => a + q.bank, 0) + bonus, need: Math.ceil(total * WIN),
+  if (mk?.st === 'kept') bonus += mk.g; // the dragon's mark, kept: double
+  return { d, Qs, tw, mark: mk || null, total, bonus, you: held + bonus, dragon: total - held, bank: Qs.reduce((a, q) => a + q.bank, 0) + bonus, need: Math.ceil(total * WIN),
     ember: tw === 'ember' && Qs.filter(q => q.st !== 'swiped').length < 3 };
 }
 
@@ -241,6 +259,7 @@ export function realm() {
       else if (!r.rest && relic('frost', d) && frozeWk !== weekStart(d)) { frozeWk = weekStart(d); r.frozen = true; } // the Frost Crown holds the streak
       else if (!r.rest) { streak = 0; lost++; if (lost % BURN_AFTER === 0) burned++; }
     } else { vault += Math.round(r.bank * boost); hoard += r.dragon; }
+    r.vault = vault; r.streakAfter = streak;
   }
   const last7 = days.slice(-7).reduce((a, x) => a + x.dragon, 0), H = huntAt(streak);
   burned = Math.min(burned, Math.max(0, standing(vault).length - 1));
@@ -267,6 +286,7 @@ function fallback(r, R) {
   if (r.d < T) return r.win ? pick([`You held ${r.you} to my ${r.dragon}. I will be hungrier tomorrow.`, `${r.you} kept. Fine. The keep stands, for now.`], seed) : pick([`${r.dragon} gold to me. That was a good day for dragons.`, `I ate well: ${r.dragon} gold. Your walls looked thin.`], seed);
   if (!next && r.Qs.length) return r.dragon === 0 ? 'Not one coin. I circled all day and you left me nothing.' : r.win ? `You win this one, ${r.you} to ${r.dragon}. Sleep with one eye open.` : `${r.dragon} to me. The day is mine. Rematch at dawn.`;
   if (lastTaken && r.dragon > 0 && Date.now() - lastTaken.by < 3 * 3600e3) return pick([`${lastTaken.n.t} went unguarded, so ${lastTaken.dragon} gold is mine. Check it off and I will give back half.`, `I took ${lastTaken.dragon} gold while ${lastTaken.n.t} sat there. Delicious.`], seed);
+  if (r.mark?.st === 'open' && PHASE(m) === 'morning') return pick([`I have marked ${r.mark.n.t}. Keep it and it pays double. I'm betting you won't.`, `My mark is on ${r.mark.n.t} today. ${r.mark.g * 2} gold if you keep it. I like my odds.`], seed);
   if (r.dragon === 0) return PHASE(m) === 'morning' ? pick(['Morning. Every coin is still in your vault. I am patient.', `${r.total} gold on the table today. I only need you to look away once.`], seed) : pick(['Nothing for me yet. Annoying.', 'Still not a coin. I am getting hungry.'], seed);
   if (r.you < r.need) return `I'm ahead of the line. You need ${r.need - r.you} back to hold the keep${next ? `, and ${next.n.t} is your next chance` : ''}.`;
   return next ? `${r.you - r.need} above the line. ${next.n.t}${next.byMin != null ? ` is mine at ${fmtT(next.byMin)}` : ' is still out there'}.` : 'Not much left for me to take.';
@@ -292,7 +312,8 @@ async function askDragon(r, R, phase) {
   const facts = {
     time: fmtT(new Date().getHours() * 60 + new Date().getMinutes()), phase,
     gold_on_table: r.total, you_hold: r.you, bonus_from_events_attended: r.bonus, dragon_has: r.dragon, need_to_win: r.need,
-    quests: r.Qs.map(q => ({ title: q.n.t, gold: q.g, planned: q.s != null ? fmtT(q.s) : 'any time', swoops_at: q.byMin != null ? fmtT(q.byMin) : 'midnight', state: q.st })),
+    dragons_mark: r.mark ? { quest: r.mark.n.t, state: r.mark.st, pays_if_kept: r.mark.g * 2 } : null,
+    quests: r.Qs.map(q => ({ title: q.n.t, gold: q.g, ...(q.mark ? { marked: true } : {}), planned: q.s != null ? fmtT(q.s) : 'any time', swoops_at: q.byMin != null ? fmtT(q.byMin) : 'midnight', state: q.st })),
     dragon_form: DRAGONS[R.lvl].name, dragon_took_last_7_days: R.last7, your_win_streak: R.streak, dragon_hunting: R.hunt.name,
     days_lost_in_a_row: R.lost, buildings_burned_by_dragon: R.ruins, your_title: R.title, regions_held: R.held.map(id => regionOf(id).name),
     campaign: R.camp?.begun ? { region: R.camp.reg.name, you_play: `the ${R.camp.reg.dragon} in this region`, twist_today: regionOf(R.camp.twist)?.short, day: R.camp.day, of: CAMPAIGN_DAYS, days_won: R.camp.wins } : null,
@@ -314,10 +335,12 @@ export function plan(days = 7) {
   const push = (key, t, title, body) => { if (t > now) out.push({ key, at: t.toISOString(), title, body, tag: key }); };
   for (let i = 0; i < days; i++) {
     const d = add(today(), i), Qs = judged(d, now, grace).filter(q => !q.done);
+    if (pd(d).getDay() === 0 && Q.start && Q.start <= d) push(`${d}|report`, at(d, 18 * 60), 'Your battle report is in', 'The dragon has written up your week. Come and read it.');
     if (!Qs.length) continue;
     const total = Qs.reduce((a, q) => a + q.g, 0), first = Qs.find(q => q.s != null);
     const morn = Math.min(first ? Math.max(first.s - 30, 6 * 60) : 9 * 60, 9 * 60);
-    push(`${d}|morning`, at(d, morn), `${total} gold on the table today`, `${Qs.length} quest${Qs.length > 1 ? 's' : ''}${first ? `, starting with ${first.n.t} at ${fmtT(first.s)}` : ''}. The dragon is watching.`);
+    const mk = Qs.find(q => q.n.id === Q.marks[d]);
+    push(`${d}|morning`, at(d, morn), `${total} gold on the table today`, `${Qs.length} quest${Qs.length > 1 ? 's' : ''}${first ? `, starting with ${first.n.t} at ${fmtT(first.s)}` : ''}. ${mk ? `The dragon has marked ${mk.n.t}: keep it for double.` : 'The dragon is watching.'}`);
     for (const q of Qs) {
       if (q.s == null) continue;
       if (q.s > morn) push(`${q.n.id}|start`, at(d, q.s), `${q.n.t}, now`, `Worth ${q.g} gold. The dragon swoops at ${fmtT(q.byMin)}.`);
@@ -337,6 +360,84 @@ export function week(R, anchor = today()) {
     const res = !r || d > T ? null : r.rest ? 'rest' : d === T ? 'live' : r.win ? 'W' : 'L';
     return { d, res, r };
   });
+}
+
+/* ---------- the battle report ---------- */
+// From Sunday at 6pm until Tuesday is over, the dragon writes up the week (Monday to Sunday): who won each day,
+// your best moment, the quest it ate most. The numbers are worked out here; Claude writes the letter in the dragon's voice.
+const REPORTS = 'daybook-quest-reports';
+/** The Monday of the week that has a report to read right now, or null. */
+export function reportWeek(now = new Date()) {
+  const T = today(), dow = (now.getDay() + 6) % 7; // Monday 0 .. Sunday 6
+  const ws = dow === 6 && now.getHours() >= 18 ? weekStart(T) : dow <= 1 ? add(weekStart(T), -7) : null;
+  return ws && Q.start && Q.start <= add(ws, 6) ? ws : null;
+}
+/** The week's numbers, from the realm. */
+export function weekStats(R, ws) {
+  const days = [...Array(7)].map((_, i) => { const d = add(ws, i), r = R.byDay.get(d); return { d, r, res: !r ? null : r.rest ? 'rest' : d === today() ? (r.win ? 'W' : 'live') : r.win ? 'W' : 'L' }; });
+  const played = days.filter(x => x.r && !x.r.rest), won = days.filter(x => x.res === 'W'), lost = days.filter(x => x.res === 'L');
+  const kept = played.reduce((a, x) => a + x.r.you, 0), taken = played.reduce((a, x) => a + x.r.dragon, 0);
+  const ate = {}; // gold the dragon took from each quest, by title
+  for (const x of played) for (const q of x.r.Qs) if (q.dragon > 0 || q.st === 'swiped') ate[q.n.t || 'Untitled'] = (ate[q.n.t || 'Untitled'] || 0) + (q.st === 'swiped' ? q.g : q.dragon);
+  const most = Object.entries(ate).sort((a, b) => b[1] - a[1])[0] || null;
+  const best = won.map(x => ({ x, m: x.r.total ? x.r.you / x.r.total : 0 })).sort((a, b) => b.m - a.m || b.x.r.you - a.x.r.you)[0]?.x || null;
+  const marks = played.filter(x => x.r.mark), marksKept = marks.filter(x => x.r.mark.st === 'kept');
+  const before = R.byDay.get(add(ws, -1))?.vault ?? 0, after = days.filter(x => x.r).pop()?.r.vault ?? before;
+  const built = BUILDINGS.slice(villageAt(before), villageAt(after)).map(b => b[1]);
+  const bestStreak = Math.max(0, ...days.filter(x => x.r).map(x => x.r.streakAfter ?? 0));
+  return { ws, days, played: played.length, won: won.length, lost: lost.length, kept, taken, most, best, marks: marks.length, marksKept: marksKept.length,
+    marksKeptT: marksKept.map(x => x.r.mark.n.t), built, bestStreak, streak: R.streak };
+}
+const reports = () => lsGet(REPORTS, {});
+/** The report for week ws: its numbers and the dragon's letter (Claude's, once it has written it). */
+export function report(R, ws = reportWeek()) {
+  if (!ws) return null;
+  const W = weekStats(R, ws); if (!W.played) return null;
+  const saved = reports()[ws] || {};
+  if (!saved.text && client && !writing) {
+    writing = writeReport(W, R).then(t => { if (t) { const all = reports(); all[ws] = { ...(all[ws] || {}), text: t }; for (const k of Object.keys(all)) if (daysBetween(k, ws) > 56) delete all[k]; lsSet(REPORTS, all); onUpdate(); } }).finally(() => { writing = null; });
+  }
+  return { ...W, text: saved.text || reportFallback(W), closed: !!saved.closed };
+}
+let writing = null;
+export function closeReport(ws, closed = true) { const all = reports(); all[ws] = { ...(all[ws] || {}), closed }; lsSet(REPORTS, all); }
+function reportFallback(W) {
+  if (W.won > W.lost) return `${W.won} days to you, ${W.lost} to me. I counted every coin you kept: ${W.kept}. Next week I come hungrier.`;
+  if (W.lost > W.won) return `${W.lost} days to me, ${W.won} to you. ${W.most ? `${W.most[0]} was delicious.` : ''} Same time next week?`;
+  return `${W.won} each. A draw, and I hate a draw. Next week we settle it.`;
+}
+async function writeReport(W, R) {
+  const facts = {
+    week_of: `${MON[pd(W.ws).getMonth()]} ${pd(W.ws).getDate()}`, sunday_still_going: W.days[6].res === 'live',
+    days: W.days.map(x => ({ day: DAYN[pd(x.d).getDay()], result: x.res === 'W' ? 'you won' : x.res === 'L' ? 'dragon won' : x.res === 'rest' ? 'rest day' : x.res === 'live' ? 'still going' : 'before the realm began', you_kept: x.r?.you, dragon_took: x.r?.dragon })),
+    days_you_won: W.won, days_dragon_won: W.lost, gold_you_kept: W.kept, gold_dragon_took: W.taken,
+    your_best_day: W.best ? { day: DAYN[pd(W.best.d).getDay()], kept: W.best.r.you, of: W.best.r.total } : null,
+    quest_dragon_ate_most: W.most ? { title: W.most[0], gold: W.most[1] } : null,
+    dragons_marks_kept: `${W.marksKept} of ${W.marks}`, marks_kept: W.marksKeptT,
+    buildings_built_this_week: W.built, win_streak_now: W.streak, best_streak_this_week: W.bestStreak,
+    buildings_burned_now: R.ruins, your_title: R.title, vault: R.vault,
+    campaign: R.camp?.begun ? { region: R.camp.reg.name, you_play: `the ${R.camp.reg.dragon}`, day: R.camp.day, of: CAMPAIGN_DAYS, days_won: R.camp.wins } : null,
+  };
+  try {
+    const { data, error } = await client.functions.invoke('quest', { body: { facts, kind: 'report' } });
+    if (error || !data?.line) return null;
+    return String(data.line).slice(0, 900);
+  } catch { return null; }
+}
+function reportCard(B) {
+  const cell = x => `<div class="qw-d"><i class="${x.res === 'W' ? 'w' : x.res === 'L' ? 'l' : x.res === 'rest' ? 'r' : x.res === 'live' ? 't' : ''}">${x.res === 'W' || x.res === 'L' ? x.res : x.res === 'rest' ? '–' : x.res === 'live' ? '•' : ''}</i>${DAYN[pd(x.d).getDay()]}</div>`;
+  const lines = [
+    `<li><span>Gold</span><b><b class="you">${B.kept} kept</b>, <b class="dr">${B.taken} taken</b></b></li>`,
+    B.best ? `<li><span>Best moment</span><b>${DAYN[pd(B.best.d).getDay()]}: kept ${B.best.r.you} of ${B.best.r.total}</b></li>` : '',
+    B.most ? `<li><span>It ate most</span><b>${esc(B.most[0])} (${B.most[1]} gold)</b></li>` : '',
+    B.marks ? `<li><span>Its marks</span><b>${B.marksKept} of ${B.marks} kept</b></li>` : '',
+    B.built.length ? `<li><span>Built</span><b>${esc(listOf(B.built.map(b => b.toLowerCase())))}</b></li>` : '',
+  ].join('');
+  return `<section class="q-report" aria-label="Battle report"><div class="q-report-top"><b>Battle report</b><span>Week of ${MON[pd(B.ws).getMonth()]} ${pd(B.ws).getDate()}</span><button class="q-x" data-act="q-report-x" data-w="${B.ws}" aria-label="Close the battle report">×</button></div>
+    <div class="q-week">${B.days.map(cell).join('')}</div>
+    <p class="q-report-score">You <b class="you">${B.won}</b> · the dragon <b class="dr">${B.lost}</b></p>
+    <ul>${lines}</ul>
+    <div class="q-say"><i class="q-face" aria-hidden="true"></i><p>${esc(B.text)}</p></div></section>`;
 }
 
 /* ---------- the picture: the village (or a campaign camp) and the dragon, in 16-bit (scene16.js, crt.js) ---------- */
@@ -374,7 +475,7 @@ const listOf = a => a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' an
 const STATE_TXT = { kept: 'Kept', late: 'Late, half back', taken: 'Taken', open: '' };
 const moveTxt = q => q.free ? 'Moved for free: the Hydra Scale paid' : `${q.to ? 'Moved to ' + (q.to === today() ? 'today' : DAYN[pd(q.to).getDay()] + ' ' + pd(q.to).getDate()) : 'Taken off the plan'}, swiped`;
 export function html(d, R, opts = {}) {
-  const r = dayView(d, R), T = today(), D = DRAGONS[R.lvl], H = R.hunt, C = d === today() ? R.camp : null;
+  const r = dayView(d, R), T = today(), D = DRAGONS[R.lvl], H = R.hunt, C = d === today() ? R.camp : null, B = d === today() ? report(R) : null;
   const pct = r.total ? Math.min(100, r.you / r.total * 100) : 100, linePct = WIN * 100;
   const n = villageAt(R.vault), next = BUILDINGS[n];
   const said = esc(line(r, R));
@@ -383,9 +484,9 @@ export function html(d, R, opts = {}) {
   const quest = q => {
     const nt = esc(q.n.t || 'Untitled'), cls = q.st === 'open' && !r.ahead && q === r.Qs.find(x => x.st === 'open') ? 'open next' : q.st;
     if (q.st === 'swiped') return `<div class="qx swiped"><span class="qx-t"></span><span class="qx-ck" aria-hidden="true"></span><button class="qx-n" data-act="open" data-id="${q.n.id}"><b>${nt}</b><small>${moveTxt(q)}</small></button><span class="qx-g">−${q.g}</span></div>`;
-    const sub = (q.tw && q.st === 'open' ? q.tw + '. ' : '') + (q.st === 'open' ? (q.byMin != null ? `Dragon swoops at ${fmtT(q.byMin)}${q.shield ? ', after your events' : ''}` : 'Any time today') : q.st === 'taken' ? 'Taken by the dragon. Check it off to win half back' : STATE_TXT[q.st]);
-    const pts = q.st === 'taken' ? `−${q.g}` : q.st === 'late' ? `+${q.you}` : `${q.st === 'kept' ? '+' : ''}${q.g}`;
-    return `<div class="qx ${cls}" data-id="${q.n.id}"><span class="qx-t">${q.s != null ? fmtT(q.s) : ''}</span><button class="qx-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Mark ${nt} ${q.done ? 'not done' : 'done'}"></button><button class="qx-n" data-act="open" data-id="${q.n.id}"><b>${nt}</b>${r.ahead ? '' : `<small>${sub}</small>`}</button><span class="qx-g">${pts}</span></div>`;
+    const sub = (q.mark && q.st === 'open' ? 'Marked: double if kept. ' : '') + (q.mark && q.st === 'kept' ? 'Kept the mark: double gold' : '') + (q.tw && q.st === 'open' ? q.tw + '. ' : '') + (q.mark && q.st === 'kept' ? '' : q.st === 'open' ? (q.byMin != null ? `Dragon swoops at ${fmtT(q.byMin)}${q.shield ? ', after your events' : ''}` : 'Any time today') : q.st === 'taken' ? 'Taken by the dragon. Check it off to win half back' : STATE_TXT[q.st]);
+    const pts = q.st === 'taken' ? `−${q.g}` : q.st === 'late' ? `+${q.you}` : q.mark && !r.ahead ? `${q.st === 'kept' ? '+' : ''}${q.g * 2}` : `${q.st === 'kept' ? '+' : ''}${q.g}`;
+    return `<div class="qx ${cls}${q.mark ? ' marked' : ''}" data-id="${q.n.id}"><span class="qx-t">${q.s != null ? fmtT(q.s) : ''}</span><button class="qx-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Mark ${nt} ${q.done ? 'not done' : 'done'}"></button><button class="qx-n" data-act="open" data-id="${q.n.id}"><b>${q.mark ? `<i class="qx-mk" title="The dragon's mark"></i>` : ''}${nt}</b>${r.ahead ? '' : `<small>${sub}</small>`}</button><span class="qx-g">${pts}</span></div>`;
   };
   // Calendar events sit among the quests by time, hatched like everywhere else in Daybook. They hold no gold.
   const evc = e => /^#[0-9a-f]{3,8}$/i.test(e.color || '') ? ` style="--evc:${e.color}"` : '';
@@ -402,6 +503,7 @@ export function html(d, R, opts = {}) {
   return `<div class="qv">
     <div class="q-scene"><div id="q-canvas" class="q-tv" data-label="${esc(C?.begun ? `Your camp in ${C.reg.name}` : `Your village${n ? ': ' + BUILDINGS.slice(0, n).map(b => b[1]).join(', ') : ''}`)}, and the dragon on its crag"></div>
       <div class="q-tags"><span>${esc(C?.begun ? C.reg.name : BUILDINGS[n - 1]?.[1] || 'Campfire')}${R.streak ? ` · ${R.streak} day streak` : ''}</span><span class="dr">${esc(C?.begun ? C.reg.dragon : D.name)}</span></div></div>
+    ${B && !B.closed ? reportCard(B) : ''}
     ${campCard(C, R)}
     ${R.ruins.length ? `<div class="q-ruin">The dragon burned your ${esc(listOf(R.ruins.map(b => b.toLowerCase())))}. Win a day to rebuild ${R.ruins.length > 1 ? 'one' : 'it'}.</div>`
       : R.lost % BURN_AFTER === BURN_AFTER - 1 && d === T && standing(R.vault).length > 1 ? `<div class="q-ruin warn">${R.lost} lost days in a row. Lose today and the dragon burns your ${esc(standing(R.vault).slice(-1)[0].toLowerCase())}.</div>` : ''}
@@ -417,7 +519,7 @@ export function html(d, R, opts = {}) {
     <div class="q-list">${rows || `<div class="q-empty">No quests on this day. Plan a task or a habit for it, and the dragon will start watching.</div>`}${opts.adder || ''}</div>
     <div class="q-foot">
       <div class="q-week">${wk}</div>
-      <p>This week: <b class="you">you ${wins}</b>, <b class="dr">the dragon ${losses}</b></p>
+      <p>This week: <b class="you">you ${wins}</b>, <b class="dr">the dragon ${losses}</b>${B?.closed ? ` · <button class="q-link" data-act="q-report" data-w="${B.ws}">Read the battle report</button>` : ''}</p>
       <p class="q-vault">Vault <b>${R.vault.toLocaleString()} gold</b>${next ? ` · next, a ${esc(next[1].toLowerCase())} at ${next[0].toLocaleString()}` : ' · the castle is complete'}</p>
       ${opts.remind ? `<div class="q-tool"><p>${esc(opts.remind.txt)}</p>${opts.remind.act ? `<button class="q-btn${opts.remind.act === 'off' ? ' quiet' : ''}" data-act="q-remind" data-v="${opts.remind.act}">${esc(opts.remind.btn)}</button>` : ''}</div>` : ''}
       <p class="q-dragon">${R.streak ? `You've won ${R.streak} day${R.streak > 1 ? 's' : ''} in a row, so the dragon is ${H.name}` : 'No win streak yet, so the dragon is dozing'}: it swoops ${H.grace} minutes after a quest's time ends${H.boost > 1 ? `, and your kept gold builds ×${H.boost}` : ''}. ${HUNTS.find(x => x.at > R.streak) ? `At ${HUNTS.find(x => x.at > R.streak).at} wins it starts ${HUNTS.find(x => x.at > R.streak).name}. ` : ''}It's a ${esc(D.name.toLowerCase())} because it took ${R.last7} gold this week.</p>
