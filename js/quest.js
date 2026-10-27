@@ -11,7 +11,8 @@ import { hasKids, isDone } from './tree.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { add, DAYN, MON, esc, fmtT, lsGet, lsSet, pd, today, weekStart, daysBetween } from './util.js';
 import { CAMPAIGN_DAYS, MARCH_AT, REGIONS, regionOf, titleFor } from './regions.js';
-import { paint, phaseOf, SW, SH } from './scene16.js';
+import { paint, phaseOf, SW, SH, SWOOP } from './scene16.js';
+import * as sfx from './sfx.js';
 import { screen, mount } from './crt.js';
 
 const KEY = 'daybook-quest';
@@ -433,7 +434,7 @@ function reportCard(B) {
     B.marks ? `<li><span>Its marks</span><b>${B.marksKept} of ${B.marks} kept</b></li>` : '',
     B.built.length ? `<li><span>Built</span><b>${esc(listOf(B.built.map(b => b.toLowerCase())))}</b></li>` : '',
   ].join('');
-  return `<section class="q-report" aria-label="Battle report"><div class="q-report-top"><b>Battle report</b><span>Week of ${MON[pd(B.ws).getMonth()]} ${pd(B.ws).getDate()}</span><button class="q-x" data-act="q-report-x" data-w="${B.ws}" aria-label="Close the battle report">×</button></div>
+  return `<section class="q-report" aria-label="The Dragon's Due: your week"><div class="q-report-top"><b>The Dragon's Due</b><span>Week of ${MON[pd(B.ws).getMonth()]} ${pd(B.ws).getDate()}</span><button class="q-x" data-act="q-report-x" data-w="${B.ws}" aria-label="Close The Dragon's Due">×</button></div>
     <div class="q-week">${B.days.map(cell).join('')}</div>
     <p class="q-report-score">You <b class="you">${B.won}</b> · the dragon <b class="dr">${B.lost}</b></p>
     <ul>${lines}</ul>
@@ -446,9 +447,47 @@ const src = typeof document !== 'undefined' ? Object.assign(document.createEleme
 /** What the picture shows right now. */
 export function sceneOf(R) {
   const C = R.camp?.begun ? R.camp : null, m = new Date().getHours() * 60 + new Date().getMinutes();
-  const held = REGIONS.filter(x => R.held.includes(x.id));
-  return C ? { land: C.id === 'spires' ? 'spires' : C.id, phase: phaseOf(m), buildings: CAMP.filter(b => C.gold >= b[0]).map(b => b[1]), ruins: [], held, lvl: R.lvl, hoard: R.last7, gold: 0, camp: true, campInk: C.reg.ink }
-    : { land: 'vale', phase: phaseOf(m), buildings: standing(R.vault), ruins: R.ruins, held, lvl: R.lvl, hoard: R.last7, gold: R.vault };
+  const held = REGIONS.filter(x => R.held.includes(x.id)), r = R.byDay.get(today());
+  const live = { mode: modeOf(r, m), piles: pilesOf(r).filter(p => p.st === 'open'), gate: R.lost > 0, fx: fx.map(e => ({ ...e, age: tick - e.t0 })) };
+  return C ? { ...live, land: C.id === 'spires' ? 'spires' : C.id, phase: phaseOf(m), buildings: CAMP.filter(b => C.gold >= b[0]).map(b => b[1]), ruins: [], held, lvl: R.lvl, hoard: R.last7, gold: 0, camp: true, campInk: C.reg.ink }
+    : { ...live, land: 'vale', phase: phaseOf(m), buildings: standing(R.vault), ruins: R.ruins, held, lvl: R.lvl, hoard: R.last7, gold: R.vault };
+}
+/** What the dragon is up to right now. It sleeps when there's nothing left to take, and circles over your gold in the
+    grace after a quest's time ends, unless you're out at an event: it won't dive into a crowd, so it waits on its crag. */
+function modeOf(r, m) {
+  if (!r || r.rest) return 'sleep';
+  const open = r.Qs.filter(q => q.st === 'open'); if (!open.length) return 'sleep';
+  const crowd = timedOn(r.d).some(e => m >= e.s && m < e.s + e.m);
+  return !crowd && open.some(q => q.s != null && m >= q.s + q.m && m < q.byMin) ? 'circle' : 'perch';
+}
+let fx = [], seen = null;
+/** Today's quests as piles of gold in the field, each in a fixed spot for the day. */
+const pilesOf = r => { const L = (r?.Qs || []).filter(q => q.st !== 'swiped'); return L.map((q, slot) => ({ id: q.n.id, slot, of: L.length, g: q.g, mark: !!q.mark, st: q.st })); };
+const RECKONED = 'daybook-keep-reckoned';
+/** Compares the day with how it looked last time, and plays what changed: gold into the keep, a dive, a new building. */
+function happenings(R) {
+  const r = R.byDay.get(today()); if (!r) return;
+  const now = { d: r.d, st: new Map(r.Qs.map(q => [q.n.id, q.st])), built: villageAt(R.vault) };
+  fx = fx.filter(e => tick - e.t0 < 60);
+  // midnight's reckoning: the first time the app is open on a new day, yesterday's verdict plays out at the gate
+  const y = add(today(), -1), ry = R.byDay.get(y);
+  if (ry && !ry.rest && lsGet(RECKONED, '') < y) {
+    lsSet(RECKONED, y);
+    fx.push({ kind: ry.win ? 'held' : 'breach', t0: tick + 4 });
+    setTimeout(ry.win ? sfx.thud : sfx.crash, 4 * 180 + 1400); if (ry.win) setTimeout(sfx.fanfare, 4 * 180 + 1900); else setTimeout(sfx.roar, 4 * 180 + 2300);
+  }
+  if (seen && seen.d === now.d) {
+    let dove = null;
+    for (const p of pilesOf(r)) {
+      const was = seen.st.get(p.id); if (was === p.st) continue;
+      if (p.st === 'kept') { fx.push({ kind: 'kept', t0: tick, n: p.mark ? 10 : 6, slot: p.slot, of: p.of }); sfx.coin(p.mark); }
+      else if (p.st === 'late') { fx.push({ kind: 'kept', t0: tick, n: 3, slot: p.slot, of: p.of }); sfx.chase(); }
+      else if (p.st === 'taken' && was === 'open') dove = dove || p;
+    }
+    if (dove && !fx.some(e => e.kind === 'swoop' && tick - e.t0 < SWOOP)) { fx.push({ kind: 'swoop', t0: tick, slot: dove.slot, of: dove.of, g: dove.g }); sfx.roar(); }
+    if (now.built > seen.built) { fx.push({ kind: 'built', t0: tick }); setTimeout(sfx.fanfare, 900); }
+  }
+  seen = now;
 }
 export function draw(R, tick = 0) { const scr = screen('quest', SW, SH); paint(src, sceneOf(R), tick); scr.show(src); return scr; }
 
@@ -471,8 +510,29 @@ function campCard(C, R) {
   return `<div class="q-camp" style="--rc:${g.ink}"><div class="q-camp-top"><b>${esc(g.name)}</b><span>Day ${C.day} of ${CAMPAIGN_DAYS}</span></div><p>${esc(tw)}</p>
     <div class="q-camp-bar"><i style="width:${Math.min(100, pct * 100).toFixed(0)}%"></i></div><small>${prog} · ${CAMPAIGN_DAYS - C.day} days left</small>${heads}</div>`;
 }
+/* ---------- how it works: the first time, the story in four screens ---------- */
+const INTRO = 'daybook-keep-intro';
+const STORY = [
+  ['Hold the Keep', 'Every day has a dragon: the hours that slip away. Here, it has wings, and it plays against you.'],
+  ['Each dawn, the sun pays you the day', "Every quest on your plan, each task and habit, comes with gold, more for the longer ones. It's all yours from the start."],
+  ['Do a quest, and its gold goes into your keep', 'Gold in the keep is safe. Over the weeks it builds your village, then a castle, then a kingdom.'],
+  ['Leave it out, and the dragon takes it', "Once a quest's time passes, the dragon circles for a while, then dives. Finish it late to chase down half. Keep most of the day's gold, and the keep holds."],
+];
+let step = null;
+export const help = () => { step = 0; };
+export function next() { step++; if (step >= STORY.length) { step = null; lsSet(INTRO, 1); } }
+function intro() {
+  if (step == null && !lsGet(INTRO, 0)) step = 0;
+  if (step == null) return '';
+  const [h, p] = STORY[step], last = step === STORY.length - 1;
+  return `<div class="q-intro" role="dialog" aria-modal="true" aria-label="How Hold the Keep works"><div class="q-intro-card">
+    <div class="q-intro-dots" aria-hidden="true">${STORY.map((_, i) => `<i class="${i === step ? 'on' : ''}"></i>`).join('')}</div>
+    <b>${esc(h)}</b><p>${esc(p)}</p>
+    <button class="q-btn" data-act="q-intro">${last ? 'Hold the keep' : 'Next'}</button></div></div>`;
+}
+
 const listOf = a => a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
-const STATE_TXT = { kept: 'Kept', late: 'Late, half back', taken: 'Taken', open: '' };
+const STATE_TXT = { kept: 'Safe in the keep', late: 'Chased down: half back', taken: 'Taken', open: '' };
 const moveTxt = q => q.free ? 'Moved for free: the Hydra Scale paid' : `${q.to ? 'Moved to ' + (q.to === today() ? 'today' : DAYN[pd(q.to).getDay()] + ' ' + pd(q.to).getDate()) : 'Taken off the plan'}, swiped`;
 export function html(d, R, opts = {}) {
   const r = dayView(d, R), T = today(), D = DRAGONS[R.lvl], H = R.hunt, C = d === today() ? R.camp : null, B = d === today() ? report(R) : null;
@@ -484,7 +544,7 @@ export function html(d, R, opts = {}) {
   const quest = q => {
     const nt = esc(q.n.t || 'Untitled'), cls = q.st === 'open' && !r.ahead && q === r.Qs.find(x => x.st === 'open') ? 'open next' : q.st;
     if (q.st === 'swiped') return `<div class="qx swiped"><span class="qx-t"></span><span class="qx-ck" aria-hidden="true"></span><button class="qx-n" data-act="open" data-id="${q.n.id}"><b>${nt}</b><small>${moveTxt(q)}</small></button><span class="qx-g">−${q.g}</span></div>`;
-    const sub = (q.mark && q.st === 'open' ? 'Marked: double if kept. ' : '') + (q.mark && q.st === 'kept' ? 'Kept the mark: double gold' : '') + (q.tw && q.st === 'open' ? q.tw + '. ' : '') + (q.mark && q.st === 'kept' ? '' : q.st === 'open' ? (q.byMin != null ? `Dragon swoops at ${fmtT(q.byMin)}${q.shield ? ', after your events' : ''}` : 'Any time today') : q.st === 'taken' ? 'Taken by the dragon. Check it off to win half back' : STATE_TXT[q.st]);
+    const sub = (q.mark && q.st === 'open' ? 'Marked: double if kept. ' : '') + (q.mark && q.st === 'kept' ? 'You beat its mark: double gold' : '') + (q.tw && q.st === 'open' ? q.tw + '. ' : '') + (q.mark && q.st === 'kept' ? '' : q.st === 'open' ? (q.byMin != null ? `The dragon dives at ${fmtT(q.byMin)}${q.shield ? ', it waits out your events' : ''}` : 'Any time today') : q.st === 'taken' ? 'The dragon took it. Finish it to chase down half' : STATE_TXT[q.st]);
     const pts = q.st === 'taken' ? `−${q.g}` : q.st === 'late' ? `+${q.you}` : q.mark && !r.ahead ? `${q.st === 'kept' ? '+' : ''}${q.g * 2}` : `${q.st === 'kept' ? '+' : ''}${q.g}`;
     return `<div class="qx ${cls}${q.mark ? ' marked' : ''}" data-id="${q.n.id}"><span class="qx-t">${q.s != null ? fmtT(q.s) : ''}</span><button class="qx-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Mark ${nt} ${q.done ? 'not done' : 'done'}"></button><button class="qx-n" data-act="open" data-id="${q.n.id}"><b>${q.mark ? `<i class="qx-mk" title="The dragon's mark"></i>` : ''}${nt}</b>${r.ahead ? '' : `<small>${sub}</small>`}</button><span class="qx-g">${pts}</span></div>`;
   };
@@ -500,18 +560,19 @@ export function html(d, R, opts = {}) {
   const rows = ev.filter(e => e.allDay).map(evRow).join('') + seq.map(x => x[2]).join('') + loose.map(quest).join('');
   const wk = week(R, d).map(w => `<div class="qw-d${w.d === d ? ' on' : ''}"><i class="${w.res === 'W' ? 'w' : w.res === 'L' ? 'l' : w.res === 'rest' ? 'r' : w.res === 'live' ? 't' : ''}">${w.res === 'W' || w.res === 'L' ? w.res : w.res === 'rest' ? '–' : w.res === 'live' ? '•' : ''}</i>${DAYN[pd(w.d).getDay()]}</div>`).join('');
   const wins = week(R, d).filter(w => w.res === 'W').length, losses = week(R, d).filter(w => w.res === 'L').length;
-  return `<div class="qv">
+  return `<div class="qv">${d === T ? intro() : ''}
     <div class="q-scene"><div id="q-canvas" class="q-tv" data-label="${esc(C?.begun ? `Your camp in ${C.reg.name}` : `Your village${n ? ': ' + BUILDINGS.slice(0, n).map(b => b[1]).join(', ') : ''}`)}, and the dragon on its crag"></div>
       <div class="q-tags"><span>${esc(C?.begun ? C.reg.name : BUILDINGS[n - 1]?.[1] || 'Campfire')}${R.streak ? ` · ${R.streak} day streak` : ''}</span><span class="dr">${esc(C?.begun ? C.reg.dragon : D.name)}</span></div></div>
     ${B && !B.closed ? reportCard(B) : ''}
     ${campCard(C, R)}
     ${R.ruins.length ? `<div class="q-ruin">The dragon burned your ${esc(listOf(R.ruins.map(b => b.toLowerCase())))}. Win a day to rebuild ${R.ruins.length > 1 ? 'one' : 'it'}.</div>`
-      : R.lost % BURN_AFTER === BURN_AFTER - 1 && d === T && standing(R.vault).length > 1 ? `<div class="q-ruin warn">${R.lost} lost days in a row. Lose today and the dragon burns your ${esc(standing(R.vault).slice(-1)[0].toLowerCase())}.</div>` : ''}
+      : R.lost % BURN_AFTER === BURN_AFTER - 1 && d === T && standing(R.vault).length > 1 ? `<div class="q-ruin warn">The dragon has broken your gate ${R.lost} nights running. Lose today and it gets in and burns your ${esc(standing(R.vault).slice(-1)[0].toLowerCase())}.</div>`
+      : R.lost && d === T ? `<div class="q-ruin warn">At midnight the dragon smashed your gate. Hold the keep today and the villagers will patch it up.</div>` : ''}
     ${head ? `<div class="q-head">${head}</div>` : ''}
     <div class="q-score">
       <div class="q-sides"><div><small>Your gold</small><b class="you">${r.you}</b></div><div class="r"><small>The dragon</small><b class="dr">${r.dragon}</b></div></div>
       <div class="q-rope" role="img" aria-label="You hold ${r.you} of ${r.total} gold; keep ${r.need} to win"><i style="width:${pct.toFixed(1)}%"></i><u style="left:${linePct}%"></u></div>
-      <div class="q-cap"><span>${cap}</span><span>Keep ${r.need || 0} to win</span></div>
+      <div class="q-cap"><span>${cap}</span><span>Keep ${r.need || 0} to hold</span></div>
       <div class="q-say"><i class="q-face" aria-hidden="true"></i><p>${said}</p></div>
     </div>
     <div class="q-bar"><button class="q-pill" data-act="q-kingdom"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 14V3m0 0h8l-2 2.5L11 8H3"/></svg>Kingdom</button><button class="q-pill" data-act="q-routine"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4.5h10M3 8h10M3 11.5h6"/></svg>${opts.noHabits ? 'Set up your routine' : 'Your habits'}</button>${opts.remind ? `<button class="q-pill${opts.remind.act === 'off' ? ' on' : ''}" data-act="q-remind" data-v="${opts.remind.act || 'info'}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M4 11V7a4 4 0 0 1 8 0v4l1 1.5H3z"/><path d="M6.5 14a1.6 1.6 0 0 0 3 0"/></svg>${opts.remind.act === 'off' ? 'Reminders on' : 'Reminders'}</button>` : ''}</div>
@@ -519,10 +580,11 @@ export function html(d, R, opts = {}) {
     <div class="q-list">${rows || `<div class="q-empty">No quests on this day. Plan a task or a habit for it, and the dragon will start watching.</div>`}${opts.adder || ''}</div>
     <div class="q-foot">
       <div class="q-week">${wk}</div>
-      <p>This week: <b class="you">you ${wins}</b>, <b class="dr">the dragon ${losses}</b>${B?.closed ? ` · <button class="q-link" data-act="q-report" data-w="${B.ws}">Read the battle report</button>` : ''}</p>
+      <p>This week: <b class="you">the keep held ${wins}</b>, <b class="dr">the dragon won ${losses}</b>${B?.closed ? ` · <button class="q-link" data-act="q-report" data-w="${B.ws}">Read The Dragon's Due</button>` : ''}</p>
+      <p class="q-help"><button class="q-link" data-act="q-help">How it works</button> · <button class="q-link" data-act="q-sound" aria-pressed="${sfx.on()}">Sound ${sfx.on() ? 'on' : 'off'}</button></p>
       <p class="q-vault">Vault <b>${R.vault.toLocaleString()} gold</b>${next ? ` · next, a ${esc(next[1].toLowerCase())} at ${next[0].toLocaleString()}` : ' · the castle is complete'}</p>
       ${opts.remind ? `<div class="q-tool"><p>${esc(opts.remind.txt)}</p>${opts.remind.act ? `<button class="q-btn${opts.remind.act === 'off' ? ' quiet' : ''}" data-act="q-remind" data-v="${opts.remind.act}">${esc(opts.remind.btn)}</button>` : ''}</div>` : ''}
-      <p class="q-dragon">${R.streak ? `You've won ${R.streak} day${R.streak > 1 ? 's' : ''} in a row, so the dragon is ${H.name}` : 'No win streak yet, so the dragon is dozing'}: it swoops ${H.grace} minutes after a quest's time ends${H.boost > 1 ? `, and your kept gold builds ×${H.boost}` : ''}. ${HUNTS.find(x => x.at > R.streak) ? `At ${HUNTS.find(x => x.at > R.streak).at} wins it starts ${HUNTS.find(x => x.at > R.streak).name}. ` : ''}It's a ${esc(D.name.toLowerCase())} because it took ${R.last7} gold this week.</p>
+      <p class="q-dragon">${!R.streak ? 'No streak yet, so the dragon is dozing' : H.boost > 1 ? `You've held the keep ${R.streak} day${R.streak > 1 ? 's' : ''} in a row, and a rich town draws a hungrier dragon: it's ${H.name}` : `You've held the keep ${R.streak} day${R.streak > 1 ? 's' : ''} in a row. The dragon is still dozing`}. It circles for ${H.grace} minutes after a quest's time ends, then dives${H.boost > 1 ? `, and your kept gold builds ×${H.boost}` : ''}. ${HUNTS.find(x => x.at > R.streak) ? `At ${HUNTS.find(x => x.at > R.streak).at} wins it starts ${HUNTS.find(x => x.at > R.streak).name}. ` : ''}It's a ${esc(D.name.toLowerCase())}, fat on the ${R.last7} gold it took this week.</p>
     </div>
   </div>`;
 }
@@ -531,6 +593,7 @@ let anim = 0, tick = 0;
 export function mounted(R) {
   clearInterval(anim);
   const el = document.getElementById('q-canvas'); if (!el) return;
+  happenings(R);
   mount(draw(R, tick), el, el.dataset.label);
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   anim = setInterval(() => { if (!document.getElementById('q-canvas')) { clearInterval(anim); return; } tick++; draw(R, tick); }, 180);

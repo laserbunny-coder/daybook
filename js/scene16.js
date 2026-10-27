@@ -154,10 +154,13 @@ const AT = { 'Castle walls': 86, 'Great hall': 100, 'Mill': 58, 'Watchtower': 4,
 const ORDER = ['Castle walls', 'Great hall', 'Mill', 'Watchtower', 'Stone keep', 'Castle', 'Farm', 'Smithy', 'Hut', 'Tent', 'Campfire', 'Market', 'Well'];
 
 /* ---------- the dragon ---------- */
-function dragon(t, s, ink, crown, fat = 0) {
+// pose: where it is and what it's doing. { x, y } in flight (it faces the way it flies), asleep on the crag, or awake there breathing fire.
+function dragon(t, s, ink, crown, fat = 0, pose = {}) {
   const DRG = [mixc(ink, '#000000', .8), mixc(ink, '#000000', .6), mixc(ink, '#000000', .35), ink, mixc(ink, '#ffaa66', .3), mixc(ink, '#ffffff', .45)];
   const MEMB = [mixc(ink, '#200010', .75), mixc(ink, '#200010', .58), mixc(ink, '#200010', .42), mixc(ink, '#200010', .28)];
-  const ox = 290 - 30 * s, oy = G - 72 - 26 * s + Math.round(Math.sin(t * .9)), flap = Math.sin(t * 1.6), S = v => v * s;
+  const fly = pose.x != null, ox = fly ? pose.x : 290 - 30 * s, oy = fly ? pose.y : G - 72 - 26 * s + Math.round(Math.sin(t * .9)), S = v => v * s;
+  const flap = pose.sleep ? -.2 + Math.sin(t * .25) * .05 : Math.sin(t * (fly ? 3.2 : 1.6));
+  if (pose.flip) { c.save(); c.translate(2 * ox + S(18), 0); c.scale(-1, 1); }
   wing(ox + S(14), oy + S(10), -flap, MEMB.slice(0, 3), S(26), DRG);
   for (let i = 0; i < 26 * s; i++) { const r = Math.max(1.2, S(3.4) - i / 9); blob(ox + S(22) + i, oy + S(22) + Math.sin(i / 5 + t * .4) * 3 + i * .25, r, r, DRG); }
   // it gets fatter the more of your gold it has eaten this week
@@ -167,11 +170,15 @@ function dragon(t, s, ink, crown, fat = 0) {
   blob(ox + S(12), oy + S(26), S(3), S(4), DRG); blob(ox + S(24), oy + S(26), S(3), S(4), DRG);
   for (let i = 0; i < 10; i++) blob(ox + S(6) - i * S(.9), oy + S(12) - i * S(1.2), S(3.6), S(3.6), DRG);
   blob(ox - S(6), oy, S(6), S(4.5), DRG); blob(ox - S(11), oy + S(2), S(3.5), S(2.5), DRG);
-  P('#fff0a0', ox - S(7), oy - 1, 2, 1); P('#f8c040', ox - S(7), oy); P(DRG[0], ox - S(14), oy + S(1));
+  if (pose.sleep) P(DRG[0], ox - S(8), oy, 3, 1); else { P('#fff0a0', ox - S(7), oy - 1, 2, 1); P('#f8c040', ox - S(7), oy); } P(DRG[0], ox - S(14), oy + S(1));
   for (const [a, b] of [[-3, -4], [-1, -5], [0, -6], [-2, -4]]) P('#e8d8b0', ox + S(a), oy + S(b));
   for (let i = 0; i < 6; i++) P(DRG[4], ox + S(10 + i * 3), oy + S(9) - Math.round(Math.sin(i / 2)), 1, 2);
   if (crown) { P(GOLD[2], ox - S(8), oy - S(7), S(6), 2); for (let i = 0; i < 3; i++) P(GOLD[3], ox - S(8) + i * S(2.5), oy - S(9), 1, 2); }
   wing(ox + S(18), oy + S(9), flap, MEMB, S(32), DRG);
+  if (pose.carry) for (let i = 0; i < 5; i++) P(GOLD[(i + t) % 4], ox + S(14) + i * 2 - 4, oy + S(28) + (i % 2), 2, 2); // your gold, in its claws
+  if (pose.flip) c.restore();
+  if (pose.sleep) { for (let i = 0; i < 3; i++) { const k = (t * .25 + i * 1.3) % 4; if (k < 3) for (const [a, b] of [[0, 0], [1, 0], [2, 0], [1, 1], [0, 2], [1, 2], [2, 2]]) P('#d8d0f0', ox - S(12) - k * 4 + a, oy - S(10) - k * 6 + b); } return; }
+  if (fly) return;
   const breath = (t % 14) / 14; if (breath > .55 && breath < .9) { const L = (breath - .55) / .35 * 46 * s;
     for (let i = 0; i < L; i++) { const sp = i / 7; for (let k = -sp; k <= sp; k++) { const x = ox - S(15) - i, y = oy + S(3) + k + Math.sin(i * .7 + t) * 1.5, v = 1 - i / (50 * s) - Math.abs(k) / (sp + 2) * .6; if (dith(x, y) < v + .2) P(ramp(FIRE, v, x, y), x, y); } } }
 }
@@ -186,6 +193,50 @@ function wing(x, y, flap, R, span, DRG) {
   }
   for (let i = 0; i <= 12; i++) { P(DRG[1], x + (tip[0] - x) * i / 12, y + (tip[1] - y) * i / 12); P(DRG[1], tip[0] + (back[0] - tip[0]) * i / 12, tip[1] + (back[1] - tip[1]) * i / 12); }
 }
+
+// Circling: in the grace after a quest's time it leaves the crag and wheels over your gold, waiting for its moment.
+function circleAt(t, s) { const a = t * .09; return { x: 172 + Math.cos(a) * 70 - 18 * s, y: 36 + Math.sin(a) * 14, flip: Math.sin(a) < 0 }; }
+// A flight off the crag to a spot (cx, cy: where its feet land) and back. The swoop takes gold from the pile;
+// at midnight's reckoning it either bounces off your gate (the keep held) or smashes it and flies off with a sack (it didn't).
+export const SWOOP = 34, RECKON = 44;
+function flight(age, dur, s, cx, cy, carry, dazed) {
+  const crag = [290 - 30 * s, G - 72 - 26 * s], to = [cx - 18 * s, cy - 28 * s], f = age / dur;
+  if (f < .4) { const k = f / .4; return { x: crag[0] + (to[0] - crag[0]) * k, y: crag[1] + (to[1] - crag[1]) * k * k - Math.sin(k * Math.PI) * 10 }; }
+  if (f < .52) return dazed ? { x: to[0] + 6 * (f - .4) / .12 * 3, y: to[1] - 4 - Math.abs(Math.sin(age)) * 4 } : { x: to[0] + Math.sin(age) * 2, y: to[1] + 2, carry };
+  const k = (f - .52) / .48, from = dazed ? [to[0] + 18, to[1] - 8] : to;
+  return { x: from[0] + (crag[0] - from[0]) * k, y: from[1] + (crag[1] - from[1]) * Math.sqrt(k) - Math.sin(k * Math.PI) * 18 + (dazed ? Math.sin(age * 1.7) * 3 : 0), flip: true, carry };
+}
+const swoopAt = (age, s, x) => flight(age, SWOOP, s, x ?? 172, x != null ? PILE_Y : G, true);
+/* ---------- the day's gold: one pile per quest, out in the field ---------- */
+const PILE_Y = G + 13;
+/** Where pile `slot` of `of` sits: spread across the field, clear of the path to the gate. */
+export function pileX(slot, of) { const x = 18 + (slot + .5) * 276 / Math.max(1, of); return x > 128 && x < 162 ? (x < 145 ? 126 : 164) : x; }
+function pile(x, g, mark, t) {
+  const h = Math.min(10, 3 + Math.round(g / 4)), y = PILE_Y;
+  for (let i = 0; i < h; i++) for (let xx = -h + i; xx <= h - i; xx++) if ((xx + i + 99) % 2 === 0 || i === h - 1 || Math.abs(xx) < h - i - 1) P(ramp(GOLD, .95 - i / (h + 2) - (xx > 0 ? .15 : 0), x + xx, y - i), x + xx, y - i);
+  P('#fff8d0', x - 1 + (t % 7 === 0 ? 1 : 0), y - h + 1); P('#1a1408', x - h, y + 1, h * 2 + 1, 1);
+  if (mark) { P('#2a1810', x, y - h - 8, 1, 9); for (let i = 0; i < 6; i++) P(i < 2 ? '#ff6a40' : '#d83020', x + 1 + i, y - h - 8 + Math.round(Math.sin(t * 1.4 + i * .8) * .8), 1, 4 - (i > 3 ? i - 3 : 0)); for (let i = 0; i < 3; i++) P('#ff4a30', x - h + 1 + i * 3, y + 2, 2, 1); } // the dragon's mark: its red pennant stuck in the pile
+}
+/** Where the village's gate is: the castle's, the keep's, or a wooden one in the palisade before there's stone. */
+const gateOf = shown => shown.includes('Castle') ? { x: AT.Castle + 38, w: 18, stone: true } : shown.includes('Stone keep') ? { x: AT['Stone keep'] + 11, w: 14, stone: true } : { x: 144, w: 12 };
+function homeGate(g, broken, t) {
+  const h = g.w + 2;
+  if (!g.stone) { // a wooden gate between two posts
+    P(WOOD[0], g.x - 2, G - h - 3, 2, h + 3); P(WOOD[0], g.x + g.w, G - h - 3, 2, h + 3); P(WOOD[3], g.x - 2, G - h - 3, 1, 1); P(WOOD[3], g.x + g.w, G - h - 3, 1, 1);
+    if (!broken) { for (let xx = g.x; xx < g.x + g.w; xx++) for (let yy = G - h + 2; yy < G; yy++) P(ramp(WOOD, .7 - (xx - g.x) / 30 + ((xx - g.x) % 3 === 0 ? -.25 : 0), xx, yy), xx, yy); P(WOOD[0], g.x, G - h + 5, g.w, 1); P(WOOD[0], g.x, G - 5, g.w, 1); return; }
+  }
+  if (!broken) return;
+  // broken: the doors smashed in, planks on the ground, a crack up the stone
+  for (let yy = G - h + 3; yy < G; yy++) for (let xx = g.x + 1; xx < g.x + g.w - 1; xx++) P('#0a0608', xx, yy);
+  for (const [dx, dy, l] of [[-3, -1, 6], [g.w - 2, -2, 5], [2, -1, 4], [g.w - 6, 0, 7]]) for (let i = 0; i < l; i++) P(WOOD[(i + dx) & 1 ? 2 : 1], g.x + dx + i, G + dy + (i > l / 2 ? 1 : 0));
+  P(WOOD[2], g.x + 1, G - h + 4, 2, 6); P(WOOD[1], g.x + g.w - 3, G - h + 6, 2, 5);
+  if (g.stone) { let x = g.x + g.w / 2; for (let yy = G - h - 1; yy > G - h - 12; yy--) { x += ((yy * 7) % 3) - 1; P('#120c10', x, yy); } }
+  if (t % 5 < 2) P('#6a6070', g.x + g.w / 2 + Math.sin(t) * 2, G - h - 4 - (t % 5), 2, 2); // dust
+}
+// Kept: the quest's coins fly up from the bottom of the screen into the keep.
+function coins(age, n, from, to) { for (let i = 0; i < n; i++) { const k = (age - i * 1.2) / 10; if (k < 0 || k > 1) continue; const sx = from + (i % 3 - 1) * 2, x = sx + (to[0] - sx) * k, y = PILE_Y - 2 - Math.sin(k * Math.PI) * 50 + (to[1] - PILE_Y + 2) * k; P(GOLD[3], x, y, 2, 2); P(GOLD[1], x + 1, y + 1); if (k > .9) P('#fff8d0', to[0] - 3 + (i % 3) * 3, to[1] - (i % 2) * 3); } }
+// A new building: sparkles over it.
+function sparkle(x, age) { for (let i = 0; i < 10; i++) { const a = i * .63 + age * .3, r = 4 + age * 1.4; if ((age + i) % 3) P(i % 2 ? '#fff0a0' : '#ffffff', x + 10 + Math.cos(a) * r, G - 24 + Math.sin(a) * r * .7); } }
 
 /* ---------- weather and little life ---------- */
 function weather(L, t, phase) {
@@ -219,7 +270,18 @@ export function paint(cv, S, t) {
   if (S.camp) { const fx = 150; flagOn(fx, G - 30, rampOf(S.campInk || '#e3b663'), t, 10); P(WOOD[0], fx, G - 20, 1, 20); }
   // the dragon's hoard on the crag: what it took this week
   const hoard = Math.min(16, Math.ceil((S.hoard || 0) / 12)); for (let i = 0; i < hoard; i++) for (let k = 0; k <= i / 2; k++) if ((i + k) % 2 === 0) P(ramp(GOLD, .9 - k / 8, 0, 0), 262 + i - k, G - 40 + (i > 8 ? 2 : 0) - k + Math.abs(i - 8) * .6);
-  dragon(t, [0.72, .86, 1, 1.14][S.lvl] || .8, DRAGON_INK[S.land] || DRAGON_INK.vale, S.land === 'spires', Math.min(1, (S.hoard || 0) / 200));
+  // the pile it has marked today, with its claw marks over it
+  // today's quests, each a pile of gold out in the field; a pile the dragon is carrying off is no longer on the ground
+  for (const q of S.piles || []) pile(pileX(q.slot, q.of), q.g, q.mark, t);
+  for (const e of S.fx || []) if (e.kind === 'swoop' && e.age < SWOOP * .46 && e.slot != null) pile(pileX(e.slot, e.of), e.g || 10, false, t); // still there until it lands
+  const sz = [0.72, .86, 1, 1.14][S.lvl] || .8, fx = (S.fx || []).find(e => e.kind === 'swoop' && e.age < SWOOP);
+  const rk = !S.camp && (S.fx || []).find(e => (e.kind === 'held' || e.kind === 'breach') && e.age >= 0 && e.age < RECKON), g = gateOf(shown);
+  if (!S.camp) homeGate(g, rk ? rk.kind === 'breach' && rk.age > RECKON * .45 : S.gate, t);
+  if (rk?.kind === 'held' && rk.age > RECKON * .4) { flagOn(g.x + g.w / 2, G - g.w - 16, GOLD.concat(['#fff8d0']), t, 9); if (rk.age < RECKON * .52) for (let i = 0; i < 8; i++) P(i % 2 ? '#fff8d0' : FIRE[3], g.x + g.w / 2 + Math.cos(i * .8 + rk.age) * (4 + i), G - g.w - 6 + Math.sin(i * .8 + rk.age) * (3 + i / 2)); }
+  dragon(t, sz, DRAGON_INK[S.land] || DRAGON_INK.vale, S.land === 'spires', Math.min(1, (S.hoard || 0) / 200),
+    rk ? flight(rk.age, RECKON, sz, g.x + g.w / 2, G - (rk.kind === 'held' ? g.w + 4 : 0), rk.kind === 'breach', rk.kind === 'held') : fx ? swoopAt(fx.age, sz, fx.slot != null ? pileX(fx.slot, fx.of) : null) : S.mode === 'circle' ? circleAt(t, sz) : { sleep: S.mode === 'sleep' });
+  const into = (() => { const g = S.camp ? { x: 150, w: 10 } : gateOf(shown); return [g.x + g.w / 2, G - 4]; })();
+  for (const e of S.fx || []) if (e.kind === 'kept') coins(e.age, e.n || 6, e.slot != null ? pileX(e.slot, e.of) : 40, into); else if (e.kind === 'built' && e.age < 18) sparkle(e.x ?? 170, e.age);
   weather(L, t, S.phase);
   for (const [x, s] of [[4, 1.3], [62, .8], [230, .9]]) if (!(x === 62 && shown.includes('Smithy')) && !(x === 4 && shown.includes('Watchtower'))) { P(WOOD[0], x - 1, G + 4 - 8 * s, 3, 8 * s); blob(x, G + 4 - 14 * s, 9 * s, 8 * s, L.leaf); blob(x - 4 * s, G + 4 - 19 * s, 6 * s, 5 * s, L.leaf); }
 }
