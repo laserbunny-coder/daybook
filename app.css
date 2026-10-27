@@ -1463,3 +1463,11 @@ body.quiet .ny-line.old b{color:var(--danger)}
 .q-intro-dots i{width:6px;height:6px;border-radius:1px;background:var(--line2)}
 .q-intro-dots i.on{background:var(--gold)}
 .q-help{font-size:12.5px;color:var(--faint)}
+/* Hold the Keep scoreboard: secured, still in the field, the dragon's */
+.q-sides .m{align-items:center}
+.q-sides b.fld{color:var(--muted)}
+.q-rope{background:repeating-linear-gradient(90deg,color-mix(in srgb,var(--gold) 22%,transparent) 0 6px,color-mix(in srgb,var(--gold) 10%,transparent) 6px 9px)}
+.q-rope s{position:absolute;inset:0 0 0 auto;border-radius:2px;background:var(--drg);transition:width .5s cubic-bezier(.3,.7,.3,1)}
+.q-rope.holds u{background:var(--gold);opacity:1}
+.q-head.lost{color:var(--drg)}
+.q-sides b{font-size:26px}
