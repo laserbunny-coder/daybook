@@ -42,7 +42,7 @@ export function moved(id, before, after) {
   const n = store.get(id) || skipped(id); if (!n || n.done || n.k === 'area' || n.r) return;
   if (Q.swipes[d]?.[id]) return;
   const s = 's' in before ? before.s : n.s, m = ('m' in before ? before.m : n.m) ?? 60, g = gold(m);
-  const end = deadline(d, s, m, DRAGONS[realm().lvl].grace) ?? 24 * 60;
+  const end = deadline(d, s, m, realm().grace) ?? 24 * 60;
   const taken = d < T || new Date() > at(d, end);
   (Q.swipes[d] = Q.swipes[d] || {})[id] = { t: n.t || 'Untitled', g: taken ? g : Math.max(2, Math.round(g / 4)) };
   for (const k of Object.keys(Q.swipes)) if (daysBetween(k, T) > 21) delete Q.swipes[k];
@@ -74,19 +74,28 @@ const swipesOn = d => Object.entries(Q.swipes[d] || {}).filter(([id]) => { const
 
 /* ---------- the rules ---------- */
 export function gold(m) { m = m || 60; return m <= 15 ? 5 : m <= 30 ? 10 : m <= 60 ? 15 : m <= 90 ? 20 : m <= 150 ? 25 : 30; }
-// The dragon grows on what it took over the last seven days, and a bigger one swoops sooner after a quest's time
+// The dragon grows on what it took over the last seven days: a bad week shows in how big and fierce it looks.
 export const DRAGONS = [
-  { at: 0, name: 'Hatchling', grace: 60 },
-  { at: 40, name: 'Drake', grace: 45 },
-  { at: 100, name: 'Wyvern', grace: 30 },
-  { at: 180, name: 'Great Wyrm', grace: 15 },
+  { at: 0, name: 'Hatchling' }, { at: 40, name: 'Drake' }, { at: 100, name: 'Wyvern' }, { at: 180, name: 'Great Wyrm' },
 ];
+// How hard it hunts comes from your win streak instead: the longer it runs, the sooner the dragon swoops after a
+// quest's time, and the more your kept gold builds the village. A lost day ends the streak and it dozes off again,
+// so a bad stretch never makes the next day harder.
+export const HUNTS = [
+  { at: 0, name: 'dozing', grace: 60, boost: 1 }, { at: 3, name: 'prowling', grace: 45, boost: 1.25 },
+  { at: 7, name: 'hunting', grace: 30, boost: 1.5 }, { at: 14, name: 'relentless', grace: 15, boost: 2 },
+];
+const huntAt = streak => { let i = 0; HUNTS.forEach((x, j) => { if (streak >= x.at) i = j; }); return HUNTS[i]; };
+// Three lost days in a row and the dragon burns your newest building, three more and the next; each day won rebuilds one.
+const BURN_AFTER = 3;
 export const BUILDINGS = [
   [0, 'Campfire'], [100, 'Tent'], [250, 'Hut'], [450, 'Well'], [700, 'Farm'], [1000, 'Watchtower'], [1400, 'Mill'],
   [1900, 'Smithy'], [2500, 'Stone keep'], [3200, 'Market'], [4000, 'Castle walls'], [5000, 'Great hall'], [6500, 'Castle'],
 ];
 const dragonAt = hoard => { let i = 0; DRAGONS.forEach((x, j) => { if (hoard >= x.at) i = j; }); return i; };
 export const villageAt = vault => BUILDINGS.filter(b => vault >= b[0]).length; // how many buildings stand
+// The buildings you can see, oldest first: a castle replaces the keep, and the campfire goes once the keep stands
+const standing = vault => { const up = BUILDINGS.slice(0, villageAt(vault)).map(b => b[1]); return up.filter(b => !(b === 'Stone keep' && up.includes('Castle')) && !(b === 'Campfire' && up.includes('Stone keep'))); };
 
 const plannedDay = n => (n.pl ? n.pl.day : n.d) ?? null;
 const doneAt = n => { const e = (n.tl || []).filter(x => x.end).pop(); return e ? new Date(e.end) : null; };
@@ -139,21 +148,27 @@ function score(d, now, grace) {
 /** The whole realm as of now: every finished day since it began, today live, the vault, the dragon. */
 export function realm() {
   const T = today(), now = new Date(), start = Q.start || T, days = [];
-  let vault = 0, hoard = 0;
+  let vault = 0, hoard = 0, streak = 0, lost = 0, burned = 0;
   for (let d = start; d <= T; d = add(d, 1)) {
-    const recent = days.slice(-7).reduce((a, x) => a + x.dragon, 0), lvl = dragonAt(recent);
-    const r = score(d, d === T ? now : at(add(d, 1), 0), DRAGONS[lvl].grace);
-    r.lvl = lvl; r.rest = r.total === 0; r.win = !r.rest && r.you >= r.need;
+    const recent = days.slice(-7).reduce((a, x) => a + x.dragon, 0), lvl = dragonAt(recent), H = huntAt(streak);
+    const r = score(d, d === T ? now : at(add(d, 1), 0), H.grace);
+    r.lvl = lvl; r.hunt = H; r.streak = streak; r.rest = r.total === 0; r.win = !r.rest && r.you >= r.need;
     days.push(r);
-    if (d < T) { vault += r.you; hoard += r.dragon; } else { vault += r.bank; hoard += r.dragon; }
+    if (d < T) {
+      vault += Math.round(r.you * H.boost); hoard += r.dragon;
+      if (r.win) { streak++; lost = 0; burned = Math.max(0, burned - 1); }
+      else if (!r.rest) { streak = 0; lost++; if (lost % BURN_AFTER === 0) burned++; }
+    } else { vault += Math.round(r.bank * H.boost); hoard += r.dragon; }
   }
-  const last7 = days.slice(-7).reduce((a, x) => a + x.dragon, 0);
-  return { start, days, vault, hoard, lvl: days.length ? days[days.length - 1].lvl : 0, last7, byDay: new Map(days.map(x => [x.d, x])) };
+  const last7 = days.slice(-7).reduce((a, x) => a + x.dragon, 0), H = huntAt(streak);
+  burned = Math.min(burned, Math.max(0, standing(vault).length - 1));
+  return { start, days, vault, hoard, lvl: days.length ? days[days.length - 1].lvl : 0, last7, streak, lost, burned, hunt: H, grace: H.grace,
+    ruins: standing(vault).slice(standing(vault).length - burned), byDay: new Map(days.map(x => [x.d, x])) };
 }
 /** One day, as the plan shows it. A day before the realm began or still ahead is judged at its start (nothing taken yet). */
 export function dayView(d, R) {
   const r = R.byDay.get(d); if (r) return r;
-  const x = score(d, d > today() ? at(d, 0) : at(add(d, 1), 0), DRAGONS[R.lvl].grace); x.ahead = d > today(); x.before = d < R.start; return x;
+  const x = score(d, d > today() ? at(d, 0) : at(add(d, 1), 0), R.grace); x.ahead = d > today(); x.before = d < R.start; return x;
 }
 
 /* ---------- the dragon's voice ---------- */
@@ -193,7 +208,8 @@ async function askDragon(r, R, phase) {
     time: fmtT(new Date().getHours() * 60 + new Date().getMinutes()), phase,
     gold_on_table: r.total, you_hold: r.you, bonus_from_events_attended: r.bonus, dragon_has: r.dragon, need_to_win: r.need,
     quests: r.Qs.map(q => ({ title: q.n.t, gold: q.g, planned: q.s != null ? fmtT(q.s) : 'any time', swoops_at: q.byMin != null ? fmtT(q.byMin) : 'midnight', state: q.st })),
-    dragon_form: DRAGONS[R.lvl].name, dragon_took_last_7_days: R.last7,
+    dragon_form: DRAGONS[R.lvl].name, dragon_took_last_7_days: R.last7, your_win_streak: R.streak, dragon_hunting: R.hunt.name,
+    days_lost_in_a_row: R.lost, buildings_burned_by_dragon: R.ruins,
     vault: R.vault, village: BUILDINGS.slice(0, villageAt(R.vault)).map(b => b[1]),
     this_week: week(R).map(w => w.res).filter(Boolean).join(' '), days_since_realm_began: daysBetween(R.start, today()),
   };
@@ -208,7 +224,7 @@ async function askDragon(r, R, phase) {
 /** What to send over the coming week, and when: a morning count of the gold at stake, each timed quest as it
     starts, a warning 15 minutes before the dragon swoops on one, and at 8pm whatever is still out. */
 export function plan(days = 7) {
-  const R = realm(), grace = DRAGONS[R.lvl].grace, now = new Date(), out = [];
+  const R = realm(), grace = R.grace, now = new Date(), out = [];
   const push = (key, t, title, body) => { if (t > now) out.push({ key, at: t.toISOString(), title, body, tag: key }); };
   for (let i = 0; i < days; i++) {
     const d = add(today(), i), Qs = questsOn(d).map(q => judge(q, d, now, grace)).filter(q => !q.done);
@@ -292,6 +308,21 @@ const DRAW = {
 const SLOTS = { 'Campfire': 70, 'Tent': 58, 'Hut': 44, 'Well': 82, 'Farm': 22, 'Watchtower': 6, 'Mill': 92, 'Smithy': 30, 'Stone keep': 62, 'Market': 80, 'Castle walls': 52, 'Great hall': 34, 'Castle': 58 };
 const ORDER = ['Farm', 'Watchtower', 'Great hall', 'Smithy', 'Hut', 'Castle walls', 'Tent', 'Stone keep', 'Castle', 'Campfire', 'Market', 'Well', 'Mill'];
 const W_ = 160, H_ = 64;
+// A burned building: drawn on its own, charred, with smoke rising and an ember or two
+let scratch = null;
+function ruin(c, b, g, t) {
+  scratch = scratch || Object.assign(document.createElement('canvas'), { width: W_, height: H_ });
+  const o = scratch.getContext('2d'); o.globalCompositeOperation = 'source-over'; o.clearRect(0, 0, W_, H_);
+  DRAW[b](o, SLOTS[b], g, 0);
+  o.globalCompositeOperation = 'source-atop'; o.fillStyle = 'rgba(24,16,14,.78)'; o.fillRect(0, 0, W_, H_);
+  const px = o.getImageData(0, 0, W_, H_).data; let x0 = W_, x1 = 0, y0 = H_;
+  for (let y = 0; y < H_; y++) for (let x = 0; x < W_; x++) if (px[(y * W_ + x) * 4 + 3]) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); }
+  c.drawImage(scratch, 0, 0);
+  if (x1 < x0) return;
+  const mx = Math.round((x0 + x1) / 2);
+  for (let i = 0; i < 4; i++) { const k = (t + i) % 4; R_(c, `rgba(140,134,128,${0.55 - k * 0.12})`, mx - 1 + ((i + t) % 3) - 1, y0 - 2 - k * 3, 2, 2); }
+  R_(c, t % 2 ? '#f2a33a' : '#c4503a', x0 + 1 + (t % 3), g - 2, 1, 1); R_(c, '#c4503a', x1 - 1 - (t % 2), g - 3, 1, 1);
+}
 export function draw(canvas, R, tick = 0) {
   const c = canvas.getContext('2d'); if (!c) return;
   const m = new Date().getHours() * 60 + new Date().getMinutes(), sky = SKY[skyOf(m)], g = 56;
@@ -302,10 +333,8 @@ export function draw(canvas, R, tick = 0) {
   for (let x = 0; x < W_; x++) { const h = 8 + Math.round(4 * Math.sin(x / 9) + 3 * Math.sin(x / 4.3)); R_(c, '#3b4a52', x, g - h, 1, h); }
   for (let x = 112; x < W_; x++) { const h = Math.max(0, Math.round(28 - Math.abs(x - 140) * 1.1)); R_(c, '#2e3540', x, g - h, 1, h); }
   R_(c, '#3f5a2e', 0, g, W_, H_ - g); R_(c, '#567a3a', 0, g, W_, 1);
-  const n = villageAt(R.vault), up = BUILDINGS.slice(0, n).map(b => b[1]);
-  // a castle replaces the keep; walls stand behind the rest
-  const shown = up.filter(b => !(b === 'Stone keep' && up.includes('Castle')) && !(b === 'Campfire' && up.includes('Stone keep')));
-  ORDER.filter(b => shown.includes(b)).forEach(b => DRAW[b](c, SLOTS[b], g, tick));
+  const shown = standing(R.vault), ruins = R.ruins || [];
+  ORDER.filter(b => shown.includes(b)).forEach(b => ruins.includes(b) ? ruin(c, b, g, tick) : DRAW[b](c, SLOTS[b], g, tick));
   // the vault's gold, piled by the keep
   const pile = Math.min(6, Math.floor(R.vault / 200));
   for (let i = 0; i <= pile; i++) R_(c, i % 2 ? '#e3b663' : '#c99a3a', 100 - i, g - 1 - Math.floor(i / 2), 2 + i * 2 > 10 ? 10 : 2 + i * 2, 1);
@@ -319,10 +348,11 @@ export function draw(canvas, R, tick = 0) {
 }
 
 /* ---------- the view ---------- */
+const listOf = a => a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
 const STATE_TXT = { kept: 'Kept', late: 'Late, half back', taken: 'Taken', open: '' };
 const moveTxt = q => `${q.to ? 'Moved to ' + (q.to === today() ? 'today' : DAYN[pd(q.to).getDay()] + ' ' + pd(q.to).getDate()) : 'Taken off the plan'}, swiped`;
 export function html(d, R, opts = {}) {
-  const r = dayView(d, R), T = today(), D = DRAGONS[R.lvl];
+  const r = dayView(d, R), T = today(), D = DRAGONS[R.lvl], H = R.hunt;
   const pct = r.total ? Math.min(100, r.you / r.total * 100) : 100, linePct = WIN * 100;
   const n = villageAt(R.vault), next = BUILDINGS[n];
   const said = esc(line(r, R));
@@ -349,7 +379,9 @@ export function html(d, R, opts = {}) {
   const wins = week(R, d).filter(w => w.res === 'W').length, losses = week(R, d).filter(w => w.res === 'L').length;
   return `<div class="qv">
     <div class="q-scene"><canvas id="q-canvas" width="${W_}" height="${H_}" aria-label="Your village${n ? ': ' + BUILDINGS.slice(0, n).map(b => b[1]).join(', ') : ''}, and the dragon on its crag"></canvas>
-      <div class="q-tags"><span>${esc(BUILDINGS[n - 1]?.[1] || 'Campfire')}</span><span class="dr">${esc(D.name)}</span></div></div>
+      <div class="q-tags"><span>${esc(BUILDINGS[n - 1]?.[1] || 'Campfire')}${R.streak ? ` · ${R.streak} day streak` : ''}</span><span class="dr">${esc(D.name)}</span></div></div>
+    ${R.ruins.length ? `<div class="q-ruin">The dragon burned your ${esc(listOf(R.ruins.map(b => b.toLowerCase())))}. Win a day to rebuild ${R.ruins.length > 1 ? 'one' : 'it'}.</div>`
+      : R.lost % BURN_AFTER === BURN_AFTER - 1 && d === T && standing(R.vault).length > 1 ? `<div class="q-ruin warn">${R.lost} lost days in a row. Lose today and the dragon burns your ${esc(standing(R.vault).slice(-1)[0].toLowerCase())}.</div>` : ''}
     ${head ? `<div class="q-head">${head}</div>` : ''}
     <div class="q-score">
       <div class="q-sides"><div><small>Your gold</small><b class="you">${r.you}</b></div><div class="r"><small>The dragon</small><b class="dr">${r.dragon}</b></div></div>
@@ -365,7 +397,7 @@ export function html(d, R, opts = {}) {
       <p>This week: <b class="you">you ${wins}</b>, <b class="dr">the dragon ${losses}</b></p>
       <p class="q-vault">Vault <b>${R.vault.toLocaleString()} gold</b>${next ? ` · next, a ${esc(next[1].toLowerCase())} at ${next[0].toLocaleString()}` : ' · the castle is complete'}</p>
       ${opts.remind ? `<div class="q-tool"><p>${esc(opts.remind.txt)}</p>${opts.remind.act ? `<button class="q-btn${opts.remind.act === 'off' ? ' quiet' : ''}" data-act="q-remind" data-v="${opts.remind.act}">${esc(opts.remind.btn)}</button>` : ''}</div>` : ''}
-      <p class="q-dragon">The dragon took ${R.last7} gold this week, so it's a ${esc(D.name.toLowerCase())}: it swoops ${D.grace} minutes after a quest's time ends.</p>
+      <p class="q-dragon">${R.streak ? `You've won ${R.streak} day${R.streak > 1 ? 's' : ''} in a row, so the dragon is ${H.name}` : 'No win streak yet, so the dragon is dozing'}: it swoops ${H.grace} minutes after a quest's time ends${H.boost > 1 ? `, and your kept gold builds ×${H.boost}` : ''}. ${HUNTS.find(x => x.at > R.streak) ? `At ${HUNTS.find(x => x.at > R.streak).at} wins it starts ${HUNTS.find(x => x.at > R.streak).name}. ` : ''}It's a ${esc(D.name.toLowerCase())} because it took ${R.last7} gold this week.</p>
     </div>
   </div>`;
 }
