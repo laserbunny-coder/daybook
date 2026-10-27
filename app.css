@@ -1314,3 +1314,6 @@ body.quiet .ny-line.old b{color:var(--danger)}
 .q-vault b{color:var(--gold);font-weight:600}
 .q-dragon{color:var(--faint);font-size:12px}
 @media (max-width:860px){.qv{padding:12px 16px 40px}}
+.qx.swiped{opacity:.6;border-style:dashed}
+.qx.swiped .qx-ck{border-color:var(--drg);border-style:dashed}
+.qx.swiped .qx-g{background:var(--drg-soft);color:var(--drg)}

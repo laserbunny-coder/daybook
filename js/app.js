@@ -1139,6 +1139,7 @@ let occOffer = null, occAll = null;
 // A new step: offer Undo, keeping any message the change just showed (like a project's progress)
 function onStep(st) {
   urSync();
+  if (st) for (const [id, b, a] of st.ch) quest.moved(id, b, a); // moving a quest off its day costs a swipe of gold
   const off = occOffer; occOffer = null;
   if (!st || st.text) return; // typing a name or notes: the box is right there, no pill needed
   if (off && st.ch.some(c => c[0] === off.id)) { occAll = off; toast(`${describe(st)}, just this one`, `<button data-act="occ-all">${ICON.rep}All repeats</button>${urActs(true)}`, 8000); return; }
