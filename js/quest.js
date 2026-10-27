@@ -519,12 +519,13 @@ function campCard(C, R) {
     <div class="q-camp-bar"><i style="width:${Math.min(100, pct * 100).toFixed(0)}%"></i></div><small>${prog} · ${CAMPAIGN_DAYS - C.day} days left</small>${heads}</div>`;
 }
 /* ---------- how it works: the first time, the story in four screens ---------- */
-const INTRO = 'daybook-keep-intro';
+const INTRO = 'daybook-keep-intro-2'; // bumped when the story changes, so it's told again
 const STORY = [
   ['Hold the Keep', 'Every day has a dragon: the hours that slip away. Here, it has wings, and it plays against you.'],
-  ['Each dawn, the sun pays you the day', "Every quest on your plan, each task and habit, comes with gold, more for the longer ones. It's all yours from the start."],
+  ['Each dawn, the sun pays you the day', 'Every quest on your plan, each task and habit, lays a pile of gold out in the field, bigger for the longer ones. It\'s yours for the taking.'],
   ['Do a quest, and its gold goes into your keep', 'Gold in the keep is safe. Over the weeks it builds your village, then a castle, then a kingdom.'],
-  ['Leave it out, and the dragon takes it', "Once a quest's time passes, the dragon circles for a while, then dives. Finish it late to chase down half. Secure most of the day's gold, and the keep holds."],
+  ['Leave it out, and the dragon takes it', "Once a quest's time passes, the dragon circles for a while, then dives on that pile. Finish it late to chase down half."],
+  ['Secure enough, and the keep holds', "The score shows what's in your keep, what's still in the field, and what the dragon took. Cross the line and the day is yours. Lose a day and the dragon smashes your gate at midnight."],
 ];
 let step = null;
 export const help = () => { step = 0; };
