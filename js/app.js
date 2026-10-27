@@ -8,6 +8,7 @@ import * as stats from './stats.js';
 import * as track from './track.js';
 import * as notes from './notes.js';
 import * as quest from './quest.js';
+import * as sfx from './sfx.js';
 import * as remind from './remind.js';
 import * as routine from './routine.js';
 import * as kingdom from './kingdom.js';
@@ -1291,6 +1292,9 @@ document.addEventListener('click', e => {
     case 'q-routine': routine.open(); break;
     case 'q-kingdom': kingdom.open(); break;
     case 'q-bonus': quest.claim(b.dataset.d, +b.dataset.i); render(); break;
+    case 'q-intro': quest.next(); render(); break;
+    case 'q-help': quest.help(); render(); break;
+    case 'q-sound': sfx.set(!sfx.on()); render(); if (sfx.on()) sfx.coin(); break;
     case 'q-report-x': quest.closeReport(b.dataset.w); render(); break;
     case 'q-report': quest.closeReport(b.dataset.w, false); render(); break;
     case 'q-remind': if (b.dataset.v === 'info') { toast(remind.state().txt, '', 7000); break; } if (b.dataset.v === 'off' && b.classList.contains('q-pill')) { toast('Reminders are on here.', '<button data-act="q-remind" data-v="off">Turn off</button>', 7000); break; } if (b.dataset.v === 'on') remind.enable(later).then(r => { if (r === 'on') toast('Reminders are on. A test one is on its way.'); else if (r === 'error') toast("Couldn't turn reminders on. Try again in a moment."); else toast(remind.state().txt, '', 7000); }); else remind.disable(later); break;
@@ -1795,6 +1799,7 @@ calendar.onCalendarChange(() => { if (!D) later(); });
 notes.onChange(() => { if (!D) later(); renderMsgs(); });
 initAI({ anchor: () => S.anchor, showPlan, render: later });
 quest.init({ update: later });
+sfx.init({ quiet });
 kingdom.init({ changed: t => { render(); toast(t); } });
 routine.init({ ended: t => toast(`Removed ${t || 'the habit'} from today on`, urActs()), done: k => { if (k) { quest.begin(user); S.mode = 'quest'; S.view = 'day'; S.anchor = today(); render(); toast(`Routine saved: ${k} habit${k > 1 ? 's' : ''}. The dragon is watching.`); } } });
 // A reminder opens Daybook on Quest (see sw.js)
