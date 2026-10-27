@@ -1358,3 +1358,8 @@ body.quiet .ny-line.old b{color:var(--danger)}
   .rt-row [data-f="s"]{grid-area:s}.rt-row [data-f="t"]{grid-area:t}.rt-row .rt-x{grid-area:x}
   .rt-row [data-f="m"]{grid-area:m}.rt-row [data-f="repeat"]{grid-area:r}.rt-row .rt-g{grid-area:g}
 }
+.q-bar{display:flex;gap:8px;flex-wrap:wrap}
+.q-pill{display:inline-flex;align-items:center;gap:6px;font:500 13px/1 var(--f-body);padding:9px 12px;border-radius:999px;border:1px solid var(--line2);color:var(--fg);background:var(--panel)}
+.q-pill svg{width:15px;height:15px;color:var(--gold)}
+.q-pill:hover{background:var(--hover)}
+.q-pill.on{border-color:color-mix(in srgb,var(--gold) 55%,var(--line2));color:var(--gold)}
