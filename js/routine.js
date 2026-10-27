@@ -3,21 +3,30 @@
 // It lives in its own sheet over the app, so the plan redrawing underneath never touches what you're typing.
 import * as store from './store.js';
 import { gold } from './quest.js';
-import { add, esc, today } from './util.js';
+import { add, esc, fmtT, today } from './util.js';
 
-let client = null, onDone = () => {};
+let client = null, onDone = () => {}, onEnd = () => {};
 const el = document.createElement('div'); el.className = 'rt-sheet'; el.hidden = true; document.body.appendChild(el);
-let R = { step: 'ask', text: '', reply: '', rows: [], busy: false, err: '' };
+let R = { step: 'ask', text: '', reply: '', rows: [], busy: false, err: '', ask: null };
 const LENS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180];
 const REP = { day: 'Every day', weekday: 'Weekdays', weekend: 'Weekends' };
 const RULE = { day: { every: 'day' }, weekday: { every: 'weekday' }, weekend: { every: 'week', days: [0, 6], interval: 1 } };
 const hm = m => m == null ? '' : String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
 const unhm = v => { const x = /^(\d{1,2}):(\d{2})$/.exec(v || ''); return x ? +x[1] * 60 + +x[2] : null; };
 
-export function init(o) { if ('client' in o) client = o.client; if (o.done) onDone = o.done; }
+export function init(o) { if ('client' in o) client = o.client; if (o.done) onDone = o.done; if (o.ended) onEnd = o.ended; }
 /** The habits already set up: repeating tasks that are still going. */
 export const habits = () => store.all().filter(n => n.r && !(n.r.until && n.r.until < today()));
-export function open() { R = { step: 'ask', text: R.text, reply: '', rows: [], busy: false, err: '' }; el.hidden = false; draw(); setTimeout(() => el.querySelector('textarea')?.focus(), 50); }
+/** Ends a habit from today on. Its past days stay, so the realm's history doesn't change; a habit that hasn't
+    begun yet is simply removed. A repeat already checked off today keeps today. */
+function end(id) {
+  const n = store.get(id), T = today(); if (!n?.r) return;
+  if (n.d >= T) { store.remove(id); return; }
+  const done = store.occOn(T).some(o => o.rs === id && o.done);
+  store.update(id, { r: { ...n.r, until: done ? T : add(T, -1) } });
+}
+const RTXT = r => r.every === 'day' ? 'Every day' : r.every === 'weekday' ? 'Weekdays' : r.every === 'week' && (r.days || []).join() === '0,6' ? 'Weekends' : r.every === 'week' ? 'Some days' : 'Monthly';
+export function open() { R = { step: 'ask', text: R.text, reply: '', rows: [], busy: false, err: '', ask: null }; el.hidden = false; draw(); setTimeout(() => el.querySelector('textarea')?.focus(), 50); }
 function close() { el.hidden = true; }
 
 function draw() {
@@ -25,7 +34,10 @@ function draw() {
   const perDay = rows => rows.filter(r => r.repeat !== 'weekend').reduce((a, r) => a + gold(r.m), 0);
   const body = R.step === 'ask' ? `
     <p class="rt-lede">Tell Claude about your ideal day: when you get up, the habits you want, when you work best, how you wind down. Claude drafts it as habits, and you can change anything before it's saved.</p>
-    ${have.length ? `<p class="rt-have">You already have ${have.length} habit${have.length > 1 ? 's' : ''}: ${esc(have.slice(0, 6).map(n => n.t).join(', '))}${have.length > 6 ? '…' : ''}. Claude adds to these.</p>` : ''}
+    ${have.length ? `<div class="rt-mine"><b>Your habits</b><small>Claude adds to these. Removing one ends it from today on; its past days stay.</small>
+      ${have.filter(n => n.r.until !== today()).sort((a, b) => (a.s ?? 1e4) - (b.s ?? 1e4)).map(n => `<div class="rt-h"><span class="rt-ht">${n.s != null ? fmtT(n.s) : 'Any time'}</span><span class="rt-hn">${esc(n.t || 'Untitled')}<small>${RTXT(n.r)} · ${gold(n.m)} gold</small></span>${R.ask === n.id
+        ? `<span class="rt-hq"><button class="rt-hdel" data-rt="end" data-id="${n.id}">Remove</button><button class="rt-hno" data-rt="keep">Keep</button></span>`
+        : `<button class="rt-x" data-rt="ask-end" data-id="${n.id}" aria-label="Remove ${esc(n.t)}">×</button>`}</div>`).join('')}</div>` : ''}
     <textarea id="rt-text" rows="7" placeholder="Up at 6:30, glass of water and no phone for the first half hour. Workout at 7 most weekdays. Coffee and plan the day at 8, then 90 minutes of editing. A walk after lunch. Shut down at 5:30 and read before bed.">${esc(R.text)}</textarea>
     ${R.err ? `<p class="rt-err">${esc(R.err)}</p>` : ''}
     <div class="rt-acts"><button class="rt-go" data-rt="draft"${R.busy ? ' disabled' : ''}>${R.busy ? 'Claude is drafting…' : 'Draft my routine'}</button></div>`
@@ -85,6 +97,9 @@ el.addEventListener('click', e => {
   else if (a === 'add') { R.rows.push({ t: '', s: null, m: 30, repeat: 'day', ar: null }); draw(); el.querySelector('.rt-row:last-child [data-f="t"]')?.focus(); }
   else if (a === 'drop') { R.rows.splice(+b.dataset.i, 1); draw(); }
   else if (a === 'save') save();
+  else if (a === 'ask-end') { R.ask = b.dataset.id; draw(); }
+  else if (a === 'keep') { R.ask = null; draw(); }
+  else if (a === 'end') { const t = store.get(b.dataset.id)?.t; end(b.dataset.id); R.ask = null; draw(); onEnd(t); }
 });
 el.addEventListener('change', e => {
   const f = e.target.dataset?.f, row = e.target.closest('.rt-row'); if (!f || !row) return;
