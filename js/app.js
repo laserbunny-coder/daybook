@@ -10,6 +10,7 @@ import * as notes from './notes.js';
 import * as quest from './quest.js';
 import * as remind from './remind.js';
 import * as routine from './routine.js';
+import * as kingdom from './kingdom.js';
 import { cleanRule, ruleText, splitOcc, WEEK } from './repeat.js';
 import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fd, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
 import { ancestors, children, colorOf, dayItems, glow, hasKids, ink, look, isDone, isProj, leaves, node, PALETTE, progress, rootOf } from './tree.js';
@@ -610,6 +611,7 @@ function renderMain() {
 /* Quest (js/quest.js): the day played against Claude as a dragon. Its + adds a task to that day, like the list's. */
 let QR = null;
 function questHTML(d) {
+  quest.settle(); // a campaign won or run out closes the first time Quest is drawn after
   QR = quest.realm();
   const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a quest to ${esc(dayShort(d))}"><span aria-hidden="true">+</span> Add a quest</button>`;
   return quest.html(d, QR, { adder, noHabits: !routine.habits().length, remind: remind.state() });
@@ -1287,6 +1289,7 @@ document.addEventListener('click', e => {
     case 'color': store.update(S.open, { c: b.dataset.c }); break;
     case 'toggle': toggle(id); break;
     case 'q-routine': routine.open(); break;
+    case 'q-kingdom': kingdom.open(); break;
     case 'q-bonus': quest.claim(b.dataset.d, +b.dataset.i); render(); break;
     case 'q-remind': if (b.dataset.v === 'info') { toast(remind.state().txt, '', 7000); break; } if (b.dataset.v === 'off' && b.classList.contains('q-pill')) { toast('Reminders are on here.', '<button data-act="q-remind" data-v="off">Turn off</button>', 7000); break; } if (b.dataset.v === 'on') remind.enable(later).then(r => { if (r === 'on') toast('Reminders are on. A test one is on its way.'); else if (r === 'error') toast("Couldn't turn reminders on. Try again in a moment."); else toast(remind.state().txt, '', 7000); }); else remind.disable(later); break;
     case 'rec': if (track.isRec(node(id))) track.stop(id); else track.start(id); break;
@@ -1790,6 +1793,7 @@ calendar.onCalendarChange(() => { if (!D) later(); });
 notes.onChange(() => { if (!D) later(); renderMsgs(); });
 initAI({ anchor: () => S.anchor, showPlan, render: later });
 quest.init({ update: later });
+kingdom.init({ changed: t => { render(); toast(t); } });
 routine.init({ ended: t => toast(`Removed ${t || 'the habit'} from today on`, urActs()), done: k => { if (k) { quest.begin(user); S.mode = 'quest'; S.view = 'day'; S.anchor = today(); render(); toast(`Routine saved: ${k} habit${k > 1 ? 's' : ''}. The dragon is watching.`); } } });
 // A reminder opens Daybook on Quest (see sw.js)
 if (new URLSearchParams(location.search).has('quest')) { S.mode = 'quest'; S.view = 'day'; S.anchor = today(); history.replaceState(null, '', location.pathname); }
