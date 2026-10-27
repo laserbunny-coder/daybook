@@ -1790,7 +1790,7 @@ calendar.onCalendarChange(() => { if (!D) later(); });
 notes.onChange(() => { if (!D) later(); renderMsgs(); });
 initAI({ anchor: () => S.anchor, showPlan, render: later });
 quest.init({ update: later });
-routine.init({ done: k => { if (k) { quest.begin(user); S.mode = 'quest'; S.view = 'day'; S.anchor = today(); render(); toast(`Routine saved: ${k} habit${k > 1 ? 's' : ''}. The dragon is watching.`); } } });
+routine.init({ ended: t => toast(`Removed ${t || 'the habit'} from today on`, urActs()), done: k => { if (k) { quest.begin(user); S.mode = 'quest'; S.view = 'day'; S.anchor = today(); render(); toast(`Routine saved: ${k} habit${k > 1 ? 's' : ''}. The dragon is watching.`); } } });
 // A reminder opens Daybook on Quest (see sw.js)
 if (new URLSearchParams(location.search).has('quest')) { S.mode = 'quest'; S.view = 'day'; S.anchor = today(); history.replaceState(null, '', location.pathname); }
 initVoice(q => ask(q, { voice: true }), msg => toast(msg, '', 5000));
