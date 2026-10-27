@@ -1364,7 +1364,11 @@ body.quiet .ny-line.old b{color:var(--danger)}
 .q-pill:hover{background:var(--hover)}
 .q-pill.on{border-color:color-mix(in srgb,var(--gold) 55%,var(--line2));color:var(--gold)}
 /* Calendar events in Quest: locked-in time, hatched, no checkbox, no gold */
-.qe{display:grid;grid-template-columns:44px minmax(0,1fr);gap:8px;align-items:center;padding:7px 10px 7px 10px;border:1px dashed var(--line2);border-radius:10px;background:var(--stripes),color-mix(in srgb,var(--evc,var(--muted)) 6%,transparent);color:var(--muted)}
+.qe{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:8px;align-items:center;padding:7px 10px 7px 10px;border:1px dashed var(--line2);border-radius:10px;background:var(--stripes),color-mix(in srgb,var(--evc,var(--muted)) 6%,transparent);color:var(--muted)}
 .qe-t{display:flex;flex-direction:column;gap:1px;min-width:0;padding-left:30px}
 .qe-t b{font-weight:500;font-size:13.5px;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qe-t small{font-size:11.5px;color:var(--faint)}
+.qe-g{font:400 11px/1 var(--f-pixel);padding:5px 6px;border-radius:4px;border:1px dashed color-mix(in srgb,var(--gold) 55%,transparent);background:transparent;color:var(--gold);white-space:nowrap;cursor:pointer}
+.qe-g:hover{background:var(--gold-soft)}
+.qe-g.got{border-style:solid;border-color:transparent;background:var(--gold-soft)}
+.qe-g:disabled{opacity:.4;cursor:default;border-color:var(--line2);color:var(--faint);background:transparent}
