@@ -26,3 +26,6 @@ verify_jwt = false
 # Inkwell's share links: readers open them without signing in; the link's own secret is checked.
 [functions.inkwell-share]
 verify_jwt = false
+
+[functions.quest]
+verify_jwt = true
