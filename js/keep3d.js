@@ -36,19 +36,41 @@ const GATE = [0, 0, 19]; // world: the keep faces +z, so from the corner the gat
 /* ---------- materials: light in three hard steps, and stone and wood get a little colour per face ---------- */
 let grad, VC;
 const mats = new Map();
-const M = (hex, o = {}) => { const k = hex + JSON.stringify(o); if (!mats.has(k)) mats.set(k, new THREE.MeshToonMaterial({ color: hex, gradientMap: grad, ...o })); return mats.get(k); };
+export const M = (hex, o = {}) => { const k = hex + JSON.stringify(o); if (!mats.has(k)) mats.set(k, new THREE.MeshToonMaterial({ color: hex, gradientMap: grad, ...o })); return mats.get(k); };
 let seed = 1;
-function jit(geo, hex, amt = .06) { // one colour per face, nudged lighter or darker
+export function jit(geo, hex, amt = .06) { // one colour per face, nudged lighter or darker
   const g = geo.index ? geo.toNonIndexed() : geo, n = g.attributes.position.count, col = new THREE.Color(hex), out = new Float32Array(n * 3);
   for (let f = 0; f < n; f += 3) { const k = 1 + (rnd(seed++) - .5) * 2 * amt; for (let j = 0; j < 3; j++) { out[(f + j) * 3] = col.r * k; out[(f + j) * 3 + 1] = col.g * k; out[(f + j) * 3 + 2] = col.b * k; } }
   g.setAttribute('color', new THREE.BufferAttribute(out, 3)); return g;
 }
 const C = { grass: 0x4e7c38, dirt: 0x8a6440, stone: 0x9c9486, stone2: 0x8e887a, rock: 0x7a7066, roofB: 0x3a5cc0, roofR: 0xb83c2a, thatch: 0xb08a44, wood: 0x7a4a26, wood2: 0x4e2e18, leaf: 0x2e7a34, leaf2: 0x3e8e3a, pine: 0x1e5a32, cream: 0xcfbe98, gold: 0xe8b830, glass: 0x2a2030, red: 0xd03020, water: 0x2e5cae };
 const LAND = { vale: 0x4e7c38, wood: 0x2e6a30, marsh: 0x5e6a30, frost: 0x9aaab8, storm: 0x3e5a48, ember: 0x5a3e2a, spires: 0x4a4070 };
-const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
-function add(geo, mat, x, y, z, parent, shadow = true) { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = shadow; m.receiveShadow = true; parent.add(m); return m; }
-const addJ = (geo, hex, x, y, z, parent, amt) => add(jit(geo, hex, amt), VC, x, y, z, parent);
-const glow = o => new THREE.MeshBasicMaterial({ color: o });
+export const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+export function add(geo, mat, x, y, z, parent, shadow = true) { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = shadow; m.receiveShadow = true; parent.add(m); return m; }
+export const addJ = (geo, hex, x, y, z, parent, amt) => add(jit(geo, hex, amt), VC, x, y, z, parent);
+export const glow = o => new THREE.MeshBasicMaterial({ color: o });
+
+const INK_FS = `precision highp float; varying vec2 vq; uniform sampler2D tex, dep; uniform vec2 res;
+    float D(vec2 o){ return texture2D(dep, vq + o / res).r; }
+    void main(){ vec3 c = texture2D(tex, vq).rgb; float d = D(vec2(0.)), e = 0.;
+      e = max(e, d - D(vec2(1.,0.))); e = max(e, d - D(vec2(-1.,0.))); e = max(e, d - D(vec2(0.,1.))); e = max(e, d - D(vec2(0.,-1.)));
+      if (e > .0025 && d < .9999) c *= .28; gl_FragColor = vec4(c, 1.); }`;
+/** The ink pass: darkens a pixel that sits just behind a nearer edge, so shapes get a 1px outline. */
+function inkPass(target) {
+  return new THREE.ShaderMaterial({ uniforms: { tex: { value: target.texture }, dep: { value: target.depthTexture }, res: { value: new THREE.Vector2(target.width, target.height) } },
+    vertexShader: 'varying vec2 vq; void main(){ vq = position.xy * .5 + .5; gl_Position = vec4(position.xy, 0., 1.); }', fragmentShader: INK_FS });
+}
+/** A small screen of its own (w x h pixels) for another 3D picture, drawn the same way: stepped light, ink edges.
+    Only after whenReady. render(scene, cam) returns the canvas to copy from. */
+export function makeView(w, h) {
+  const cv = Object.assign(document.createElement('canvas'), { width: w, height: h });
+  const r = new THREE.WebGLRenderer({ canvas: cv, antialias: false, preserveDrawingBuffer: true }); r.setPixelRatio(1); r.setSize(w, h, false);
+  r.shadowMap.enabled = true; r.shadowMap.type = THREE.BasicShadowMap;
+  const t = new THREE.WebGLRenderTarget(w, h, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+  t.depthTexture = new THREE.DepthTexture(w, h); t.depthTexture.type = THREE.UnsignedIntType;
+  const q = new THREE.Scene(), qc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); q.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), inkPass(t)));
+  return { canvas: cv, render(sc, c) { r.setRenderTarget(t); r.render(sc, c); r.setRenderTarget(null); r.render(q, qc); return cv; } };
+}
 
 /* ---------- the scene ---------- */
 let R, scene, cam, sun, amb, rt, POST, quad, qs, qcam, out;
@@ -74,13 +96,7 @@ function init() {
   // render small, then ink the edges where depth jumps
   rt = new THREE.WebGLRenderTarget(SW, SH, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
   rt.depthTexture = new THREE.DepthTexture(SW, SH); rt.depthTexture.type = THREE.UnsignedIntType;
-  POST = new THREE.ShaderMaterial({ uniforms: { tex: { value: rt.texture }, dep: { value: rt.depthTexture }, res: { value: new THREE.Vector2(SW, SH) } },
-    vertexShader: 'varying vec2 vq; void main(){ vq = position.xy * .5 + .5; gl_Position = vec4(position.xy, 0., 1.); }',
-    fragmentShader: `precision highp float; varying vec2 vq; uniform sampler2D tex, dep; uniform vec2 res;
-    float D(vec2 o){ return texture2D(dep, vq + o / res).r; }
-    void main(){ vec3 c = texture2D(tex, vq).rgb; float d = D(vec2(0.)), e = 0.;
-      e = max(e, d - D(vec2(1.,0.))); e = max(e, d - D(vec2(-1.,0.))); e = max(e, d - D(vec2(0.,1.))); e = max(e, d - D(vec2(0.,-1.)));
-      if (e > .0025 && d < .9999) c *= .28; gl_FragColor = vec4(c, 1.); }` });
+  POST = inkPass(rt);
   qcam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), POST); qs = new THREE.Scene(); qs.add(quad);
 
   // ground, river, roads and the crag never change
