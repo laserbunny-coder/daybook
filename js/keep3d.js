@@ -75,7 +75,7 @@ export function makeView(w, h) {
 
 /* ---------- the scene ---------- */
 let R, scene, cam, sun, amb, rt, POST, quad, qs, qcam, out;
-let ground, groundGeo, landNow = '', village, piles, castle, dragon, nest, fxG, hoardG, ringM, rain;
+let hfolk, ground, groundGeo, landNow = '', village, piles, castle, dragon, nest, fxG, hoardG, ringM, rain;
 const flags = [], smokes = [], torches = [], fires = [], embers = [], coins = [], sparks = [], folk = [];
 let WIN; // the shared window glass, lit up at night
 function init() {
@@ -134,6 +134,7 @@ function init() {
   const rg = new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   rain = new THREE.LineSegments(rg, new THREE.LineBasicMaterial({ color: 0x6a80a8 })); rain.visible = false; scene.add(rain);
   dragon = buildDragon(); scene.add(dragon);
+  hfolk = new THREE.Group(); scene.add(hfolk);
   trees();
 }
 function at2s(wx, wz) { return [wx * RX + wz * RZ, wx * FX + wz * FZ]; } // world x, z back to a screen spot
@@ -276,6 +277,19 @@ function buildVillage(names, ruins) {
   });
   fires.forEach((f, i) => { const p = fireAt[i]; f.on = !!p; if (p) { f.l.position.set(p[0], 6, p[1]); f.g.position.set(p[0], 0, p[1]); } });
 }
+
+/* ---------- habit villagers: a peasant in a straw hat, a guard with helm and spear, a knight with plume and shield ---------- */
+function villager(rank, i) {
+  const g = new THREE.Group(), body = [[0x8a6440, 0x6a7a4a, 0x9a5a40][i % 3], 0x3a5cc0, 0xc8ccd4][rank];
+  add(new THREE.CylinderGeometry(.6, .8, 1.8, 6), M(body), 0, .9, 0, g);
+  add(new THREE.SphereGeometry(.65, 6, 5), M(rank === 2 ? 0xc8ccd4 : [0xd8b080, 0xb07040, 0xe0c090][i % 3]), 0, 2.3, 0, g);
+  if (rank === 0) add(new THREE.ConeGeometry(1.1, .6, 8), M(C.thatch), 0, 2.9, 0, g);
+  if (rank === 1) { add(new THREE.ConeGeometry(.75, .8, 6), M(0x9aa0a8), 0, 2.95, 0, g); add(new THREE.CylinderGeometry(.08, .08, 4, 4), M(C.wood2), .9, 2, .2, g); add(new THREE.ConeGeometry(.22, .6, 4), M(0xe8ecf0), .9, 4.3, .2, g); }
+  if (rank === 2) { add(box(.25, .9, 1), M(C.red), 0, 3.2, -.1, g); add(box(.2, 1.5, 1.2), M(C.red), -.8, 1.2, .1, g); add(box(.22, .3, 1.22), M(C.gold), -.8, 1.4, .1, g, false); add(new THREE.CylinderGeometry(.07, .07, 3.4, 4), M(0xe8ecf0), .85, 1.8, .4, g).rotation.x = .5; }
+  g.scale.setScalar(rank === 2 ? 1.9 : 1.6);
+  return g;
+}
+function buildFolk(list) { hfolk.clear(); list.forEach((f, i) => { const g = villager(f.rank, i); g.userData = { ...f, i }; hfolk.add(g); }); }
 
 /* ---------- gold piles ---------- */
 function buildPiles(list) {
@@ -426,6 +440,8 @@ export function paint(cv, Sc, t) {
   const pl = [...(Sc.piles || [])]; if (sw && sw.age < SWOOP * .48 && !pl.some(q => q.slot === sw.slot)) pl.push({ slot: sw.slot, g: sw.g || 10 }); // still there until it lands
   const pSig = pl.map(q => q.slot + ':' + q.g + ':' + !!q.mark).join();
   if (pSig !== sig.piles) { sig.piles = pSig; buildPiles(pl); }
+  const fSig = (Sc.folk || []).map(f => f.rank + (f.done ? 'd' : '')).join();
+  if (fSig !== sig.folk) { sig.folk = fSig; buildFolk(Sc.folk || []); }
   const hoard = Math.min(10, Math.ceil((Sc.hoard || 0) / 20));
   if (hoard !== sig.hoard) { sig.hoard = hoard; hoardG.clear(); for (let i = 0; i < hoard; i++) add(new THREE.CylinderGeometry(.5, .5, .2, 6), M(C.gold), Math.cos(i * 2.4) * Math.sqrt(i) * .7, .15 + (i > 6 ? .2 : 0), Math.sin(i * 2.4) * Math.sqrt(i) * .7, hoardG, false); }
 
@@ -450,12 +466,19 @@ export function paint(cv, Sc, t) {
   smokes.forEach(p => { const k = (s * .5 + p.userData.k / 3) % 1; p.position.y = p.userData.y + k * 5; p.position.x = p.userData.x + k * 1.4; p.scale.setScalar(.6 + k); p.visible = k < .9; });
   village.traverse(o => { if (o.userData.sails) o.rotation.z = s * .8; });
   castle.traverse(o => { if (o.userData.flame) o.scale.set(1 + Math.sin(s * 9) * .1, 1 + Math.sin(s * 13) * .2, 1); });
-  const walkers = Sc.camp ? 0 : Math.min(3, Math.floor(shown.length / 2)), cross = at(-44, at2s(0, 30)[1]);
+  const walkers = Sc.camp || hfolk.children.length ? 0 : Math.min(3, Math.floor(shown.length / 2)), cross = at(-44, at2s(0, 30)[1]);
   const paths = [[[0, 21], [0, 48]], [[0, 30], cross], [[0, 24], [0, 40]]];
   folk.forEach((g, i) => {
     g.visible = i < walkers; if (!g.visible) return;
     const [[ax, az], [bx, bz]] = paths[i], len = Math.hypot(bx - ax, bz - az), d = (s * (2.2 - i * .4) + i * 17) % (len * 2), k = d < len ? d / len : 2 - d / len;
     g.position.set(lerp(ax, bx, k), 0, lerp(az, bz, k)); g.rotation.y = Math.atan2(bx - ax, bz - az) + (d < len ? 0 : Math.PI);
+  });
+  // habit villagers: the ones done today walk their rounds of the village, the rest wait by the well
+  let wait = 0;
+  hfolk.children.forEach(g => {
+    const { i, done } = g.userData;
+    if (done) { const r = 25 + (i % 3) * 4, dir = i % 2 ? -1 : 1, a = s * .22 * dir + i * 2.1; g.position.set(Math.cos(a) * r, Math.abs(Math.sin(s * 5 + i)) * .25, Math.sin(a) * r); g.rotation.y = Math.atan2(-Math.sin(a) * dir, Math.cos(a) * dir); }
+    else { const [x, z] = at(-27 + (wait % 4) * 3, 10 + Math.floor(wait / 4) * 3); wait++; g.position.set(x, 0, z); g.rotation.y = Math.atan2(-x, -z) + Math.sin(s * .8 + i) * .4; }
   });
   let ci = 0, si2 = 0;
   for (const e of fx) {
