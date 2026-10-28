@@ -1276,6 +1276,9 @@ body.quiet .ny-line.old b{color:var(--danger)}
 .q-rope u{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--fg);opacity:.75}
 .q-cap{display:flex;justify-content:space-between;gap:8px;font-size:11.5px;color:var(--faint)}
 .q-say{display:grid;grid-template-columns:22px minmax(0,1fr);gap:8px;align-items:start;padding-top:2px}
+button.q-say{text-align:left;width:100%;cursor:pointer}
+button.q-say.poked .q-face{animation:q-poke .5s}
+@keyframes q-poke{30%{transform:translateY(-3px) rotate(-8deg)}60%{transform:translateY(0) rotate(6deg)}}
 .q-say p{margin:0;font:italic 400 15px/1.35 var(--f-display);color:var(--fg)}
 .q-face{width:22px;height:22px;border-radius:4px;background:var(--drg-soft);position:relative;margin-top:1px}
 .q-face::before{content:"";position:absolute;left:6px;top:8px;width:3px;height:3px;background:var(--gold);box-shadow:7px 0 0 var(--gold)}

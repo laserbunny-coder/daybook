@@ -390,37 +390,56 @@ export function dayView(d, R) {
 const PHASE = m => m < 11 * 60 ? 'morning' : m < 17 * 60 ? 'day' : m < 21 * 60 ? 'evening' : 'night';
 const pick = (L, seed) => L[Math.abs([...seed].reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7)) % L.length];
 function fallback(r, R) {
-  const T = today(), m = new Date().getHours() * 60 + new Date().getMinutes(), seed = r.d + r.dragon + r.you;
+  const T = today(), m = new Date().getHours() * 60 + new Date().getMinutes(), seed = r.d + r.dragon + r.you + Math.floor(m / 20);
   const lastTaken = r.Qs.filter(q => q.st === 'taken').sort((a, b) => b.by - a.by)[0];
-  const next = r.Qs.find(q => q.st === 'open');
-  if (r.rest) return pick(['No quests today? Then I sleep on my gold. Wake me when there is something to steal.', 'An empty day. I will nap. Plan something and I will be watching.'], seed);
-  if (r.d < T) return r.win ? pick([`You held ${r.you} to my ${r.dragon}. I will be hungrier tomorrow.`, `${r.you} kept. Fine. The keep stands, for now.`], seed) : pick([`${r.dragon} gold to me. That was a good day for dragons.`, `I ate well: ${r.dragon} gold. Your walls looked thin.`], seed);
-  if (!next && r.Qs.length) return r.dragon === 0 ? 'Not one coin. I circled all day and you left me nothing.' : r.win ? `You win this one, ${r.you} to ${r.dragon}. Sleep with one eye open.` : `${r.dragon} to me. The day is mine. Rematch at dawn.`;
-  if (lastTaken && r.dragon > 0 && Date.now() - lastTaken.by < 3 * 3600e3) return pick([`${lastTaken.n.t} went unguarded, so ${lastTaken.dragon} gold is mine. Check it off and I will give back half.`, `I took ${lastTaken.dragon} gold while ${lastTaken.n.t} sat there. Delicious.`], seed);
-  if (r.mark?.st === 'open' && PHASE(m) === 'morning') return pick([`I have marked ${r.mark.n.t}. Keep it and it pays double. I'm betting you won't.`, `My mark is on ${r.mark.n.t} today. ${r.mark.g * 2} gold if you keep it. I like my odds.`], seed);
-  if (r.dragon === 0) return PHASE(m) === 'morning' ? pick(['Morning. Every coin is still in your vault. I am patient.', `${r.total} gold on the table today. I only need you to look away once.`], seed) : pick(['Nothing for me yet. Annoying.', 'Still not a coin. I am getting hungry.'], seed);
-  if (r.holds) return pick([`Your keep holds today. Fine. I'll still take whatever you leave in the field${next ? `, starting with ${next.n.t}` : ''}.`, 'Your walls held. The rest of the field is still fair game.'], seed);
-  if (r.falls) return pick(['Too little left out there for you now. Today is mine. Rematch at dawn.', 'The day is mine. Sleep well, keeper. I know I will.'], seed);
-  return next ? `${r.need - r.secured} more to secure before your keep holds. ${next.n.t}${next.byMin != null ? ` is mine at ${fmtT(next.byMin)}` : ' is still out there'}.` : 'Not much left for me to take.';
+  const next = r.Qs.find(q => q.st === 'open'), nt = next?.n.t;
+  if (r.rest) return pick(['No quests today? Then I sleep on my gold. Wake me when there is something to steal.', 'An empty day. I will nap. Plan something and I will be watching.', 'Nothing on the table. I shall count my hoard instead. Again.', 'A day with no quests is a day with no gold. For either of us.', 'Rest, keeper. I am resting too. On a very comfortable pile of your coins.'], seed);
+  if (r.d < T) return r.win ? pick([`You held ${r.you} to my ${r.dragon}. I will be hungrier tomorrow.`, `${r.you} kept. Fine. The keep stands, for now.`, `I remember this day. I do not like this day.`, `${r.dragon} gold. That's all I got. Your villagers sang about it, I heard them.`, 'You won this one. I have filed it under grudges.'], seed)
+    : pick([`${r.dragon} gold to me. That was a good day for dragons.`, `I ate well: ${r.dragon} gold. Your walls looked thin.`, 'A fine day. I still have the taste of your gold in my teeth.', `I flew home heavy that night. ${r.dragon} gold heavy.`, 'Ah, this day. One of my favourites.'], seed);
+  if (!next && r.Qs.length) return r.dragon === 0 ? pick(['Not one coin. I circled all day and you left me nothing.', 'A clean sweep. I am going to go sulk on my crag.', 'Every pile in the keep. Do you know how embarrassing this is for a dragon?'], seed)
+    : r.win ? pick([`You win this one, ${r.you} to ${r.dragon}. Sleep with one eye open.`, `${r.you} to ${r.dragon}. Enjoy it. I'll be back at dawn, and I'll be hungry.`, 'The keep held. I got scraps. I will remember the taste of scraps.'], seed)
+    : pick([`${r.dragon} to me. The day is mine. Rematch at dawn.`, 'The field is empty and my belly is full. Good night, keeper.', 'I win. Say hello to your gate for me. I will be visiting it at midnight.'], seed);
+  if (lastTaken && r.dragon > 0 && Date.now() - lastTaken.by < 3 * 3600e3) return pick([`${lastTaken.n.t} went unguarded, so ${lastTaken.dragon} gold is mine. Check it off and I will give back half.`, `I took ${lastTaken.dragon} gold while ${lastTaken.n.t} sat there. Delicious.`, `${lastTaken.n.t}? Lovely pile. Was lovely. Is mine.`, `You left ${lastTaken.n.t} in the open. I am a dragon. What did you think would happen?`, `Mmm, ${lastTaken.n.t}. Tastes like procrastination.`], seed);
+  if (r.mark?.st === 'open' && PHASE(m) === 'morning') return pick([`I have marked ${r.mark.n.t}. Keep it and it pays double. I'm betting you won't.`, `My mark is on ${r.mark.n.t} today. ${r.mark.g * 2} gold if you keep it. I like my odds.`, `See my red pennant on ${r.mark.n.t}? That pile is spoken for. By me.`], seed);
+  if (r.mark?.st === 'kept') return pick([`You kept ${r.mark.n.t}. My pennant is in the mud. I am not talking about it.`, `Double gold for ${r.mark.n.t}. I marked the wrong pile. It happens. Rarely.`], seed);
+  const soon = next?.byMin != null && next.byMin - m > 0 && next.byMin - m <= 45 ? next : null;
+  if (soon) return pick([`${soon.n.t}. ${soon.byMin - m} minutes. I am stretching my wings.`, `I can see ${soon.n.t} from up here. ${fmtT(soon.byMin)} and it's mine.`, `Tick, tock, ${soon.n.t}. I dive at ${fmtT(soon.byMin)}.`, `Don't mind me. Just circling ${soon.n.t}. No reason.`], seed);
+  if (r.dragon === 0) return PHASE(m) === 'morning' ? pick(['Morning. Every coin is still in your vault. I am patient.', `${r.total} gold on the table today. I only need you to look away once.`, 'Good morning, keeper. I have already picked out which pile I want.', `Dawn paid you ${r.total} gold. Generous sun. Careless keeper, I hope.`, `${nt ? nt + ' looks heavy this morning. ' : ''}I do love a heavy pile.`], seed)
+    : pick(['Nothing for me yet. Annoying.', 'Still not a coin. I am getting hungry.', 'You are being suspiciously productive today.', `Fine. Keep going. ${nt ? nt + ' is still out there, though.' : 'I can wait.'}`, 'My belly is rumbling and it is your fault.'], seed);
+  if (r.holds) return pick([`Your keep holds today. Fine. I'll still take whatever you leave in the field${nt ? `, starting with ${nt}` : ''}.`, 'Your walls held. The rest of the field is still fair game.', 'The day is yours. The leftovers are mine.', `You won the day. ${nt ? `But ${nt} is still lying there, and I am still a dragon.` : 'Enjoy it.'}`], seed);
+  if (r.falls) return pick(['Too little left out there for you now. Today is mine. Rematch at dawn.', 'The day is mine. Sleep well, keeper. I know I will.', 'Your gate creaks already. I can hear it from my crag.', 'Do the rest anyway. I like watching you try.'], seed);
+  return next ? pick([`${r.need - r.secured} more to secure before your keep holds. ${nt}${next.byMin != null ? ` is mine at ${fmtT(next.byMin)}` : ' is still out there'}.`, `You need ${r.need - r.secured} more. I need you to do nothing. Easier job, mine.`, `${nt} is out in the field. I am up here. Think about it.`, `${r.secured} safe, ${r.field} out there, and me in between.`], seed) : 'Not much left for me to take.';
 }
 const LINES = 'daybook-quest-lines';
+// A different angle each time Claude is asked, so the dragon doesn't fall into one voice
+const ANGLES = ['gloat about something specific that happened', 'make a precise threat naming a quest and the minute you dive', 'mock-sympathetic, as if you feel sorry for them', 'a backhanded compliment', 'brag about your hoard or your size', 'propose a cheeky bargain or wager', 'grumble like a sore loser', 'a two-line rhyming couplet', 'gossip about what their villagers are saying', 'an ominous omen about the weather or the sky', 'count coins out loud', 'a dramatic old-world proclamation', 'reminisce about a quest you ate this week', 'pretend to be bored and not watching (you are watching)', 'scheme out loud about your next move', 'tease them about a habit and its villager'];
 let asking = null, lastAsk = 0;
 /** What the dragon says right now: a line from Claude when there is one for this moment, otherwise one of its stock lines.
-    Claude is asked again when the score moves, or once an hour and a half has passed. */
-export function line(r, R) {
+    Claude is asked again when the score moves, every twenty minutes, or when the person taps the dragon. */
+export function line(r, R, fresh = false) {
   const T = today(), base = fallback(r, R);
   if (r.d !== T) return base;
   const m = new Date().getHours() * 60 + new Date().getMinutes();
-  const key = `${r.d}|${r.you}|${r.dragon}|${r.Qs.filter(q => q.st === 'open').length}|${PHASE(m)}`;
+  const key = `${r.d}|${r.you}|${r.dragon}|${r.Qs.filter(q => q.st === 'open').length}|${Math.floor(m / 20)}`;
   const said = lsGet(LINES, {});
-  if (said.d === T && said.L?.[key]) return said.L[key];
-  if (client && !asking && Date.now() - lastAsk > 90e3) {
+  const have = said.d === T && said.L?.[key];
+  if (client && !asking && (!have || fresh) && Date.now() - lastAsk > (fresh ? 8e3 : 60e3)) {
     lastAsk = Date.now();
-    asking = askDragon(r, R, PHASE(m)).then(t => { if (t) { const s = lsGet(LINES, {}); if (s.d !== T) { s.d = T; s.L = {}; } s.L[key] = t; lsSet(LINES, s); onUpdate(); } }).finally(() => { asking = null; });
+    asking = askDragon(r, R, PHASE(m), said.d === T ? said.recent || [] : []).then(t => { if (t) { const s = lsGet(LINES, {}); if (s.d !== T) { s.d = T; s.L = {}; s.recent = []; } s.L[key] = t; s.recent = [...(s.recent || []), t].slice(-6); lsSet(LINES, s); onUpdate(); } }).finally(() => { asking = null; });
   }
-  return base; // until Claude's line for this moment arrives
+  return have || base; // until Claude's line for this moment arrives
 }
-async function askDragon(r, R, phase) {
+/** Tap the dragon and it says something new. */
+export const taunt = () => { const R = realm(), r = R.byDay.get(today()); if (r) line(r, R, true); };
+const SNAP = 'daybook-quest-snap';
+/** What changed since the dragon last spoke: quests kept, taken, chased down, moved. */
+function sinceLast(r) {
+  const was = lsGet(SNAP, {}), now = {}, out = [];
+  for (const q of r.Qs) { const k = q.n.id + (q.st === 'swiped' ? '#s' : ''); now[k] = q.st; if (was.d === r.d && was.st?.[k] !== q.st) out.push(q.st === 'swiped' ? `${q.pushed != null ? 'pushed later' : 'moved off today'}: ${q.n.t}` : `${q.st}: ${q.n.t}`); }
+  lsSet(SNAP, { d: r.d, st: now });
+  return out.slice(0, 6);
+}
+async function askDragon(r, R, phase, recent) {
   const facts = {
     time: fmtT(new Date().getHours() * 60 + new Date().getMinutes()), phase,
     gold_on_table: r.total, secured_in_keep: r.secured, still_in_field: r.field, keep_already_holds_today: r.holds, day_already_lost: r.falls, you_hold_if_rest_kept: r.you, bonus_from_events_attended: r.bonus, dragon_has: r.dragon, need_to_win: r.need,
@@ -431,6 +450,10 @@ async function askDragon(r, R, phase) {
     campaign: R.camp?.begun ? { region: R.camp.reg.name, you_play: `the ${R.camp.reg.dragon} in this region`, twist_today: regionOf(R.camp.twist)?.short, day: R.camp.day, of: CAMPAIGN_DAYS, days_won: R.camp.wins } : null,
     vault: R.vault, village: raised(R.vault),
     this_week: week(R).map(w => w.res).filter(Boolean).join(' '), days_since_realm_began: daysBetween(R.start, today()),
+    settlement: rankName(R.vault), yesterday: (y => y && !y.rest ? (y.win ? `they held the keep, ${y.you} to ${y.dragon}` : `you won, ${y.dragon} gold`) : null)(R.byDay.get(add(today(), -1))),
+    habits: r.Qs.filter(q => q.n.rs && q.st !== 'swiped').map(q => { const run = streakOf(q.n.rs, r.d); return { title: q.n.t, villager: RANKS[rankOf(run, r.d)].n, days_running: run, state: q.st }; }),
+    moved_or_pushed_today: r.Qs.filter(q => q.st === 'swiped').map(q => ({ title: q.n.t, cost: q.g, how: q.pushed != null ? 'pushed later today' : 'moved off today' })),
+    just_happened: sinceLast(r), your_recent_lines_do_not_repeat: recent, angle_for_this_line: ANGLES[Math.floor(Math.random() * ANGLES.length)],
   };
   try {
     const { data, error } = await client.functions.invoke('quest', { body: { facts } });
@@ -725,7 +748,7 @@ export function html(d, R, opts = {}) {
       <div class="q-sides"><div><small>In the keep</small><b class="you">${sec}</b></div><div class="m"><small>In the field</small><b class="fld">${fld}</b></div><div class="r"><small>The dragon's</small><b class="dr">${r.dragon}</b></div></div>
       <div class="q-rope${r.holds ? ' holds' : ''}" role="img" aria-label="${sec} gold secured in the keep, ${fld} still in the field, ${r.dragon} taken by the dragon. Secure ${r.need} to hold the keep."><i style="width:${(sec / all * 100).toFixed(1)}%"></i><s style="width:${(r.dragon / all * 100).toFixed(1)}%"></s><u style="left:${linePct.toFixed(1)}%"></u></div>
       <div class="q-cap"><span>${cap}</span><span>Secure ${r.need || 0} to hold</span></div>
-      <div class="q-say"><i class="q-face" aria-hidden="true"></i><p>${said}</p></div>
+      ${d === T ? `<button class="q-say" data-act="q-taunt" title="Poke the dragon"><i class="q-face" aria-hidden="true"></i><p>${said}</p></button>` : `<div class="q-say"><i class="q-face" aria-hidden="true"></i><p>${said}</p></div>`}
     </div>
     <div class="q-bar"><button class="q-pill" data-act="q-kingdom"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 14V3m0 0h8l-2 2.5L11 8H3"/></svg>Kingdom</button><button class="q-pill" data-act="q-routine"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4.5h10M3 8h10M3 11.5h6"/></svg>${opts.noHabits ? 'Set up your routine' : 'Your habits'}</button>${opts.remind ? `<button class="q-pill${opts.remind.act === 'off' ? ' on' : ''}" data-act="q-remind" data-v="${opts.remind.act || 'info'}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M4 11V7a4 4 0 0 1 8 0v4l1 1.5H3z"/><path d="M6.5 14a1.6 1.6 0 0 0 3 0"/></svg>${opts.remind.act === 'off' ? 'Reminders on' : 'Reminders'}</button>` : ''}</div>
     ${opts.noHabits && d >= T ? `<div class="q-setup"><b>Set up your routine</b><p>Tell Claude about your ideal day and it drafts your daily habits. Every habit becomes a quest the dragon watches.</p><button class="q-btn" data-act="q-routine">Set up with Claude</button></div>` : ''}
