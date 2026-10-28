@@ -530,7 +530,11 @@ function happenings(R) {
   }
   seen = now;
 }
-export function draw(R, tick = 0) { const scr = screen('quest', SW, SH); paint(src, sceneOf(R), tick); scr.show(src); return scr; }
+export function draw(R, tick = 0) {
+  const scr = screen('quest', SW, SH); paint(src, sceneOf(R), tick); scr.show(src);
+  const el = document.getElementById('q-canvas'); if (el?.querySelector('canvas') && scr.cv.parentNode !== el) mount(scr, el, el.dataset.label); // a new screen, after the phone dropped the old one
+  return scr;
+}
 
 /* ---------- the view ---------- */
 /** The campaign under way, or how the last one ended (shown the day it was settled). */

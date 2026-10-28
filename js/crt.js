@@ -27,6 +27,8 @@ export function screen(key, w, h, label) {
   const cv = document.createElement('canvas'), k = 3; cv.width = w * k; cv.height = h * k; cv.className = 'crt'; cv.setAttribute('role', 'img');
   const gl = cv.getContext('webgl', { antialias: false, preserveDrawingBuffer: false });
   s = { cv, w, h, label };
+  // Phones drop WebGL screens, often after the app sits in the background; forget this one so the next draw makes a new one
+  cv.addEventListener('webglcontextlost', e => { e.preventDefault(); if (screens.get(key) === s) screens.delete(key); });
   if (!gl) { const x = cv.getContext('2d'); s.show = src => { x.imageSmoothingEnabled = false; x.drawImage(src, 0, 0, cv.width, cv.height); }; }
   else {
     const sh = (type, txt) => { const o = gl.createShader(type); gl.shaderSource(o, txt); gl.compileShader(o); return o; };

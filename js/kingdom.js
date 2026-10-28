@@ -137,7 +137,7 @@ function paint(cv, R, t) {
   const r = regionOf(sel); K.drg.visible = !!r && !held.has(sel);
   if (K.drg.visible) { const a = s * 1.4, [x, y] = r.seed; K.drg.position.set(K.wx(x) + Math.cos(a) * 12, K.groundAt(x, y) + 16 + Math.sin(s * 3), K.wz(y) + Math.sin(a) * 9); K.drg.rotation.set(0, -a, .3); K.wings.forEach((w, i) => { w.rotation.z = (i ? 1 : -1) * Math.sin(s * 9) * .6; }); }
   K.rain.position.y = -((s * 30) % 10);
-  c.drawImage(K.view.render(K.scene, K.cam), 0, 0);
+  const img = K.view.render(K.scene, K.cam); if (img) c.drawImage(img, 0, 0);
 }
 /** Which region a tap on the map lands on. */
 function regionAtTap(cv, e) {
@@ -173,10 +173,13 @@ function draw() {
     ${regionCard(R)}
     <div class="kg-titles">${TITLES.map((t, i) => `<span class="${i === rank ? 'cur' : i < rank ? 'past' : ''}">${esc(t)}</span>`).join('<i>›</i>')}</div>
   </div>`;
-  const scr = screen('map', SW, SH), cv = scr.cv; paint(mapSrc, R, tick); scr.show(mapSrc); mount(scr, el.querySelector('#kg-map'), 'Map of the kingdom');
+  const show = () => { // the screen can be replaced if the phone dropped the old one, so it's looked up every time
+    const scr = screen('map', SW, SH), h = el.querySelector('#kg-map'); paint(mapSrc, R, tick); scr.show(mapSrc);
+    if (h && scr.cv.parentNode !== h) { mount(scr, h, 'Map of the kingdom'); scr.cv.onclick = e => { const r = regionAtTap(scr.cv, e); if (r && r.id !== 'vale') { sel = r.id; askRetreat = false; draw(); } }; }
+  };
+  show();
   if (!K) k3.whenReady(() => { if (!K && window.THREE) { build3d(); if (!el.hidden) draw(); } });
-  clearInterval(anim); if (!matchMedia('(prefers-reduced-motion: reduce)').matches) anim = setInterval(() => { if (el.hidden || !cv.isConnected) { clearInterval(anim); return; } tick += 1; paint(mapSrc, R, tick); scr.show(mapSrc); }, 80);
-  cv.onclick = e => { const r = regionAtTap(cv, e); if (r && r.id !== 'vale') { sel = r.id; askRetreat = false; draw(); } };
+  clearInterval(anim); if (!matchMedia('(prefers-reduced-motion: reduce)').matches) anim = setInterval(() => { if (el.hidden || !el.querySelector('#kg-map')) { clearInterval(anim); return; } tick += 1; show(); }, 80);
 }
 el.addEventListener('click', e => {
   const b = e.target.closest('[data-kg]'); if (!b) return;

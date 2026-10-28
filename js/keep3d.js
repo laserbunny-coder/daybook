@@ -6,7 +6,7 @@ export const SW = 256, SH = 112;
 export const SWOOP = 34, RECKON = 44; // how long a dive and the midnight reckoning last, in ticks (180ms each)
 export const phaseOf = m => m < 6 * 60 || m >= 21 * 60 ? 'night' : m < 8 * 60 ? 'dawn' : m < 18 * 60 ? 'day' : 'dusk';
 
-let THREE = null, ready = false, loading = false, failed = false;
+let THREE = null, ready = false, loading = false, failed = false, glLost = false;
 const waiting = [];
 function load() {
   if (ready || loading || failed || typeof document === 'undefined') return;
@@ -61,7 +61,7 @@ function inkPass(target) {
     vertexShader: 'varying vec2 vq; void main(){ vq = position.xy * .5 + .5; gl_Position = vec4(position.xy, 0., 1.); }', fragmentShader: INK_FS });
 }
 /** A small screen of its own (w x h pixels) for another 3D picture, drawn the same way: stepped light, ink edges.
-    Only after whenReady. render(scene, cam) returns the canvas to copy from. */
+    Only after whenReady. render(scene, cam) returns the canvas to copy from, or null while the phone has dropped it. */
 export function makeView(w, h) {
   const cv = Object.assign(document.createElement('canvas'), { width: w, height: h });
   const r = new THREE.WebGLRenderer({ canvas: cv, antialias: false, preserveDrawingBuffer: true }); r.setPixelRatio(1); r.setSize(w, h, false);
@@ -69,7 +69,8 @@ export function makeView(w, h) {
   const t = new THREE.WebGLRenderTarget(w, h, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
   t.depthTexture = new THREE.DepthTexture(w, h); t.depthTexture.type = THREE.UnsignedIntType;
   const q = new THREE.Scene(), qc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); q.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), inkPass(t)));
-  return { canvas: cv, render(sc, c) { r.setRenderTarget(t); r.render(sc, c); r.setRenderTarget(null); r.render(q, qc); return cv; } };
+  let lost = false; cv.addEventListener('webglcontextlost', () => { lost = true; }); cv.addEventListener('webglcontextrestored', () => { lost = false; });
+  return { canvas: cv, render(sc, c) { if (lost) return null; r.setRenderTarget(t); r.render(sc, c); r.setRenderTarget(null); r.render(q, qc); return cv; } };
 }
 
 /* ---------- the scene ---------- */
@@ -80,6 +81,8 @@ let WIN; // the shared window glass, lit up at night
 function init() {
   out = document.createElement('canvas'); out.width = SW; out.height = SH;
   R = new THREE.WebGLRenderer({ canvas: out, antialias: false, preserveDrawingBuffer: true });
+  // while the phone has dropped the 3D screen, keep showing the last picture; three.js rebuilds it when it comes back
+  out.addEventListener('webglcontextlost', () => { glLost = true; }); out.addEventListener('webglcontextrestored', () => { glLost = false; });
   R.setPixelRatio(1); R.setSize(SW, SH, false); R.shadowMap.enabled = true; R.shadowMap.type = THREE.BasicShadowMap;
   grad = new THREE.DataTexture(new Uint8Array([70, 70, 70, 255, 150, 150, 150, 255, 255, 255, 255, 255]), 3, 1, THREE.RGBAFormat);
   grad.minFilter = grad.magFilter = THREE.NearestFilter; grad.needsUpdate = true;
@@ -463,6 +466,7 @@ export function paint(cv, Sc, t) {
   for (; ci < coins.length; ci++) coins[ci].position.y = -9;
   for (; si2 < sparks.length; si2++) sparks[si2].position.y = -9;
 
+  if (glLost) return;
   R.setRenderTarget(rt); R.render(scene, cam); R.setRenderTarget(null); R.render(qs, qcam);
   c.imageSmoothingEnabled = false; c.drawImage(out, 0, 0);
   // the breach: a flash and a burst at the gate
