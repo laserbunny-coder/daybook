@@ -1292,6 +1292,7 @@ document.addEventListener('click', e => {
     case 'q-routine': routine.open(); break;
     case 'q-kingdom': kingdom.open(); break;
     case 'q-bonus': quest.claim(b.dataset.d, +b.dataset.i); render(); break;
+    case 'q-pick': quest.choose(b.dataset.b); render(); break;
     case 'q-intro': quest.next(); render(); break;
     case 'q-help': quest.help(); render(); break;
     case 'q-sound': sfx.set(!sfx.on()); render(); if (sfx.on()) sfx.coin(); break;

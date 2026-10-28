@@ -169,7 +169,7 @@ function trees() {
 }
 
 /* ---------- the keep: 0 campfire, 1 wooden fort, 2 stone keep, 3 with its great hall, 4 walls and towers, 5 banners, 6 castle ---------- */
-function stageOf(b) { return b.includes('Castle') ? 6 : b.includes('Castle walls') ? (b.includes('Great hall') ? 5 : 4) : b.includes('Stone keep') ? (b.includes('Great hall') ? 3 : 2) : b.includes('Watchtower') ? 1 : 0; }
+function stageOf(b) { return b.includes('Castle') ? 6 : b.includes('Castle walls') ? (b.includes('Great hall') ? 5 : 4) : b.includes('Stone keep') ? (b.includes('Great hall') ? 3 : 2) : b.length >= 6 ? 1 : 0; }
 function crenels(g, w, d, y, s, hex) { for (let x = -w / 2 + s * .4; x <= w / 2 + .01; x += s * 2) { add(box(s, s, s), M(hex), x, y, -d / 2, g); add(box(s, s, s), M(hex), x, y, d / 2, g); } for (let z = -d / 2 + s * 2.4; z <= d / 2 - s; z += s * 2) { add(box(s, s, s), M(hex), -w / 2, y, z, g); add(box(s, s, s), M(hex), w / 2, y, z, g); } }
 function flag(g, x, y, z, col, size = 1) { add(new THREE.CylinderGeometry(.12, .12, 3 * size, 4), M(C.wood2), x, y + 1.5 * size, z, g); const f = add(new THREE.PlaneGeometry(2.2 * size, 1.2 * size, 5, 1), M(col, { side: THREE.DoubleSide }), x + 1.1 * size, y + 2.4 * size, z, g); f.userData.base = f.geometry.attributes.position.array.slice(); flags.push(f); }
 function tower(g, x, z, r, h, roof) {

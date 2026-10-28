@@ -23,6 +23,7 @@ let Q = { start: null, swipes: {}, bonus: {}, ...lsGet(KEY, {}) };
 Q.bonus = Q.bonus || {};
 Q.marks = Q.marks || {}; // the quest the dragon marked on each day
 Q.seen = Q.seen || {}; // the quests seen on each day while it was today
+Q.picks = Q.picks || []; // the village buildings you chose, in order: { b: name, on: day }
 Q.kg = { camp: null, past: [], won: {}, v: 0, ...(Q.kg || {}) }; // the kingdom: the campaign under way, past ones, regions held
 let me = null;
 const saveQ = () => lsSet(KEY, Q);
@@ -39,6 +40,8 @@ export function begin(u) {
   if (se) for (const [d, m] of Object.entries(se)) Q.seen[d] = { ...m, ...Q.seen[d] };
   const mk = u?.user_metadata?.quest_marks; // the dragon's marks: the first device to pick one for a day wins
   if (mk) { Object.assign(Q.marks, mk); saveQ(); }
+  const pk = u?.user_metadata?.quest_picks; // buildings chosen on another device
+  if (pk?.length > Q.picks.length) { Q.picks = pk; saveQ(); }
   const kg = u?.user_metadata?.quest_kingdom; // whichever device changed the kingdom last wins
   if (kg && (kg.v || 0) > (Q.kg.v || 0)) { Q.kg = { camp: null, past: [], won: {}, ...kg }; saveQ(); }
   const theirs = u?.user_metadata?.quest_start;
@@ -58,7 +61,7 @@ export function moved(id, before, after) {
   const s = 's' in before ? before.s : n.s, m = ('m' in before ? before.m : n.m) ?? 60, g = gold(m);
   const end = deadline(d, s, m, realm().grace) ?? 24 * 60;
   const taken = d < T || new Date() > at(d, end);
-  let cost = taken || twistOn(d) === 'marsh' ? g : Math.max(2, Math.round(g / 4)), free = null;
+  let cost = taken || twistOn(d) === 'marsh' ? g : perk('Market', d) ? Math.max(1, Math.round(g / 8)) : Math.max(2, Math.round(g / 4)), free = null;
   // the Hydra Scale pays for one move a week
   const wk = weekStart(d);
   if (!taken && relic('marsh', d) && !Object.values(Q.swipes).some(x => Object.values(x).some(w => w.free === wk))) { cost = 0; free = wk; }
@@ -66,7 +69,7 @@ export function moved(id, before, after) {
   for (const k of Object.keys(Q.swipes)) if (daysBetween(k, T) > 21) delete Q.swipes[k];
   saveQ(); sync();
 }
-const sync = () => { if (client && me) client.auth.updateUser({ data: { quest_swipes: Q.swipes, quest_seen: Q.seen, quest_bonus: Q.bonus, quest_marks: Q.marks, quest_kingdom: Q.kg } }).then(({ data }) => { if (data?.user) me = data.user; }).catch(() => {}); };
+const sync = () => { if (client && me) client.auth.updateUser({ data: { quest_swipes: Q.swipes, quest_seen: Q.seen, quest_bonus: Q.bonus, quest_marks: Q.marks, quest_kingdom: Q.kg, quest_picks: Q.picks } }).then(({ data }) => { if (data?.user) me = data.user; }).catch(() => {}); };
 
 /* ---------- moves made elsewhere ---------- */
 // Moves made outside this app (Claude rolling unfinished tasks forward, the connector, another device) never pass
@@ -213,14 +216,41 @@ export const HUNTS = [
 const huntAt = streak => { let i = 0; HUNTS.forEach((x, j) => { if (streak >= x.at) i = j; }); return HUNTS[i]; };
 // Three lost days in a row and the dragon burns your newest building, three more and the next; each day won rebuilds one.
 const BURN_AFTER = 3;
+// The marks the vault passes. The keep, walls, great hall and castle go up on their own; at the other marks you choose.
 export const BUILDINGS = [
-  [0, 'Campfire'], [100, 'Tent'], [250, 'Hut'], [450, 'Well'], [700, 'Farm'], [1000, 'Watchtower'], [1400, 'Mill'],
-  [1900, 'Smithy'], [2500, 'Stone keep'], [3200, 'Market'], [4000, 'Castle walls'], [5000, 'Great hall'], [6500, 'Castle'],
+  [0, 'Campfire'], [100, null], [250, null], [450, null], [700, null], [1000, null], [1400, null],
+  [1900, null], [2500, 'Stone keep'], [3200, null], [4000, 'Castle walls'], [5000, 'Great hall'], [6500, 'Castle'],
 ];
+/** The village buildings to choose from, each with a perk that starts the day after it goes up. */
+export const PERKS = {
+  Tent: 'Keep your first timed quest of the day on time: +3 bonus gold.',
+  Hut: 'Habits make guard at 5 days and knight at 15.',
+  Well: 'The dragon circles 10 minutes longer before it dives.',
+  Farm: '+1 gold for every habit you keep.',
+  Watchtower: 'Finish a quest late and you win back three quarters, not half.',
+  Mill: 'Kept gold builds your village 10% faster.',
+  Smithy: 'Each event bonus is worth 2 more gold.',
+  Market: 'Moving a quest before its time costs half as much.',
+};
+const VILLAGE = Object.keys(PERKS);
+const perk = (b, d) => Q.picks.some(p => p.b === b && p.on < d);
+/** The buildings raised for this much gold, oldest first. A mark you haven't chosen for yet raises nothing. */
+export function raised(vault) {
+  let k = 0; const out = [];
+  for (const [at, b] of BUILDINGS) { if (vault < at) break; if (b) out.push(b); else { const p = Q.picks[k++]; if (p) out.push(p.b); } }
+  return out;
+}
+/** How many marks are waiting on your choice, and the three buildings offered for the first of them. */
+export function choosing(vault) {
+  const due = BUILDINGS.filter(([at, b]) => !b && vault >= at).length - Q.picks.length; if (due <= 0) return null;
+  const left = VILLAGE.filter(b => !Q.picks.some(p => p.b === b)), o = (Q.picks.length * 3) % left.length;
+  return { due, offer: [...left.slice(o), ...left.slice(0, o)].slice(0, 3) };
+}
+export function choose(b) { if (!PERKS[b] || Q.picks.some(p => p.b === b) || !choosing(realm().vault)) return; Q.picks.push({ b, on: today() }); saveQ(); sync(); }
 const dragonAt = hoard => { let i = 0; DRAGONS.forEach((x, j) => { if (hoard >= x.at) i = j; }); return i; };
-export const villageAt = vault => BUILDINGS.filter(b => vault >= b[0]).length; // how many buildings stand
+export const villageAt = vault => raised(vault).length; // how many buildings stand
 // The buildings you can see, oldest first: the castle replaces the keep and its walls, the keep the campfire, the walls the tent
-const standing = vault => { const up = BUILDINGS.slice(0, villageAt(vault)).map(b => b[1]); return up.filter(b => !(b === 'Stone keep' && up.includes('Castle')) && !(b === 'Campfire' && up.includes('Stone keep')) && !(b === 'Tent' && up.includes('Castle walls')) && !(b === 'Castle walls' && up.includes('Castle'))); };
+const standing = vault => { const up = raised(vault); return up.filter(b => !(b === 'Stone keep' && up.includes('Castle')) && !(b === 'Campfire' && up.includes('Stone keep')) && !(b === 'Tent' && up.includes('Castle walls')) && !(b === 'Castle walls' && up.includes('Castle'))); };
 
 const plannedDay = n => (n.pl ? n.pl.day : n.d) ?? null;
 const doneAt = n => { const e = (n.tl || []).filter(x => x.end).pop(); return e ? new Date(e.end) : null; };
@@ -250,7 +280,8 @@ export function streakOf(sid, d, cap = 400) {
 /** Each habit is a villager who rises with its streak: a peasant, a guard at 7 days running, a knight at 21.
     A guard brings 1 bonus gold on the days its habit is done, a knight 2. Miss a day and it's a peasant again. */
 export const RANKS = [{ n: 'Peasant', at: 0, b: 0 }, { n: 'Guard', at: 7, b: 1 }, { n: 'Knight', at: 21, b: 2 }];
-export const rankOf = run => run >= 21 ? 2 : run >= 7 ? 1 : 0;
+const rankAt = d => perk('Hut', d) ? [0, 5, 15] : [0, 7, 21]; // the Hut drills them faster
+export const rankOf = (run, d) => { const a = rankAt(d); return run >= a[2] ? 2 : run >= a[1] ? 1 : 0; };
 /** How each quest stands at time `now`, with the dragon's grace (minutes after a timed quest ends). */
 /** When the dragon swoops on a quest planned at s for m minutes: when its block ends plus the dragon's grace.
     It waits out your calendar: time in events inside that stretch is added on, and it never swoops mid-event. */
@@ -273,7 +304,7 @@ function judge(q, d, now, grace) {
   q.by = by;
   if (q.done) { const t = doneAt(q.n); q.st = !t || t <= by ? 'kept' : 'late'; }
   else q.st = now > by ? 'taken' : 'open';
-  q.you = q.st === 'kept' || q.st === 'open' ? q.g : q.st === 'late' ? Math.ceil(q.g / 2) : 0;
+  q.you = q.st === 'kept' || q.st === 'open' ? q.g : q.st === 'late' ? Math.ceil(q.g * (perk('Watchtower', d) ? .75 : .5)) : 0;
   q.dragon = q.g - q.you;
   q.bank = q.st === 'kept' ? q.g : q.st === 'late' ? q.you : 0; // gold already safe in the vault
   return q;
@@ -284,10 +315,11 @@ function score(d, now, grace) {
   const mk = Qs.find(q => q.n.id === Q.marks[d] && q.st !== 'swiped'); if (mk) mk.mark = true;
   const total = Qs.reduce((a, q) => a + q.g, 0), held = Qs.reduce((a, q) => a + q.you, 0);
   // event bonuses add to what you hold and help win the day, but the dragon can't take them
-  let bonus = bonusOn(d) * (tw === 'storm' ? 2 : 1);
+  let bonus = (bonusOn(d) + (perk('Smithy', d) ? 2 * Object.keys(Q.bonus[d] || {}).length : 0)) * (tw === 'storm' ? 2 : 1);
   const first = Qs.find(q => q.s != null && q.st !== 'swiped'); if (relic('wood', d) && first?.st === 'kept') bonus += 5; // the Dawn Lantern
+  if (perk('Tent', d) && first?.st === 'kept') bonus += 3;
   if (mk?.st === 'kept') bonus += mk.g; // the dragon's mark, kept: double
-  for (const q of Qs) if (q.n.rs && (q.st === 'kept' || q.st === 'late')) { q.rank = rankOf(streakOf(q.n.rs, d, 21)); bonus += RANKS[q.rank].b; } // guards and knights
+  for (const q of Qs) if (q.n.rs && (q.st === 'kept' || q.st === 'late')) { q.rank = rankOf(streakOf(q.n.rs, d, 21), d); bonus += RANKS[q.rank].b + (perk('Farm', d) ? 1 : 0); } // guards and knights, and the Farm
   return { d, Qs, tw, mark: mk || null, total, bonus, you: held + bonus, dragon: total - held, bank: Qs.reduce((a, q) => a + q.bank, 0) + bonus, need: Math.ceil(total * WIN),
     ember: tw === 'ember' && Qs.filter(q => q.st !== 'swiped').length < 3, ...standsOf(Qs, total, bonus) };
 }
@@ -305,11 +337,11 @@ export function realm() {
   let vault = 0, hoard = 0, streak = 0, lost = 0, burned = 0, frozeWk = null;
   for (let d = start; d <= T; d = add(d, 1)) {
     const recent = days.slice(-7).reduce((a, x) => a + x.dragon, 0), lvl = dragonAt(recent), H = huntAt(streak);
-    const r = score(d, d === T ? now : at(add(d, 1), 0), H.grace);
+    const r = score(d, d === T ? now : at(add(d, 1), 0), H.grace + (perk('Well', d) ? 10 : 0));
     r.lvl = lvl; r.hunt = H; r.streak = streak; r.rest = r.total === 0 && !r.ember; r.win = !r.rest && !r.ember && r.you >= r.need;
     days.push(r);
     // relics: the Ember Heart strengthens the streak boost, the Crown adds a tenth
-    const boost = (1 + (H.boost - 1) * (relic('ember', d) ? 1.25 : 1)) * (relic('spires', d) ? 1.1 : 1);
+    const boost = (1 + (H.boost - 1) * (relic('ember', d) ? 1.25 : 1)) * (relic('spires', d) ? 1.1 : 1) * (perk('Mill', d) ? 1.1 : 1);
     if (d < T) {
       vault += Math.round(r.you * boost); hoard += r.dragon;
       if (r.win) { streak++; lost = 0; burned = Math.max(0, burned - 1); }
@@ -320,7 +352,7 @@ export function realm() {
   }
   const last7 = days.slice(-7).reduce((a, x) => a + x.dragon, 0), H = huntAt(streak);
   burned = Math.min(burned, Math.max(0, standing(vault).length - 1));
-  const R = { start, days, vault, hoard, lvl: days.length ? days[days.length - 1].lvl : 0, last7, streak, lost, burned, hunt: H, grace: H.grace,
+  const R = { start, days, vault, hoard, lvl: days.length ? days[days.length - 1].lvl : 0, last7, streak, lost, burned, hunt: H, grace: H.grace + (perk('Well', T) ? 10 : 0),
     ruins: standing(vault).slice(standing(vault).length - burned), byDay: new Map(days.map(x => [x.d, x])) };
   R.held = REGIONS.filter(x => Q.kg.won[x.id]).map(x => x.id); R.title = titleFor(R.held.length, R.held.includes('spires'));
   R.camp = campaignOf(R); R.canMarch = !Q.kg.camp && vault >= MARCH_AT;
@@ -375,7 +407,7 @@ async function askDragon(r, R, phase) {
     dragon_form: DRAGONS[R.lvl].name, dragon_took_last_7_days: R.last7, your_win_streak: R.streak, dragon_hunting: R.hunt.name,
     days_lost_in_a_row: R.lost, buildings_burned_by_dragon: R.ruins, your_title: R.title, regions_held: R.held.map(id => regionOf(id).name),
     campaign: R.camp?.begun ? { region: R.camp.reg.name, you_play: `the ${R.camp.reg.dragon} in this region`, twist_today: regionOf(R.camp.twist)?.short, day: R.camp.day, of: CAMPAIGN_DAYS, days_won: R.camp.wins } : null,
-    vault: R.vault, village: BUILDINGS.slice(0, villageAt(R.vault)).map(b => b[1]),
+    vault: R.vault, village: raised(R.vault),
     this_week: week(R).map(w => w.res).filter(Boolean).join(' '), days_since_realm_began: daysBetween(R.start, today()),
   };
   try {
@@ -441,7 +473,7 @@ export function weekStats(R, ws) {
   const best = won.map(x => ({ x, m: x.r.total ? x.r.you / x.r.total : 0 })).sort((a, b) => b.m - a.m || b.x.r.you - a.x.r.you)[0]?.x || null;
   const marks = played.filter(x => x.r.mark), marksKept = marks.filter(x => x.r.mark.st === 'kept');
   const before = R.byDay.get(add(ws, -1))?.vault ?? 0, after = days.filter(x => x.r).pop()?.r.vault ?? before;
-  const built = BUILDINGS.slice(villageAt(before), villageAt(after)).map(b => b[1]);
+  const built = raised(after).slice(raised(before).length);
   const bestStreak = Math.max(0, ...days.filter(x => x.r).map(x => x.r.streakAfter ?? 0));
   return { ws, days, played: played.length, won: won.length, lost: lost.length, kept, taken, most, best, marks: marks.length, marksKept: marksKept.length,
     marksKeptT: marksKept.map(x => x.r.mark.n.t), built, bestStreak, streak: R.streak };
@@ -510,7 +542,7 @@ export function sceneOf(R) {
     : { ...live, land: 'vale', phase: phaseOf(m), buildings: standing(R.vault), ruins: R.ruins, held, lvl: R.lvl, hoard: R.last7, gold: R.vault };
 }
 /** Today's habits as villagers in the picture: done ones are out on their rounds, the rest wait by the well. */
-const folkOf = r => (r?.Qs || []).filter(q => q.n.rs && q.st !== 'swiped').slice(0, 8).map(q => ({ rank: rankOf(streakOf(q.n.rs, r.d, 21)), done: q.st === 'kept' || q.st === 'late' }));
+const folkOf = r => (r?.Qs || []).filter(q => q.n.rs && q.st !== 'swiped').slice(0, 8).map(q => ({ rank: rankOf(streakOf(q.n.rs, r.d, 21), r.d), done: q.st === 'kept' || q.st === 'late' }));
 /** What the dragon is up to right now. It sleeps when there's nothing left to take, and circles over your gold in the
     grace after a quest's time ends, unless you're out at an event: it won't dive into a crowd, so it waits on its crag. */
 function modeOf(r, m) {
@@ -562,17 +594,23 @@ function buildBar(list, gold, where) {
   const i = list.findIndex(b => gold < b[0]);
   if (i < 0) return `<div class="q-build done"><span>${where === 'camp' ? 'Your camp is complete' : 'Your castle is complete. March on a region from the Kingdom'}</span></div>`;
   const from = list[i - 1]?.[0] || 0, to = list[i][0], pct = Math.max(0, Math.min(100, (gold - from) / (to - from) * 100));
-  return `<div class="q-build" role="img" aria-label="Next building: ${esc(a_n(list[i][1]))}, ${gold} of ${to} gold"><span>Next: <b>${esc(list[i][1])}</b></span><div class="q-build-bar"><i style="width:${pct.toFixed(1)}%"></i></div><span class="n">${gold.toLocaleString()} / ${to.toLocaleString()}</span></div>`;
+  return `<div class="q-build" role="img" aria-label="Next building: ${esc(list[i][1] ? a_n(list[i][1]) : 'your choice')}, ${gold} of ${to} gold"><span>Next: <b>${esc(list[i][1] || 'your choice')}</b></span><div class="q-build-bar"><i style="width:${pct.toFixed(1)}%"></i></div><span class="n">${gold.toLocaleString()} / ${to.toLocaleString()}</span></div>`;
+}
+/** At a mark you haven't chosen for, the villagers wait for your call: three buildings, each with its perk. */
+function pickCard(R) {
+  const c = choosing(R.vault); if (!c) return '';
+  return `<div class="q-pick"><b>Your villagers are ready to build</b><p>Choose what goes up next. Its perk starts tomorrow.${c.due > 1 ? ` You have ${c.due} buildings to choose.` : ''}</p>
+    <div class="q-pick-opts">${c.offer.map(b => `<button data-act="q-pick" data-b="${b}"><b>${b}</b><small>${esc(PERKS[b])}</small></button>`).join('')}</div></div>`;
 }
 const BUILT = 'daybook-keep-built';
 /** The day a new building goes up, a card says so. The first time the app sees your village, it just remembers it. */
-function builtCard(n) {
+function builtCard(n, R) {
   const was = lsGet(BUILT, null);
   if (!was || n < was.n) { lsSet(BUILT, { n, on: null }); return ''; }
   if (n > was.n) lsSet(BUILT, { n, on: today() });
   const b = lsGet(BUILT, {}); if (b.on !== today() || n < 2) return '';
-  const name = BUILDINGS[n - 1][1], nx = BUILDINGS[n];
-  return `<div class="q-built"><b>Your villagers raised ${esc(name === 'Castle walls' ? 'the castle walls' : name === 'Castle' ? 'the castle' : a_n(name))}</b><p>${nx ? `Next comes ${esc(a_n(nx[1]))} at ${nx[0].toLocaleString()} gold.` : 'Your castle is complete. You can march on a region from the Kingdom.'}</p></div>`;
+  const name = raised(R.vault)[n - 1], nx = BUILDINGS.find(b => R.vault < b[0]);
+  return `<div class="q-built"><b>Your villagers raised ${esc(name === 'Castle walls' ? 'the castle walls' : name === 'Castle' ? 'the castle' : a_n(name))}</b><p>${nx ? `Next ${nx[1] ? `comes ${esc(a_n(nx[1]))}` : 'you choose what to build'} at ${nx[0].toLocaleString()} gold.` : 'Your castle is complete. You can march on a region from the Kingdom.'}</p></div>`;
 }
 /** The campaign under way, or how the last one ended (shown the day it was settled). */
 function campCard(C, R) {
@@ -597,7 +635,7 @@ const INTRO = 'daybook-keep-intro-2'; // bumped when the story changes, so it's 
 const STORY = [
   ['Hold the Keep', 'Every day has a dragon: the hours that slip away. Here, it has wings, and it plays against you.'],
   ['Each dawn, the sun pays you the day', 'Every quest on your plan, each task and habit, lays a pile of gold out in the field, bigger for the longer ones. It\'s yours for the taking.'],
-  ['Do a quest, and its gold goes into your keep', 'Gold in the keep is safe. Over the weeks it builds your village, then a castle, then a kingdom.'],
+  ['Do a quest, and its gold goes into your keep', 'Gold in the keep is safe. Over the weeks it builds your village, and you choose what goes up, each building with its own perk. Then a castle, then a kingdom.'],
   ['Leave it out, and the dragon takes it', "Once a quest's time passes, the dragon circles for a while, then dives on that pile. Finish it late to chase down half."],
   ['Your habits are your villagers', 'Keep a habit 7 days running and its villager becomes a guard, worth 1 bonus gold each day it\'s done. At 21 days it\'s a knight, worth 2. Miss a day and it\'s a peasant again.'],
   ['Secure enough, and the keep holds', "The score shows what's in your keep, what's still in the field, and what the dragon took. Cross the line and the day is yours. Lose a day and the dragon smashes your gate at midnight."],
@@ -621,17 +659,17 @@ const moveTxt = q => q.free ? 'Moved for free: the Hydra Scale paid' : `${q.to ?
 export function html(d, R, opts = {}) {
   const r = dayView(d, R), T = today(), D = DRAGONS[R.lvl], H = R.hunt, C = d === today() ? R.camp : null, B = d === today() ? report(R) : null;
   const sec = r.ahead ? 0 : r.secured, fld = r.ahead ? r.total : r.field, all = Math.max(1, r.total + r.bonus), linePct = WIN * r.total / all * 100;
-  const n = villageAt(R.vault), next = BUILDINGS[n];
+  const n = villageAt(R.vault), next = BUILDINGS.find(b => R.vault < b[0]);
   const said = esc(line(r, R));
   const cap = r.rest ? 'No quests on this day' : r.ahead ? `${r.total} gold will be out in the field` : r.holds ? (d < T ? `Held with ${sec - r.need} to spare` : `The keep holds${fld ? '. The rest still builds your village' : ''}`) : r.falls ? (d < T ? `${r.need - sec} short` : `Too little left out there to hold today`) : `${r.need - sec} more to hold the keep`;
   const head = d < T && !r.before && !r.rest ? (r.win ? 'The keep held' : 'The dragon won') : d > T ? 'Quests ahead' : r.before ? 'Before the realm began' : d === T && r.holds ? 'The keep holds' : d === T && r.falls ? 'The day is lost' : '';
   const quest = q => {
     const nt = esc(q.n.t || 'Untitled'), hb = q.n.rs ? ' habit' : '', cls = (q.st === 'open' && !r.ahead && q === r.Qs.find(x => x.st === 'open') ? 'open next' : q.st) + hb;
     // A habit shows how many days running it's been kept
-    const run = hb && !r.ahead ? streakOf(q.n.rs, d) : 0, rk = RANKS[rankOf(run)], nx = RANKS[rankOf(run) + 1];
+    const run = hb && !r.ahead ? streakOf(q.n.rs, d) : 0, ri = rankOf(run, d), rk = RANKS[ri], nx = RANKS[ri + 1] && { ...RANKS[ri + 1], at: rankAt(d)[ri + 1] };
     const runTxt = hb && !r.ahead ? `${rk.n}${run ? `, ${run} day${run > 1 ? 's' : ''} running` : ''}${rk.b && (q.st === 'kept' || q.st === 'late') ? `: +${rk.b} bonus` : nx && run ? `, ${nx.at - run} more to ${nx.n.toLowerCase()}` : ''}. ` : '';
     if (q.st === 'swiped') return `<div class="qx swiped${hb}"><span class="qx-t"></span><span class="qx-ck" aria-hidden="true"></span><button class="qx-n" data-act="open" data-id="${q.n.id}"><b>${nt}</b><small>${moveTxt(q)}</small></button><span class="qx-g">−${q.g}</span></div>`;
-    const sub = runTxt + (q.mark && q.st === 'open' ? 'Marked: double if kept. ' : '') + (q.mark && q.st === 'kept' ? 'You beat its mark: double gold' : '') + (q.tw && q.st === 'open' ? q.tw + '. ' : '') + (q.mark && q.st === 'kept' ? '' : q.st === 'open' ? (q.byMin != null ? `The dragon dives at ${fmtT(q.byMin)}${q.shield ? ', it waits out your events' : ''}` : 'Any time today') : q.st === 'taken' ? 'The dragon took it. Finish it to chase down half' : STATE_TXT[q.st]);
+    const sub = runTxt + (q.mark && q.st === 'open' ? 'Marked: double if kept. ' : '') + (q.mark && q.st === 'kept' ? 'You beat its mark: double gold' : '') + (q.tw && q.st === 'open' ? q.tw + '. ' : '') + (q.mark && q.st === 'kept' ? '' : q.st === 'open' ? (q.byMin != null ? `The dragon dives at ${fmtT(q.byMin)}${q.shield ? ', it waits out your events' : ''}` : 'Any time today') : q.st === 'taken' ? 'The dragon took it. Finish it to chase down half' : q.st === 'late' && perk('Watchtower', d) ? 'Chased down: three quarters back' : STATE_TXT[q.st]);
     const pts = q.st === 'taken' ? `−${q.g}` : q.st === 'late' ? `+${q.you}` : q.mark && !r.ahead ? `${q.st === 'kept' ? '+' : ''}${q.g * 2}` : `${q.st === 'kept' ? '+' : ''}${q.g}`;
     return `<div class="qx ${cls}${q.mark ? ' marked' : ''}" data-id="${q.n.id}"><span class="qx-t">${q.s != null ? fmtT(q.s) : ''}</span><button class="qx-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Mark ${nt} ${q.done ? 'not done' : 'done'}"></button><button class="qx-n" data-act="open" data-id="${q.n.id}"><b>${q.mark ? `<i class="qx-mk" title="The dragon's mark"></i>` : ''}${nt}</b>${r.ahead ? '' : `<small>${sub}</small>`}</button><span class="qx-g">${pts}</span></div>`;
   };
@@ -648,10 +686,11 @@ export function html(d, R, opts = {}) {
   const wk = week(R, d).map(w => `<div class="qw-d${w.d === d ? ' on' : ''}"><i class="${w.res === 'W' ? 'w' : w.res === 'L' ? 'l' : w.res === 'rest' ? 'r' : w.res === 'live' ? 't' : ''}">${w.res === 'W' || w.res === 'L' ? w.res : w.res === 'rest' ? '–' : w.res === 'live' ? '•' : ''}</i>${DAYN[pd(w.d).getDay()]}</div>`).join('');
   const wins = week(R, d).filter(w => w.res === 'W').length, losses = week(R, d).filter(w => w.res === 'L').length;
   return `<div class="qv">${d === T ? intro() : ''}
-    <div class="q-scene"><div id="q-canvas" class="q-tv" data-label="${esc(C?.begun ? `Your camp in ${C.reg.name}` : `Your village${n ? ': ' + BUILDINGS.slice(0, n).map(b => b[1]).join(', ') : ''}`)}, and the dragon on its crag"></div>
-      <div class="q-tags"><span>${esc(C?.begun ? C.reg.name : BUILDINGS[n - 1]?.[1] || 'Campfire')}${R.streak ? ` · ${R.streak} day streak` : ''}</span><span class="dr">${esc(C?.begun ? C.reg.dragon : D.name)}</span></div></div>
+    <div class="q-scene"><div id="q-canvas" class="q-tv" data-label="${esc(C?.begun ? `Your camp in ${C.reg.name}` : `Your village${n ? ': ' + raised(R.vault).join(', ') : ''}`)}, and the dragon on its crag"></div>
+      <div class="q-tags"><span>${esc(C?.begun ? C.reg.name : raised(R.vault)[n - 1] || 'Campfire')}${R.streak ? ` · ${R.streak} day streak` : ''}</span><span class="dr">${esc(C?.begun ? C.reg.dragon : D.name)}</span></div></div>
     ${d === T && !r.before ? (C?.begun ? buildBar(CAMP, C.gold, 'camp') : buildBar(BUILDINGS, R.vault, 'vale')) : ''}
-    ${d === T && !C?.begun ? builtCard(n) : ''}
+    ${d === T ? pickCard(R) : ''}
+    ${d === T && !C?.begun ? builtCard(n, R) : ''}
     ${B && !B.closed ? reportCard(B) : ''}
     ${campCard(C, R)}
     ${R.ruins.length ? `<div class="q-ruin">The dragon burned your ${esc(listOf(R.ruins.map(b => b.toLowerCase())))}. Win a day to rebuild ${R.ruins.length > 1 ? 'one' : 'it'}.</div>`
@@ -671,7 +710,7 @@ export function html(d, R, opts = {}) {
       <div class="q-week">${wk}</div>
       <p>This week: <b class="you">the keep held ${wins}</b>, <b class="dr">the dragon won ${losses}</b>${B?.closed ? ` · <button class="q-link" data-act="q-report" data-w="${B.ws}">Read The Dragon's Due</button>` : ''}</p>
       <p class="q-help"><button class="q-link" data-act="q-help">How it works</button> · <button class="q-link" data-act="q-sound" aria-pressed="${sfx.on()}">Sound ${sfx.on() ? 'on' : 'off'}</button></p>
-      <p class="q-vault">Vault <b>${R.vault.toLocaleString()} gold</b>${next ? ` · next, a ${esc(next[1].toLowerCase())} at ${next[0].toLocaleString()}` : ' · the castle is complete'}</p>
+      <p class="q-vault">Vault <b>${R.vault.toLocaleString()} gold</b>${next ? ` · next, ${next[1] ? esc(a_n(next[1])) : 'your choice'} at ${next[0].toLocaleString()}` : ' · the castle is complete'}</p>
       ${opts.remind ? `<div class="q-tool"><p>${esc(opts.remind.txt)}</p>${opts.remind.act ? `<button class="q-btn${opts.remind.act === 'off' ? ' quiet' : ''}" data-act="q-remind" data-v="${opts.remind.act}">${esc(opts.remind.btn)}</button>` : ''}</div>` : ''}
       <p class="q-dragon">${!R.streak ? 'No streak yet, so the dragon is dozing' : H.boost > 1 ? `You've held the keep ${R.streak} day${R.streak > 1 ? 's' : ''} in a row, and a rich town draws a hungrier dragon: it's ${H.name}` : `You've held the keep ${R.streak} day${R.streak > 1 ? 's' : ''} in a row. The dragon is still dozing`}. It circles for ${H.grace} minutes after a quest's time ends, then dives${H.boost > 1 ? `, and your kept gold builds ×${H.boost}` : ''}. ${HUNTS.find(x => x.at > R.streak) ? `At ${HUNTS.find(x => x.at > R.streak).at} wins it starts ${HUNTS.find(x => x.at > R.streak).name}. ` : ''}It's a ${esc(D.name.toLowerCase())}, fat on the ${R.last7} gold it took this week.</p>
     </div>
