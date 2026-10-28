@@ -21,6 +21,7 @@ let client = null, onUpdate = () => {};
 let Q = { start: null, swipes: {}, bonus: {}, ...lsGet(KEY, {}) };
 Q.bonus = Q.bonus || {};
 Q.marks = Q.marks || {}; // the quest the dragon marked on each day
+Q.seen = Q.seen || {}; // the quests seen on each day while it was today
 Q.kg = { camp: null, past: [], won: {}, v: 0, ...(Q.kg || {}) }; // the kingdom: the campaign under way, past ones, regions held
 let me = null;
 const saveQ = () => lsSet(KEY, Q);
@@ -33,6 +34,8 @@ export function begin(u) {
   if (sw) for (const [d, m] of Object.entries(sw)) Q.swipes[d] = { ...m, ...Q.swipes[d] };
   const bo = u?.user_metadata?.quest_bonus; // events claimed on another device
   if (bo) for (const [d, m] of Object.entries(bo)) Q.bonus[d] = { ...m, ...Q.bonus[d] };
+  const se = u?.user_metadata?.quest_seen; // quests another device saw on their day
+  if (se) for (const [d, m] of Object.entries(se)) Q.seen[d] = { ...m, ...Q.seen[d] };
   const mk = u?.user_metadata?.quest_marks; // the dragon's marks: the first device to pick one for a day wins
   if (mk) { Object.assign(Q.marks, mk); saveQ(); }
   const kg = u?.user_metadata?.quest_kingdom; // whichever device changed the kingdom last wins
@@ -62,7 +65,36 @@ export function moved(id, before, after) {
   for (const k of Object.keys(Q.swipes)) if (daysBetween(k, T) > 21) delete Q.swipes[k];
   saveQ(); sync();
 }
-const sync = () => { if (client && me) client.auth.updateUser({ data: { quest_swipes: Q.swipes, quest_bonus: Q.bonus, quest_marks: Q.marks, quest_kingdom: Q.kg } }).then(({ data }) => { if (data?.user) me = data.user; }).catch(() => {}); };
+const sync = () => { if (client && me) client.auth.updateUser({ data: { quest_swipes: Q.swipes, quest_seen: Q.seen, quest_bonus: Q.bonus, quest_marks: Q.marks, quest_kingdom: Q.kg } }).then(({ data }) => { if (data?.user) me = data.user; }).catch(() => {}); };
+
+/* ---------- moves made elsewhere ---------- */
+// Moves made outside this app (Claude rolling unfinished tasks forward, the connector, another device) never pass
+// through moved(), so a day would quietly lose its unfinished quests and look won. The app notes every quest it sees
+// on today's list; one that later turns up gone from its day without being done there is swiped just as if it had been
+// moved here: a quarter of its gold while its day still runs and its time hasn't passed, all of it after that.
+function see(d, Qs) {
+  if (d !== today() || !Q.start || d < Q.start) return;
+  const S = Q.seen[d] || (Q.seen[d] = {}); let fresh = false;
+  for (const q of Qs) if (q.st !== 'swiped' && !q.n.r && !q.n.x && !String(q.n.id).includes('~') && !S[q.n.id]) { S[q.n.id] = { t: q.n.t || 'Untitled', s: q.s, m: q.m }; fresh = true; }
+  if (!fresh) return;
+  for (const k of Object.keys(Q.seen)) if (daysBetween(k, d) > 7) delete Q.seen[k];
+  saveQ(); sync();
+}
+function catchMoves() {
+  const T = today(), now = new Date(); let any = false;
+  for (const [d, S] of Object.entries(Q.seen)) {
+    if (d > T || !Q.start || d < Q.start) continue;
+    for (const [id, w] of Object.entries(S)) {
+      if (Q.swipes[d]?.[id]) continue;
+      const n = store.get(id); if (!n || n.k === 'area') continue; // deleted, or not loaded yet
+      if (plannedDay(n) === d) continue; // still on its day, done or not
+      const m = w.m ?? 60, g = gold(m), passed = d < T || (w.s != null && now > at(d, w.s + m));
+      (Q.swipes[d] = Q.swipes[d] || {})[id] = { t: w.t, g: passed || twistOn(d) === 'marsh' ? g : Math.max(2, Math.round(g / 4)), away: 1 };
+      any = true;
+    }
+  }
+  if (any) { saveQ(); sync(); }
+}
 
 /* ---------- event bonuses ---------- */
 // Showing up to a calendar event earns a little gold on top of the day's quests. It can be claimed once the event
@@ -232,7 +264,7 @@ function judge(q, d, now, grace) {
 }
 function score(d, now, grace) {
   const tw = twistOn(d), Qs = judged(d, now, grace).concat(swipesOn(d));
-  markDay(d, Qs);
+  markDay(d, Qs); see(d, Qs);
   const mk = Qs.find(q => q.n.id === Q.marks[d] && q.st !== 'swiped'); if (mk) mk.mark = true;
   const total = Qs.reduce((a, q) => a + q.g, 0), held = Qs.reduce((a, q) => a + q.you, 0);
   // event bonuses add to what you hold and help win the day, but the dragon can't take them
@@ -251,6 +283,7 @@ function standsOf(Qs, total, bonus) {
 }
 /** The whole realm as of now: every finished day since it began, today live, the vault, the dragon. */
 export function realm() {
+  catchMoves();
   const T = today(), now = new Date(), start = Q.start || T, days = [];
   let vault = 0, hoard = 0, streak = 0, lost = 0, burned = 0, frozeWk = null;
   for (let d = start; d <= T; d = add(d, 1)) {
