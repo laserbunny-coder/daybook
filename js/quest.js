@@ -556,6 +556,24 @@ export function draw(R, tick = 0) {
 }
 
 /* ---------- the view ---------- */
+const a_n = w => (/^[aeiou]/i.test(w) ? 'an ' : 'a ') + w.toLowerCase();
+/** How far the gold is toward the next building: a bar under the picture. */
+function buildBar(list, gold, where) {
+  const i = list.findIndex(b => gold < b[0]);
+  if (i < 0) return `<div class="q-build done"><span>${where === 'camp' ? 'Your camp is complete' : 'Your castle is complete. March on a region from the Kingdom'}</span></div>`;
+  const from = list[i - 1]?.[0] || 0, to = list[i][0], pct = Math.max(0, Math.min(100, (gold - from) / (to - from) * 100));
+  return `<div class="q-build" role="img" aria-label="Next building: ${esc(a_n(list[i][1]))}, ${gold} of ${to} gold"><span>Next: <b>${esc(list[i][1])}</b></span><div class="q-build-bar"><i style="width:${pct.toFixed(1)}%"></i></div><span class="n">${gold.toLocaleString()} / ${to.toLocaleString()}</span></div>`;
+}
+const BUILT = 'daybook-keep-built';
+/** The day a new building goes up, a card says so. The first time the app sees your village, it just remembers it. */
+function builtCard(n) {
+  const was = lsGet(BUILT, null);
+  if (!was || n < was.n) { lsSet(BUILT, { n, on: null }); return ''; }
+  if (n > was.n) lsSet(BUILT, { n, on: today() });
+  const b = lsGet(BUILT, {}); if (b.on !== today() || n < 2) return '';
+  const name = BUILDINGS[n - 1][1], nx = BUILDINGS[n];
+  return `<div class="q-built"><b>Your villagers raised ${esc(name === 'Castle walls' ? 'the castle walls' : name === 'Castle' ? 'the castle' : a_n(name))}</b><p>${nx ? `Next comes ${esc(a_n(nx[1]))} at ${nx[0].toLocaleString()} gold.` : 'Your castle is complete. You can march on a region from the Kingdom.'}</p></div>`;
+}
 /** The campaign under way, or how the last one ended (shown the day it was settled). */
 function campCard(C, R) {
   const news = Q.kg.news;
@@ -632,6 +650,8 @@ export function html(d, R, opts = {}) {
   return `<div class="qv">${d === T ? intro() : ''}
     <div class="q-scene"><div id="q-canvas" class="q-tv" data-label="${esc(C?.begun ? `Your camp in ${C.reg.name}` : `Your village${n ? ': ' + BUILDINGS.slice(0, n).map(b => b[1]).join(', ') : ''}`)}, and the dragon on its crag"></div>
       <div class="q-tags"><span>${esc(C?.begun ? C.reg.name : BUILDINGS[n - 1]?.[1] || 'Campfire')}${R.streak ? ` · ${R.streak} day streak` : ''}</span><span class="dr">${esc(C?.begun ? C.reg.dragon : D.name)}</span></div></div>
+    ${d === T && !r.before ? (C?.begun ? buildBar(CAMP, C.gold, 'camp') : buildBar(BUILDINGS, R.vault, 'vale')) : ''}
+    ${d === T && !C?.begun ? builtCard(n) : ''}
     ${B && !B.closed ? reportCard(B) : ''}
     ${campCard(C, R)}
     ${R.ruins.length ? `<div class="q-ruin">The dragon burned your ${esc(listOf(R.ruins.map(b => b.toLowerCase())))}. Win a day to rebuild ${R.ruins.length > 1 ? 'one' : 'it'}.</div>`
