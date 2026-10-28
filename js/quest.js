@@ -11,7 +11,7 @@ import { hasKids, isDone } from './tree.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { add, DAYN, MON, esc, fmtT, lsGet, lsSet, pd, today, weekStart, daysBetween } from './util.js';
 import { CAMPAIGN_DAYS, MARCH_AT, REGIONS, regionOf, titleFor } from './regions.js';
-import { paint, phaseOf, SW, SH, SWOOP, whenReady } from './keep16.js';
+import { paint, phaseOf, SW, SH, SWOOP, whenReady } from './keep3d.js';
 import * as sfx from './sfx.js';
 import { screen, mount } from './crt.js';
 
@@ -448,7 +448,7 @@ function reportCard(B) {
     <div class="q-say"><i class="q-face" aria-hidden="true"></i><p>${esc(B.text)}</p></div></section>`;
 }
 
-/* ---------- the picture: the village (or a campaign camp) and the dragon, from above in 16-bit (keep16.js, crt.js) ---------- */
+/* ---------- the picture: the village (or a campaign camp) and the dragon, in 3D from a corner, drawn tiny (keep3d.js, crt.js) ---------- */
 const CAMP = [[0, 'Campfire'], [40, 'Tent'], [100, 'Hut'], [180, 'Well'], [280, 'Watchtower']]; // a campaign's camp grows on the gold kept there
 const src = typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: SW, height: SH }) : null;
 /** What the picture shows right now. */
@@ -604,7 +604,7 @@ export function mounted(R) {
   const el = document.getElementById('q-canvas'); if (!el) return;
   happenings(R);
   mount(draw(R, tick), el, el.dataset.label);
-  whenReady(() => { if (document.getElementById('q-canvas')) draw(R, tick); }); // the art loads once, then the picture fills in
+  whenReady(() => { if (document.getElementById('q-canvas')) draw(R, tick); }); // the 3D library loads once, then the picture fills in
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  anim = setInterval(() => { if (!document.getElementById('q-canvas')) { clearInterval(anim); return; } tick++; draw(R, tick); }, 180);
+  anim = setInterval(() => { if (!document.getElementById('q-canvas')) { clearInterval(anim); return; } tick += 1 / 3; draw(R, tick); }, 60); // a tick is still 180ms; drawn three times a tick so flight is smooth
 }
