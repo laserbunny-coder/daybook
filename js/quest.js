@@ -11,7 +11,7 @@ import { hasKids, isDone } from './tree.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { add, DAYN, MON, esc, fmtT, lsGet, lsSet, pd, today, weekStart, daysBetween } from './util.js';
 import { CAMPAIGN_DAYS, MARCH_AT, REGIONS, regionOf, titleFor } from './regions.js';
-import { paint, phaseOf, SW, SH, SWOOP } from './scene16.js';
+import { paint, phaseOf, SW, SH, SWOOP, whenReady } from './keep16.js';
 import * as sfx from './sfx.js';
 import { screen, mount } from './crt.js';
 
@@ -448,14 +448,14 @@ function reportCard(B) {
     <div class="q-say"><i class="q-face" aria-hidden="true"></i><p>${esc(B.text)}</p></div></section>`;
 }
 
-/* ---------- the picture: the village (or a campaign camp) and the dragon, in 16-bit (scene16.js, crt.js) ---------- */
+/* ---------- the picture: the village (or a campaign camp) and the dragon, from above in 16-bit (keep16.js, crt.js) ---------- */
 const CAMP = [[0, 'Campfire'], [40, 'Tent'], [100, 'Hut'], [180, 'Well'], [280, 'Watchtower']]; // a campaign's camp grows on the gold kept there
 const src = typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: SW, height: SH }) : null;
 /** What the picture shows right now. */
 export function sceneOf(R) {
   const C = R.camp?.begun ? R.camp : null, m = new Date().getHours() * 60 + new Date().getMinutes();
   const held = REGIONS.filter(x => R.held.includes(x.id)), r = R.byDay.get(today());
-  const live = { mode: modeOf(r, m), piles: pilesOf(r).filter(p => p.st === 'open'), gate: R.lost > 0, fx: fx.map(e => ({ ...e, age: tick - e.t0 })) };
+  const live = { mode: modeOf(r, m), piles: pilesOf(r, m).filter(p => p.st === 'open'), gate: R.lost > 0, fx: fx.map(e => ({ ...e, age: tick - e.t0 })) };
   return C ? { ...live, land: C.id === 'spires' ? 'spires' : C.id, phase: phaseOf(m), buildings: CAMP.filter(b => C.gold >= b[0]).map(b => b[1]), ruins: [], held, lvl: R.lvl, hoard: R.last7, gold: 0, camp: true, campInk: C.reg.ink }
     : { ...live, land: 'vale', phase: phaseOf(m), buildings: standing(R.vault), ruins: R.ruins, held, lvl: R.lvl, hoard: R.last7, gold: R.vault };
 }
@@ -469,7 +469,7 @@ function modeOf(r, m) {
 }
 let fx = [], seen = null;
 /** Today's quests as piles of gold in the field, each in a fixed spot for the day. */
-const pilesOf = r => { const L = (r?.Qs || []).filter(q => q.st !== 'swiped'); return L.map((q, slot) => ({ id: q.n.id, slot, of: L.length, g: q.g, mark: !!q.mark, st: q.st })); };
+const pilesOf = (r, m = -1) => { const L = (r?.Qs || []).filter(q => q.st !== 'swiped'); return L.map((q, slot) => ({ id: q.n.id, slot, of: L.length, g: q.g, mark: !!q.mark, st: q.st, hot: q.s != null && m >= q.s + q.m && m < q.byMin })); }; // hot: in its grace, the dragon circling it
 const RECKONED = 'daybook-keep-reckoned';
 /** Compares the day with how it looked last time, and plays what changed: gold into the keep, a dive, a new building. */
 function happenings(R) {
@@ -604,6 +604,7 @@ export function mounted(R) {
   const el = document.getElementById('q-canvas'); if (!el) return;
   happenings(R);
   mount(draw(R, tick), el, el.dataset.label);
+  whenReady(() => { if (document.getElementById('q-canvas')) draw(R, tick); }); // the art loads once, then the picture fills in
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   anim = setInterval(() => { if (!document.getElementById('q-canvas')) { clearInterval(anim); return; } tick++; draw(R, tick); }, 180);
 }
