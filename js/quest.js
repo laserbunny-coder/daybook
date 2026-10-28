@@ -23,6 +23,7 @@ let Q = { start: null, swipes: {}, bonus: {}, ...lsGet(KEY, {}) };
 Q.bonus = Q.bonus || {};
 Q.marks = Q.marks || {}; // the quest the dragon marked on each day
 Q.seen = Q.seen || {}; // the quests seen on each day while it was today
+Q.delays = Q.delays || {}; // quests pushed later the same day: a tenth of their gold to the dragon
 Q.picks = Q.picks || []; // the village buildings you chose, in order: { b: name, on: day }
 Q.kg = { camp: null, past: [], won: {}, v: 0, ...(Q.kg || {}) }; // the kingdom: the campaign under way, past ones, regions held
 let me = null;
@@ -40,6 +41,8 @@ export function begin(u) {
   if (se) for (const [d, m] of Object.entries(se)) Q.seen[d] = { ...m, ...Q.seen[d] };
   const mk = u?.user_metadata?.quest_marks; // the dragon's marks: the first device to pick one for a day wins
   if (mk) { Object.assign(Q.marks, mk); saveQ(); }
+  const dl = u?.user_metadata?.quest_delays; // pushes made on another device
+  if (dl) for (const [d, m] of Object.entries(dl)) Q.delays[d] = { ...m, ...Q.delays[d] };
   const pk = u?.user_metadata?.quest_picks; // buildings chosen on another device
   if (pk?.length > Q.picks.length) { Q.picks = pk; saveQ(); }
   const kg = u?.user_metadata?.quest_kingdom; // whichever device changed the kingdom last wins
@@ -54,6 +57,7 @@ export const started = () => Q.start;
 /** Called for each change the person makes. A quest that leaves a day that has come (today or before) without being
     checked off is swiped: a quarter of its gold, or all of it once the dragon had taken it. Putting it back undoes the swipe. */
 export function moved(id, before, after) {
+  if (pushed(id, before, after)) return;
   if (!Q.start || !('d' in before) || before.d == null || after.done || before.done) return;
   const T = today(), d = before.d; if (d > T || d < Q.start || after.d === d) return;
   const n = store.get(id) || skipped(id); if (!n || n.done || n.k === 'area' || n.r) return;
@@ -69,7 +73,19 @@ export function moved(id, before, after) {
   for (const k of Object.keys(Q.swipes)) if (daysBetween(k, T) > 21) delete Q.swipes[k];
   saveQ(); sync();
 }
-const sync = () => { if (client && me) client.auth.updateUser({ data: { quest_swipes: Q.swipes, quest_seen: Q.seen, quest_bonus: Q.bonus, quest_marks: Q.marks, quest_kingdom: Q.kg, quest_picks: Q.picks } }).then(({ data }) => { if (data?.user) me = data.user; }).catch(() => {}); };
+/** A timed quest pushed later on today itself (or its time taken off) costs a tenth of its gold, once a day.
+    If its time had already passed, the dragon had it anyway: it keeps the whole pile, and finishing wins it back. */
+function pushed(id, before, after) {
+  const T = today(); if (!Q.start || !('s' in before) || 'd' in after || after.done || before.done) return false;
+  const n = store.get(id); if (!n || n.done || n.r || plannedDay(n) !== T || Q.delays[T]?.[id] || Q.swipes[T]?.[id]) return false;
+  const s0 = before.s, s1 = after.s; if (s0 == null || (s1 != null && s1 <= s0)) return false;
+  const m = ('m' in before ? before.m : n.m) ?? 60, g = gold(m), end = deadline(T, s0, m, realm().grace) ?? 24 * 60;
+  const late = new Date() > at(T, end);
+  (Q.delays[T] = Q.delays[T] || {})[id] = { t: n.t || 'Untitled', g: late ? g : Math.max(1, Math.round(g / 10)), to: s1, ...(late ? { full: 1 } : {}) };
+  for (const k of Object.keys(Q.delays)) if (daysBetween(k, T) > 21) delete Q.delays[k];
+  saveQ(); sync(); return true;
+}
+const sync = () => { if (client && me) client.auth.updateUser({ data: { quest_swipes: Q.swipes, quest_seen: Q.seen, quest_bonus: Q.bonus, quest_marks: Q.marks, quest_kingdom: Q.kg, quest_picks: Q.picks, quest_delays: Q.delays } }).then(({ data }) => { if (data?.user) me = data.user; }).catch(() => {}); };
 
 /* ---------- moves made elsewhere ---------- */
 // Moves made outside this app (Claude rolling unfinished tasks forward, the connector, another device) never pass
@@ -119,6 +135,7 @@ export function claim(d, i) {
 
 // The swipes that still stand on day d: the quest is still off that day
 const skipped = id => { const n = store.peek(id); return n?.x && n.rs ? n : null; }; // a repeat skipped for the day
+const delaysOn = d => Object.entries(Q.delays[d] || {}).map(([id, w]) => ({ n: store.get(id) || { id, t: w.t }, s: null, m: 0, g: w.g, st: 'swiped', you: 0, dragon: w.g, bank: 0, pushed: w.to ?? -1, full: !!w.full }));
 const swipesOn = d => Object.entries(Q.swipes[d] || {}).filter(([id]) => { const n = store.get(id) || skipped(id); return !n || n.done && plannedDay(n) === d ? false : plannedDay(n) !== d; })
   .map(([id, w]) => { const n = store.get(id) || skipped(id); return { n: n || { id, t: w.t }, s: null, m: 0, g: w.g, st: 'swiped', you: 0, dragon: w.g, bank: 0, to: n?.d ?? null, free: !!w.free }; });
 
@@ -314,7 +331,7 @@ function judge(q, d, now, grace) {
   return q;
 }
 function score(d, now, grace) {
-  const tw = twistOn(d), Qs = judged(d, now, grace).concat(swipesOn(d));
+  const tw = twistOn(d), Qs = judged(d, now, grace).concat(swipesOn(d), delaysOn(d));
   markDay(d, Qs); see(d, Qs);
   const mk = Qs.find(q => q.n.id === Q.marks[d] && q.st !== 'swiped'); if (mk) mk.mark = true;
   const total = Qs.reduce((a, q) => a + q.g, 0), held = Qs.reduce((a, q) => a + q.you, 0);
@@ -563,7 +580,7 @@ const RECKONED = 'daybook-keep-reckoned';
 /** Compares the day with how it looked last time, and plays what changed: gold into the keep, a dive, a new building. */
 function happenings(R) {
   const r = R.byDay.get(today()); if (!r) return;
-  const now = { d: r.d, st: new Map(r.Qs.map(q => [q.n.id, q.st])), built: villageAt(R.vault), holds: r.holds };
+  const now = { d: r.d, st: new Map(r.Qs.filter(q => q.st !== 'swiped').map(q => [q.n.id, q.st])), built: villageAt(R.vault), holds: r.holds };
   fx = fx.filter(e => tick - e.t0 < 60);
   // midnight's reckoning: the first time the app is open on a new day, yesterday's verdict plays out at the gate
   const y = add(today(), -1), ry = R.byDay.get(y);
@@ -662,7 +679,7 @@ function intro() {
 
 const listOf = a => a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
 const STATE_TXT = { kept: 'Safe in the keep', late: 'Chased down: half back', taken: 'Taken', open: '' };
-const moveTxt = q => q.free ? 'Moved for free: the Hydra Scale paid' : `${q.to ? 'Moved to ' + (q.to === today() ? 'today' : DAYN[pd(q.to).getDay()] + ' ' + pd(q.to).getDate()) : 'Taken off the plan'}, swiped`;
+const moveTxt = q => q.pushed != null ? (q.pushed >= 0 ? `Pushed back to ${fmtT(q.pushed)}` : 'Its time taken off') + (q.full ? ' after its time: the dragon keeps it, finish it to win it back' : ', a tenth to the dragon') : q.free ? 'Moved for free: the Hydra Scale paid' : `${q.to ? 'Moved to ' + (q.to === today() ? 'today' : DAYN[pd(q.to).getDay()] + ' ' + pd(q.to).getDate()) : 'Taken off the plan'}, swiped`;
 export function html(d, R, opts = {}) {
   const r = dayView(d, R), T = today(), D = DRAGONS[R.lvl], H = R.hunt, C = d === today() ? R.camp : null, B = d === today() ? report(R) : null;
   const sec = r.ahead ? 0 : r.secured, fld = r.ahead ? r.total : r.field, all = Math.max(1, r.total + r.bonus), linePct = WIN * r.total / all * 100;
