@@ -1,6 +1,6 @@
 // Hold the Keep's picture, seen from above like a Super Nintendo game: a 256 x 224 screen of 16px tiles with
 // the keep in the middle, the village around it, the day's gold out in the field and the dragon on its crag.
-// The art is the Ninja Adventure pack by Pixel-Boy and AAA (CC0), packed into art/keep-atlas.png (keep-atlas.js says
+// The art is the Ninja Adventure pack by Pixel-Boy and AAA (CC0), packed into js/art/keep-atlas.png (inside js/ so the publish step copies it) (keep-atlas.js says
 // where each sprite sits). The dragon is the pack's green boss, recoloured red. crt.js shows it through an old TV.
 import { ATLAS } from './keep-atlas.js';
 
@@ -21,7 +21,7 @@ function load() {
   if (atlas || typeof Image === 'undefined') return;
   atlas = new Image();
   atlas.onload = () => { const k = Object.assign(document.createElement('canvas'), { width: atlas.width, height: atlas.height }), g = k.getContext('2d'); g.drawImage(atlas, 0, 0); pix = g.getImageData(0, 0, k.width, k.height); onReady?.(); };
-  atlas.src = new URL('../art/keep-atlas.png', import.meta.url).href;
+  atlas.src = new URL('./art/keep-atlas.png', import.meta.url).href;
 }
 /** Call f once the art has loaded (the first picture is blank until then). */
 export const whenReady = f => { load(); if (pix) f(); else onReady = f; };
