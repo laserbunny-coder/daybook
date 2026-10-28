@@ -1392,6 +1392,14 @@ body.quiet .ny-line.old b{color:var(--danger)}
 .q-build-bar{height:6px;border-radius:3px;background:var(--track);overflow:hidden}
 .q-build-bar i{display:block;height:100%;background:var(--gold);border-radius:3px}
 .q-build.done{display:block}
+.q-pick{padding:12px;border-radius:10px;border:1px solid color-mix(in srgb,var(--gold) 50%,var(--line));background:var(--gold-soft);display:flex;flex-direction:column;gap:8px}
+.q-pick>b{color:var(--gold);font-weight:600;font-size:14px}
+.q-pick p{margin:-6px 0 0;font-size:12.5px;color:var(--muted)}
+.q-pick-opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px}
+.q-pick-opts button{text-align:left;display:flex;flex-direction:column;gap:3px;padding:9px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card)}
+.q-pick-opts button:hover{border-color:var(--gold)}
+.q-pick-opts b{font:400 11px/1.2 var(--f-pixel);color:var(--gold)}
+.q-pick-opts small{font-size:12px;color:var(--muted);line-height:1.35}
 .q-built{padding:10px 12px;border-radius:10px;border:1px solid color-mix(in srgb,var(--gold) 50%,var(--line));background:var(--gold-soft)}
 .q-built b{color:var(--gold);font-weight:600;font-size:14px}
 .q-built p{margin:2px 0 0;font-size:12.5px;color:var(--muted)}
