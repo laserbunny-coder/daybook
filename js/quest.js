@@ -7,6 +7,7 @@
 // so nothing new is stored but the day the realm began, and the swipes: moving a quest off its day
 // doesn't dodge the dragon, it still takes a quarter of the gold (all of it, if it had already taken it).
 import * as store from './store.js';
+import { occId, repeatsOn } from './repeat.js';
 import { hasKids, isDone } from './tree.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { add, DAYN, MON, esc, fmtT, lsGet, lsSet, pd, today, weekStart, daysBetween } from './util.js';
@@ -234,6 +235,17 @@ export function questsOn(d) {
     return { n, s: s ?? null, m, g: gold(m), done: isDone(n) };
   });
   return L.sort((a, b) => (a.s ?? 1e4) - (b.s ?? 1e4) || (a.n.ds ?? a.n.o) - (b.n.ds ?? b.n.o));
+}
+/** A habit's streak: how many of its repeats in a row were done, back from day d (d counts once done, and doesn't break it while open). */
+export function streakOf(sid, d) {
+  const s = store.get(sid); if (!s?.r) return 0;
+  let n = 0, day = d;
+  for (let i = 0; i < 400 && day >= s.d; i++, day = add(day, -1)) {
+    if (!repeatsOn(s.r, s.d, day)) continue;
+    const o = store.get(occId(sid, day)); if (!o) continue; // a skipped day neither counts nor breaks it
+    if (isDone(o)) n++; else if (day !== d) break;
+  }
+  return n;
 }
 /** How each quest stands at time `now`, with the dragon's grace (minutes after a timed quest ends). */
 /** When the dragon swoops on a quest planned at s for m minutes: when its block ends plus the dragon's grace.
@@ -588,9 +600,11 @@ export function html(d, R, opts = {}) {
   const cap = r.rest ? 'No quests on this day' : r.ahead ? `${r.total} gold will be out in the field` : r.holds ? (d < T ? `Held with ${sec - r.need} to spare` : `The keep holds${fld ? '. The rest still builds your village' : ''}`) : r.falls ? (d < T ? `${r.need - sec} short` : `Too little left out there to hold today`) : `${r.need - sec} more to hold the keep`;
   const head = d < T && !r.before && !r.rest ? (r.win ? 'The keep held' : 'The dragon won') : d > T ? 'Quests ahead' : r.before ? 'Before the realm began' : d === T && r.holds ? 'The keep holds' : d === T && r.falls ? 'The day is lost' : '';
   const quest = q => {
-    const nt = esc(q.n.t || 'Untitled'), cls = q.st === 'open' && !r.ahead && q === r.Qs.find(x => x.st === 'open') ? 'open next' : q.st;
-    if (q.st === 'swiped') return `<div class="qx swiped"><span class="qx-t"></span><span class="qx-ck" aria-hidden="true"></span><button class="qx-n" data-act="open" data-id="${q.n.id}"><b>${nt}</b><small>${moveTxt(q)}</small></button><span class="qx-g">−${q.g}</span></div>`;
-    const sub = (q.mark && q.st === 'open' ? 'Marked: double if kept. ' : '') + (q.mark && q.st === 'kept' ? 'You beat its mark: double gold' : '') + (q.tw && q.st === 'open' ? q.tw + '. ' : '') + (q.mark && q.st === 'kept' ? '' : q.st === 'open' ? (q.byMin != null ? `The dragon dives at ${fmtT(q.byMin)}${q.shield ? ', it waits out your events' : ''}` : 'Any time today') : q.st === 'taken' ? 'The dragon took it. Finish it to chase down half' : STATE_TXT[q.st]);
+    const nt = esc(q.n.t || 'Untitled'), hb = q.n.rs ? ' habit' : '', cls = (q.st === 'open' && !r.ahead && q === r.Qs.find(x => x.st === 'open') ? 'open next' : q.st) + hb;
+    // A habit shows how many days running it's been kept
+    const run = hb && !r.ahead ? streakOf(q.n.rs, d) : 0, runTxt = hb && !r.ahead ? (run ? `${run} day${run > 1 ? 's' : ''} running. ` : 'Habit. ') : '';
+    if (q.st === 'swiped') return `<div class="qx swiped${hb}"><span class="qx-t"></span><span class="qx-ck" aria-hidden="true"></span><button class="qx-n" data-act="open" data-id="${q.n.id}"><b>${nt}</b><small>${moveTxt(q)}</small></button><span class="qx-g">−${q.g}</span></div>`;
+    const sub = runTxt + (q.mark && q.st === 'open' ? 'Marked: double if kept. ' : '') + (q.mark && q.st === 'kept' ? 'You beat its mark: double gold' : '') + (q.tw && q.st === 'open' ? q.tw + '. ' : '') + (q.mark && q.st === 'kept' ? '' : q.st === 'open' ? (q.byMin != null ? `The dragon dives at ${fmtT(q.byMin)}${q.shield ? ', it waits out your events' : ''}` : 'Any time today') : q.st === 'taken' ? 'The dragon took it. Finish it to chase down half' : STATE_TXT[q.st]);
     const pts = q.st === 'taken' ? `−${q.g}` : q.st === 'late' ? `+${q.you}` : q.mark && !r.ahead ? `${q.st === 'kept' ? '+' : ''}${q.g * 2}` : `${q.st === 'kept' ? '+' : ''}${q.g}`;
     return `<div class="qx ${cls}${q.mark ? ' marked' : ''}" data-id="${q.n.id}"><span class="qx-t">${q.s != null ? fmtT(q.s) : ''}</span><button class="qx-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Mark ${nt} ${q.done ? 'not done' : 'done'}"></button><button class="qx-n" data-act="open" data-id="${q.n.id}"><b>${q.mark ? `<i class="qx-mk" title="The dragon's mark"></i>` : ''}${nt}</b>${r.ahead ? '' : `<small>${sub}</small>`}</button><span class="qx-g">${pts}</span></div>`;
   };
