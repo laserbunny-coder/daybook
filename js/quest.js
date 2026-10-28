@@ -233,7 +233,8 @@ export const PERKS = {
   Market: 'Moving a quest before its time costs half as much.',
 };
 const VILLAGE = Object.keys(PERKS);
-const perk = (b, d) => Q.picks.some(p => p.b === b && p.on < d);
+let RUINED = new Set(); // what the dragon has burned, as of the day being judged: a burned building's perk is off till it's rebuilt
+const perk = (b, d) => !RUINED.has(b) && Q.picks.some(p => p.b === b && p.on < d);
 /** The buildings raised for this much gold, oldest first. A mark you haven't chosen for yet raises nothing. */
 export function raised(vault) {
   let k = 0; const out = [];
@@ -336,6 +337,7 @@ export function realm() {
   const T = today(), now = new Date(), start = Q.start || T, days = [];
   let vault = 0, hoard = 0, streak = 0, lost = 0, burned = 0, frozeWk = null;
   for (let d = start; d <= T; d = add(d, 1)) {
+    const up = standing(vault), nb = Math.min(burned, Math.max(0, up.length - 1)); RUINED = new Set(nb ? up.slice(-nb) : []);
     const recent = days.slice(-7).reduce((a, x) => a + x.dragon, 0), lvl = dragonAt(recent), H = huntAt(streak);
     const r = score(d, d === T ? now : at(add(d, 1), 0), H.grace + (perk('Well', d) ? 10 : 0));
     r.lvl = lvl; r.hunt = H; r.streak = streak; r.rest = r.total === 0 && !r.ember; r.win = !r.rest && !r.ember && r.you >= r.need;
@@ -693,8 +695,8 @@ export function html(d, R, opts = {}) {
     ${d === T && !C?.begun ? builtCard(n, R) : ''}
     ${B && !B.closed ? reportCard(B) : ''}
     ${campCard(C, R)}
-    ${R.ruins.length ? `<div class="q-ruin">The dragon burned your ${esc(listOf(R.ruins.map(b => b.toLowerCase())))}. Win a day to rebuild ${R.ruins.length > 1 ? 'one' : 'it'}.</div>`
-      : R.lost % BURN_AFTER === BURN_AFTER - 1 && d === T && standing(R.vault).length > 1 ? `<div class="q-ruin warn">The dragon has broken your gate ${R.lost} nights running. Lose today and it gets in and burns your ${esc(standing(R.vault).slice(-1)[0].toLowerCase())}.</div>`
+    ${R.ruins.length ? `<div class="q-ruin">The dragon burned your ${esc(listOf(R.ruins.map(b => b.toLowerCase())))}. Win a day to rebuild ${R.ruins.length > 1 ? 'one' : 'it'}.${R.ruins.some(x => PERKS[x]) ? ` Until then, ${R.ruins.filter(x => PERKS[x]).length > 1 ? 'their perks are' : `the ${esc(R.ruins.find(x => PERKS[x]).toLowerCase())}'s perk is`} lost.` : ''}</div>`
+      : R.lost % BURN_AFTER === BURN_AFTER - 1 && d === T && standing(R.vault).length > 1 ? `<div class="q-ruin warn">The dragon has broken your gate ${R.lost} nights running. Lose today and it gets in and burns your ${esc(standing(R.vault).slice(-1)[0].toLowerCase())}${PERKS[standing(R.vault).slice(-1)[0]] ? ', and you lose its perk until you rebuild it' : ''}.</div>`
       : R.lost && d === T ? `<div class="q-ruin warn">At midnight the dragon smashed your gate. Hold the keep today and the villagers will patch it up.</div>` : ''}
     ${head ? `<div class="q-head${head === 'The dragon won' || head === 'The day is lost' ? ' lost' : ''}">${head}</div>` : ''}
     <div class="q-score">
