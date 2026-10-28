@@ -237,16 +237,20 @@ export function questsOn(d) {
   return L.sort((a, b) => (a.s ?? 1e4) - (b.s ?? 1e4) || (a.n.ds ?? a.n.o) - (b.n.ds ?? b.n.o));
 }
 /** A habit's streak: how many of its repeats in a row were done, back from day d (d counts once done, and doesn't break it while open). */
-export function streakOf(sid, d) {
+export function streakOf(sid, d, cap = 400) {
   const s = store.get(sid); if (!s?.r) return 0;
   let n = 0, day = d;
-  for (let i = 0; i < 400 && day >= s.d; i++, day = add(day, -1)) {
+  for (let i = 0; i < 400 && n < cap && day >= s.d; i++, day = add(day, -1)) {
     if (!repeatsOn(s.r, s.d, day)) continue;
     const o = store.get(occId(sid, day)); if (!o) continue; // a skipped day neither counts nor breaks it
     if (isDone(o)) n++; else if (day !== d) break;
   }
   return n;
 }
+/** Each habit is a villager who rises with its streak: a peasant, a guard at 7 days running, a knight at 21.
+    A guard brings 1 bonus gold on the days its habit is done, a knight 2. Miss a day and it's a peasant again. */
+export const RANKS = [{ n: 'Peasant', at: 0, b: 0 }, { n: 'Guard', at: 7, b: 1 }, { n: 'Knight', at: 21, b: 2 }];
+export const rankOf = run => run >= 21 ? 2 : run >= 7 ? 1 : 0;
 /** How each quest stands at time `now`, with the dragon's grace (minutes after a timed quest ends). */
 /** When the dragon swoops on a quest planned at s for m minutes: when its block ends plus the dragon's grace.
     It waits out your calendar: time in events inside that stretch is added on, and it never swoops mid-event. */
@@ -283,6 +287,7 @@ function score(d, now, grace) {
   let bonus = bonusOn(d) * (tw === 'storm' ? 2 : 1);
   const first = Qs.find(q => q.s != null && q.st !== 'swiped'); if (relic('wood', d) && first?.st === 'kept') bonus += 5; // the Dawn Lantern
   if (mk?.st === 'kept') bonus += mk.g; // the dragon's mark, kept: double
+  for (const q of Qs) if (q.n.rs && (q.st === 'kept' || q.st === 'late')) { q.rank = rankOf(streakOf(q.n.rs, d, 21)); bonus += RANKS[q.rank].b; } // guards and knights
   return { d, Qs, tw, mark: mk || null, total, bonus, you: held + bonus, dragon: total - held, bank: Qs.reduce((a, q) => a + q.bank, 0) + bonus, need: Math.ceil(total * WIN),
     ember: tw === 'ember' && Qs.filter(q => q.st !== 'swiped').length < 3, ...standsOf(Qs, total, bonus) };
 }
@@ -500,10 +505,12 @@ const src = typeof document !== 'undefined' ? Object.assign(document.createEleme
 export function sceneOf(R) {
   const C = R.camp?.begun ? R.camp : null, m = new Date().getHours() * 60 + new Date().getMinutes();
   const held = REGIONS.filter(x => R.held.includes(x.id)), r = R.byDay.get(today());
-  const live = { mode: modeOf(r, m), piles: pilesOf(r, m).filter(p => p.st === 'open'), gate: R.lost > 0, fx: fx.map(e => ({ ...e, age: tick - e.t0 })) };
+  const live = { folk: folkOf(r), mode: modeOf(r, m), piles: pilesOf(r, m).filter(p => p.st === 'open'), gate: R.lost > 0, fx: fx.map(e => ({ ...e, age: tick - e.t0 })) };
   return C ? { ...live, land: C.id === 'spires' ? 'spires' : C.id, phase: phaseOf(m), buildings: CAMP.filter(b => C.gold >= b[0]).map(b => b[1]), ruins: [], held, lvl: R.lvl, hoard: R.last7, gold: 0, camp: true, campInk: C.reg.ink }
     : { ...live, land: 'vale', phase: phaseOf(m), buildings: standing(R.vault), ruins: R.ruins, held, lvl: R.lvl, hoard: R.last7, gold: R.vault };
 }
+/** Today's habits as villagers in the picture: done ones are out on their rounds, the rest wait by the well. */
+const folkOf = r => (r?.Qs || []).filter(q => q.n.rs && q.st !== 'swiped').slice(0, 8).map(q => ({ rank: rankOf(streakOf(q.n.rs, r.d, 21)), done: q.st === 'kept' || q.st === 'late' }));
 /** What the dragon is up to right now. It sleeps when there's nothing left to take, and circles over your gold in the
     grace after a quest's time ends, unless you're out at an event: it won't dive into a crowd, so it waits on its crag. */
 function modeOf(r, m) {
@@ -574,6 +581,7 @@ const STORY = [
   ['Each dawn, the sun pays you the day', 'Every quest on your plan, each task and habit, lays a pile of gold out in the field, bigger for the longer ones. It\'s yours for the taking.'],
   ['Do a quest, and its gold goes into your keep', 'Gold in the keep is safe. Over the weeks it builds your village, then a castle, then a kingdom.'],
   ['Leave it out, and the dragon takes it', "Once a quest's time passes, the dragon circles for a while, then dives on that pile. Finish it late to chase down half."],
+  ['Your habits are your villagers', 'Keep a habit 7 days running and its villager becomes a guard, worth 1 bonus gold each day it\'s done. At 21 days it\'s a knight, worth 2. Miss a day and it\'s a peasant again.'],
   ['Secure enough, and the keep holds', "The score shows what's in your keep, what's still in the field, and what the dragon took. Cross the line and the day is yours. Lose a day and the dragon smashes your gate at midnight."],
 ];
 let step = null;
@@ -602,7 +610,8 @@ export function html(d, R, opts = {}) {
   const quest = q => {
     const nt = esc(q.n.t || 'Untitled'), hb = q.n.rs ? ' habit' : '', cls = (q.st === 'open' && !r.ahead && q === r.Qs.find(x => x.st === 'open') ? 'open next' : q.st) + hb;
     // A habit shows how many days running it's been kept
-    const run = hb && !r.ahead ? streakOf(q.n.rs, d) : 0, runTxt = hb && !r.ahead ? (run ? `${run} day${run > 1 ? 's' : ''} running. ` : 'Habit. ') : '';
+    const run = hb && !r.ahead ? streakOf(q.n.rs, d) : 0, rk = RANKS[rankOf(run)], nx = RANKS[rankOf(run) + 1];
+    const runTxt = hb && !r.ahead ? `${rk.n}${run ? `, ${run} day${run > 1 ? 's' : ''} running` : ''}${rk.b && (q.st === 'kept' || q.st === 'late') ? `: +${rk.b} bonus` : nx && run ? `, ${nx.at - run} more to ${nx.n.toLowerCase()}` : ''}. ` : '';
     if (q.st === 'swiped') return `<div class="qx swiped${hb}"><span class="qx-t"></span><span class="qx-ck" aria-hidden="true"></span><button class="qx-n" data-act="open" data-id="${q.n.id}"><b>${nt}</b><small>${moveTxt(q)}</small></button><span class="qx-g">−${q.g}</span></div>`;
     const sub = runTxt + (q.mark && q.st === 'open' ? 'Marked: double if kept. ' : '') + (q.mark && q.st === 'kept' ? 'You beat its mark: double gold' : '') + (q.tw && q.st === 'open' ? q.tw + '. ' : '') + (q.mark && q.st === 'kept' ? '' : q.st === 'open' ? (q.byMin != null ? `The dragon dives at ${fmtT(q.byMin)}${q.shield ? ', it waits out your events' : ''}` : 'Any time today') : q.st === 'taken' ? 'The dragon took it. Finish it to chase down half' : STATE_TXT[q.st]);
     const pts = q.st === 'taken' ? `−${q.g}` : q.st === 'late' ? `+${q.you}` : q.mark && !r.ahead ? `${q.st === 'kept' ? '+' : ''}${q.g * 2}` : `${q.st === 'kept' ? '+' : ''}${q.g}`;
