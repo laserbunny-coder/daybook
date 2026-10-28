@@ -217,10 +217,12 @@ const huntAt = streak => { let i = 0; HUNTS.forEach((x, j) => { if (streak >= x.
 // Three lost days in a row and the dragon burns your newest building, three more and the next; each day won rebuilds one.
 const BURN_AFTER = 3;
 // The marks the vault passes. The keep, walls, great hall and castle go up on their own; at the other marks you choose.
+// Each mark also names what your settlement has become.
 export const BUILDINGS = [
-  [0, 'Campfire'], [100, null], [250, null], [450, null], [700, null], [1000, null], [1400, null],
-  [1900, null], [2500, 'Stone keep'], [3200, null], [4000, 'Castle walls'], [5000, 'Great hall'], [6500, 'Castle'],
+  [0, 'Campfire', 'Camp'], [100, null, 'Outpost'], [250, null, 'Hamlet'], [450, null, 'Village'], [700, null, 'Large village'], [1000, null, 'Township'], [1400, null, 'Town'],
+  [1900, null, 'Market town'], [2500, 'Stone keep', 'Keep'], [3200, null, 'Borough'], [4000, 'Castle walls', 'Fort'], [5000, 'Great hall', 'Stronghold'], [6500, 'Castle', 'Castle'],
 ];
+export const rankName = vault => BUILDINGS.filter(b => vault >= b[0]).pop()[2];
 /** The village buildings to choose from, each with a perk that starts the day after it goes up. */
 export const PERKS = {
   Tent: 'Keep your first timed quest of the day on time: +3 bonus gold.',
@@ -241,12 +243,13 @@ export function raised(vault) {
   for (const [at, b] of BUILDINGS) { if (vault < at) break; if (b) out.push(b); else { const p = Q.picks[k++]; if (p) out.push(p.b); } }
   return out;
 }
-/** How many marks are waiting on your choice, and the three buildings offered for the first of them. */
+/** How many marks are waiting on your choice, and the three buildings offered for the first of them.
+    The buildings come in the order they're listed, simple ones first, so early marks offer the basics. */
 export function choosing(vault) {
   const due = BUILDINGS.filter(([at, b]) => !b && vault >= at).length - Q.picks.length; if (due <= 0) return null;
-  const left = VILLAGE.filter(b => !Q.picks.some(p => p.b === b)), o = (Q.picks.length * 3) % left.length;
-  return { due, offer: [...left.slice(o), ...left.slice(0, o)].slice(0, 3) };
+  return { due, offer: offerNow(), at: BUILDINGS.filter(([, b]) => !b)[Q.picks.length] };
 }
+const offerNow = () => VILLAGE.filter(b => !Q.picks.some(p => p.b === b)).slice(0, 3);
 export function choose(b) { if (!PERKS[b] || Q.picks.some(p => p.b === b) || !choosing(realm().vault)) return; Q.picks.push({ b, on: today() }); saveQ(); sync(); }
 const dragonAt = hoard => { let i = 0; DRAGONS.forEach((x, j) => { if (hoard >= x.at) i = j; }); return i; };
 export const villageAt = vault => raised(vault).length; // how many buildings stand
@@ -596,12 +599,14 @@ function buildBar(list, gold, where) {
   const i = list.findIndex(b => gold < b[0]);
   if (i < 0) return `<div class="q-build done"><span>${where === 'camp' ? 'Your camp is complete' : 'Your castle is complete. March on a region from the Kingdom'}</span></div>`;
   const from = list[i - 1]?.[0] || 0, to = list[i][0], pct = Math.max(0, Math.min(100, (gold - from) / (to - from) * 100));
-  return `<div class="q-build" role="img" aria-label="Next building: ${esc(list[i][1] ? a_n(list[i][1]) : 'your choice')}, ${gold} of ${to} gold"><span>Next: <b>${esc(list[i][1] || 'your choice')}</b></span><div class="q-build-bar"><i style="width:${pct.toFixed(1)}%"></i></div><span class="n">${gold.toLocaleString()} / ${to.toLocaleString()}</span></div>`;
+  const [, b, rank] = list[i], or = L => L.length > 1 ? L.slice(0, -1).join(', ') + ' or ' + L[L.length - 1] : L[0] || '';
+  const what = b ? (rank && rank !== b ? `${rank}: ${a_n(b)}` : a_n(b)) : where === 'vale' && choosing(gold) ? `${rank}: another building to choose` : `${rank}: pick ${or(offerNow().map(x => x.toLowerCase()))}`;
+  return `<div class="q-build" role="img" aria-label="Next: ${esc(what)}, ${gold} of ${to} gold"><div class="q-build-top"><span>Next: <b>${esc(what.split(':')[0])}</b>${what.includes(':') ? esc(':' + what.split(':')[1]) : ''}</span><span class="n">${gold.toLocaleString()} / ${to.toLocaleString()}</span></div><div class="q-build-bar"><i style="width:${pct.toFixed(1)}%"></i></div></div>`;
 }
 /** At a mark you haven't chosen for, the villagers wait for your call: three buildings, each with its perk. */
 function pickCard(R) {
   const c = choosing(R.vault); if (!c) return '';
-  return `<div class="q-pick"><b>Your villagers are ready to build</b><p>Choose what goes up next. Its perk starts tomorrow.${c.due > 1 ? ` You have ${c.due} buildings to choose.` : ''}</p>
+  return `<div class="q-pick"><b>Your settlement is now ${esc(a_n(c.at[2]))}. Choose what to build</b><p>Pick one of these. Its perk starts tomorrow.${c.due > 1 ? ` You have ${c.due} buildings to choose.` : ''}</p>
     <div class="q-pick-opts">${c.offer.map(b => `<button data-act="q-pick" data-b="${b}"><b>${b}</b><small>${esc(PERKS[b])}</small></button>`).join('')}</div></div>`;
 }
 const BUILT = 'daybook-keep-built';
@@ -612,7 +617,7 @@ function builtCard(n, R) {
   if (n > was.n) lsSet(BUILT, { n, on: today() });
   const b = lsGet(BUILT, {}); if (b.on !== today() || n < 2) return '';
   const name = raised(R.vault)[n - 1], nx = BUILDINGS.find(b => R.vault < b[0]);
-  return `<div class="q-built"><b>Your villagers raised ${esc(name === 'Castle walls' ? 'the castle walls' : name === 'Castle' ? 'the castle' : a_n(name))}</b><p>${nx ? `Next ${nx[1] ? `comes ${esc(a_n(nx[1]))}` : 'you choose what to build'} at ${nx[0].toLocaleString()} gold.` : 'Your castle is complete. You can march on a region from the Kingdom.'}</p></div>`;
+  return `<div class="q-built"><b>Your villagers raised ${esc(name === 'Castle walls' ? 'the castle walls' : name === 'Castle' ? 'the castle' : a_n(name))}</b><p>${nx ? `At ${nx[0].toLocaleString()} gold your settlement becomes ${esc(a_n(nx[2]))}${nx[1] ? ` with ${esc(a_n(nx[1]))}` : ', and you choose another building'}.` : 'Your castle is complete. You can march on a region from the Kingdom.'}</p></div>`;
 }
 /** The campaign under way, or how the last one ended (shown the day it was settled). */
 function campCard(C, R) {
@@ -689,7 +694,7 @@ export function html(d, R, opts = {}) {
   const wins = week(R, d).filter(w => w.res === 'W').length, losses = week(R, d).filter(w => w.res === 'L').length;
   return `<div class="qv">${d === T ? intro() : ''}
     <div class="q-scene"><div id="q-canvas" class="q-tv" data-label="${esc(C?.begun ? `Your camp in ${C.reg.name}` : `Your village${n ? ': ' + raised(R.vault).join(', ') : ''}`)}, and the dragon on its crag"></div>
-      <div class="q-tags"><span>${esc(C?.begun ? C.reg.name : raised(R.vault)[n - 1] || 'Campfire')}${R.streak ? ` · ${R.streak} day streak` : ''}</span><span class="dr">${esc(C?.begun ? C.reg.dragon : D.name)}</span></div></div>
+      <div class="q-tags"><span>${esc(C?.begun ? C.reg.name : rankName(R.vault))}${R.streak ? ` · ${R.streak} day streak` : ''}</span><span class="dr">${esc(C?.begun ? C.reg.dragon : D.name)}</span></div></div>
     ${d === T && !r.before ? (C?.begun ? buildBar(CAMP, C.gold, 'camp') : buildBar(BUILDINGS, R.vault, 'vale')) : ''}
     ${d === T ? pickCard(R) : ''}
     ${d === T && !C?.begun ? builtCard(n, R) : ''}
