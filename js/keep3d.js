@@ -549,13 +549,13 @@ function aim() {
   cam.position.set(x + Math.sin(a) * r * Math.cos(e), 4 + r * Math.sin(e), z + Math.cos(a) * r * Math.cos(e)); cam.lookAt(x, 4, z);
   // anything nearer the camera than a cut a little way past the village is left out, like the cut edge of a model, so
   // hills and mountains on the near side never block the view when looking low; the ink's depth step follows the range
-  const sm = Math.min(1, Math.max(0, (e - .3) / .25)), g = 110 + 120 * sm * sm * (3 - 2 * sm);
+  const sm = Math.min(1, Math.max(0, (e - .3) / .25)), g = 62 + 168 * sm * sm * (3 - 2 * sm);
   cam.near = Math.max(1, r - g * Math.cos(e)); if (POST) POST.uniforms.thr.value = 1.5 / (cam.far - cam.near);
   // and when the cut edge would show inside the picture, the view slides up so the land runs to the bottom and the
   // sky and far mountains fill the top, like looking out to the horizon
   const vk = VK * SW / PW, z2 = view.zoom * FIT, half = H / 2 * vk / z2;
   cam.left = -PW / 2 * vk; cam.right = PW / 2 * vk;
-  const off = Math.min(half * .9, Math.max(0, half - g * Math.sin(e) + 2));
+  const off = Math.min(half * .45, Math.max(0, half - g * Math.sin(e) + 2));
   cam.top = (half + off) * z2; cam.bottom = (-half + off) * z2;
   cam.zoom = z2; cam.updateProjectionMatrix();
 }
