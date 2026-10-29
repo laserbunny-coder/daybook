@@ -43,14 +43,26 @@ export function begin(u) {
   if (mk) { Object.assign(Q.marks, mk); saveQ(); }
   const dl = u?.user_metadata?.quest_delays; // pushes made on another device
   if (dl) for (const [d, m] of Object.entries(dl)) Q.delays[d] = { ...m, ...Q.delays[d] };
-  const pk = u?.user_metadata?.quest_picks; // buildings chosen on another device
-  if (pk?.length > Q.picks.length) { Q.picks = pk; saveQ(); }
+  const pk = u?.user_metadata?.quest_picks; // buildings chosen on another device: where two devices chose differently, the earlier choice stands
+  if (pk) { const m = mergePicks(Q.picks, pk); if (JSON.stringify(m) !== JSON.stringify(Q.picks)) { Q.picks = m; saveQ(); } if (JSON.stringify(m) !== JSON.stringify(pk)) setTimeout(sync); }
   const kg = u?.user_metadata?.quest_kingdom; // whichever device changed the kingdom last wins
   if (kg && (kg.v || 0) > (Q.kg.v || 0)) { Q.kg = { camp: null, past: [], won: {}, ...kg }; saveQ(); }
   const theirs = u?.user_metadata?.quest_start;
   if (theirs && theirs !== Q.start && (!Q.start || theirs < Q.start)) { Q.start = theirs; saveQ(); }
   if (!Q.start) { Q.start = today(); saveQ(); }
   if (client && u && theirs !== Q.start) client.auth.updateUser({ data: { quest_start: Q.start } }).catch(() => {});
+  // the account as this device last saw it can be out of date, so ask for it fresh once and catch up on what other devices did
+  if (client && u && !fresh) { fresh = true; client.auth.getUser().then(({ data }) => { if (data?.user) { begin(data.user); onUpdate(); } }).catch(() => {}); }
+}
+let fresh = false;
+/** Two devices' building choices, slot by slot: the one chosen first wins a slot (older choices without a time: by name,
+    so both devices settle on the same one), and a building chosen twice keeps only its first slot. */
+function mergePicks(a, b) {
+  const key = p => [p.t ?? 9e15, p.b], first = (x, y) => { const [tx, bx] = key(x), [ty, by] = key(y); return tx !== ty ? (tx < ty ? x : y) : bx <= by ? x : y; };
+  const out = [];
+  for (let i = 0; i < Math.max(a.length, b.length); i++) { const w = !a[i] ? b[i] : !b[i] ? a[i] : a[i].b === b[i].b ? a[i] : first(a[i], b[i]);
+    const p = [w, w === a[i] ? b[i] : a[i]].find(x => x && !out.some(o => o.b === x.b)); if (p) out.push(p); }
+  return out;
 }
 export const started = () => Q.start;
 
@@ -267,7 +279,7 @@ export function choosing(vault) {
   return { due, offer: offerNow(), at: BUILDINGS.filter(([, b]) => !b)[Q.picks.length] };
 }
 const offerNow = () => VILLAGE.filter(b => !Q.picks.some(p => p.b === b)).slice(0, 3);
-export function choose(b) { if (!PERKS[b] || Q.picks.some(p => p.b === b) || !choosing(realm().vault)) return; Q.picks.push({ b, on: today() }); saveQ(); sync(); }
+export function choose(b) { if (!PERKS[b] || Q.picks.some(p => p.b === b) || !choosing(realm().vault)) return; Q.picks.push({ b, on: today(), t: Date.now() }); saveQ(); sync(); }
 const dragonAt = hoard => { let i = 0; DRAGONS.forEach((x, j) => { if (hoard >= x.at) i = j; }); return i; };
 export const villageAt = vault => raised(vault).length; // how many buildings stand
 // The buildings you can see, oldest first: the castle replaces the keep and its walls, the keep the campfire, the walls the tent
