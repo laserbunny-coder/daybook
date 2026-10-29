@@ -20,6 +20,7 @@ export const WIN = 0.7;
 let client = null, me = null, onUpdate = () => {};
 let D = { start: null, startMin: null, open: {}, wake: 8 * 60, bed: 22 * 60 + 30, carry: null, ...lsGet(KEY, {}) };
 D.open = D.open || {}; D.played = D.played || {}; D.deck = D.deck || null;
+D.charms = D.charms || []; D.eq = D.eq || []; D.spent = D.spent || []; D.packs = D.packs || []; D.off = D.off || {}; D.dawn = D.dawn || {};
 const save = () => lsSet(KEY, D);
 const sync = () => { if (client && me) client.auth.updateUser({ data: { dragon: D } }).then(({ data }) => { if (data?.user) me = data.user; }).catch(() => {}); };
 
@@ -35,6 +36,11 @@ export function begin(u, carry = 0) {
     for (const [d, L] of Object.entries(theirs.played || {})) { const mine = D.played[d] || []; D.played[d] = mine.concat(L.filter(p => !mine.some(x => x.t === p.t))).sort((a, b) => a.t - b.t); } // cards played on any device
     if (theirs.deck && (!D.deck || theirs.deck.length > D.deck.length)) D.deck = theirs.deck;
     D.marks = { ...(theirs.marks || {}), ...(D.marks || {}) };
+    const byT = (a, b) => [...a, ...b.filter(x => !a.some(y => y.t === x.t))].sort((x, y) => x.t - y.t); // purchases and packs from any device, once each
+    D.spent = byT(D.spent, theirs.spent || []); D.packs = byT(D.packs, theirs.packs || []);
+    for (const c of theirs.charms || []) if (!D.charms.includes(c)) D.charms.push(c);
+    if ((theirs.eqT || 0) > (D.eqT || 0)) { D.eq = theirs.eq || []; D.eqT = theirs.eqT; }
+    Object.assign(D.off, theirs.off || {}); Object.assign(D.dawn, theirs.dawn || {});
   }
   const T = today(); let changed = false;
   if (!D.start) { D.start = T; D.startMin = nowMin(); changed = true; }
@@ -43,6 +49,7 @@ export function begin(u, carry = 0) {
   if (!D.deck) { D.deck = STARTER.slice(); changed = true; }
   for (const k of Object.keys(D.open)) if (daysBetween(k, T) > 40) delete D.open[k];
   for (const k of Object.keys(D.played)) if (daysBetween(k, T) > 40) delete D.played[k];
+  for (const k of Object.keys(D.dawn)) if (daysBetween(k, T) > 10) delete D.dawn[k];
   save(); if (changed || JSON.stringify(theirs) !== JSON.stringify(D)) sync();
 }
 export const started = () => D.start;
@@ -57,25 +64,45 @@ export const CARDS = {
   back: { n: 'Send back', t: 'One quest goes to the end of today, free. Already last? Tomorrow.', aim: 1 },
   lure: { n: 'Lure', t: 'Everything still coming backs off 30 minutes.', aim: 0 },
   bet: { n: 'Bet', t: 'Save the next 3 quests on time for double. Miss one and he takes their gold.', aim: 0 },
-  split: { n: 'Split', t: 'Cut a big quest in two halves, each with half the gold and its own time.', aim: 1 }
+  split: { n: 'Split', t: 'Cut a big quest in two halves, each with half the gold and its own time.', aim: 1 },
+  wind: { n: 'Second Wind', t: 'One quest finished late pays its full gold instead of half.', aim: 1, comeback: true }
 };
+/** Charms sit there and change how gold counts. Up to three equipped. */
+export const CHARMS = {
+  early: { n: 'Early Bird', t: 'Quests finished before 9am pay ×1.5.', r: 'Common' },
+  batch: { n: 'Batch', t: 'Two quests from the same area back to back: the second pays ×2.', r: 'Common' },
+  iron: { n: 'Iron Habit', t: 'Habits on a 7+ day streak can\'t be swooped.', r: 'Rare' },
+  ember: { n: 'Ember Raid', t: 'Every 3 saves in a row steal 10 gold back from his belly.', r: 'Rare' },
+  calm: { n: 'Calm Before', t: 'Nothing in his jaws when a round ends: +20% for that round.', r: 'Rare' }
+};
+/** His cards: a stuffed day slips one into your deck (two at most); every day he doesn't win burns one. */
+export const CURSES = {
+  sloth: { n: 'Sloth', t: 'One quest a day starts half eaten.' },
+  fog: { n: 'Fog', t: 'Quests more than 3 hours away show face down.' }
+};
+export const EQUIP = 3, PRICE = { card: 40, charm: 100 }, SELL = 5, PACK = 5;
+const POOL = [...['shield', 'swap', 'back', 'lure', 'bet', 'split'].map(id => ({ k: 'card', id })), ...Object.keys(CHARMS).map(id => ({ k: 'charm', id }))];
+export const itemOf = it => ({ ...it, ...(it.k === 'card' ? CARDS[it.id] : CHARMS[it.id]) });
 const STARTER = ['shield', 'swap', 'back', 'lure', 'bet', 'split'];
 export const HAND = 3;
 /** Where an item sits in its day's list (the same key questsOn sorts by). */
 export const orderOf = n => n.ds ?? n.o ?? 0;
 const seedOf = s => Math.abs([...String(s)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7));
 /** Day d's hand: three cards dealt from your deck, the same on every device, less the ones already played. */
-export function handOn(d) {
+export function handOn(d, comeback = false) {
   const deck = (D.deck || STARTER).slice(), out = [];
+  // cards gained that day join tomorrow's deal, so buying one doesn't reshuffle the hand you're holding
+  for (const id of [...D.spent.filter(x => x.d === d && x.k === 'card').map(x => x.id), ...D.packs.filter(p => p.d === d && CARDS[p.kept]).map(p => p.kept)]) { const j = deck.lastIndexOf(id); if (j >= 0) deck.splice(j, 1); }
   let h = seedOf(d + 'deal');
   while (out.length < HAND && deck.length) { h = (h * 16807) % 2147483647; out.push(deck.splice(h % deck.length, 1)[0]); }
-  const used = (D.played[d] || []).map(p => p.c);
-  return out.map((c, i) => ({ c, i, ...CARDS[c], used: used.includes(c) }));
+  if (comeback) out.push('wind'); // two stuffed days in a row: a free Second Wind
+  const P = D.played[d] || [];
+  return out.map((c, i) => ({ c, i, ...CARDS[c], used: P.some(p => p.i === i || (p.i == null && p.c === c)) }));
 }
 export const playedOn = d => D.played[d] || [];
 /** Plays a card from today's hand on the given quests (their ids). The plan-changing cards edit the plan here. */
 export function play(c, ids = [], ctx = {}) {
-  const T = today(), card = CARDS[c]; if (!card || !handOn(T).some(h => h.c === c && !h.used)) return false;
+  const T = today(), card = CARDS[c], slot = (ctx.hand || handOn(T)).find(h => h.c === c && !h.used); if (!card || !slot) return false;
   const m = nowMin(), deal = ctx.deal || [];
   const q = id => deal.find(x => x.n.id === id);
   if (c === 'swap') {
@@ -95,7 +122,7 @@ export function play(c, ids = [], ctx = {}) {
   }
   const bet = c === 'bet' ? deal.filter(x => !x.done && x.st !== 'eaten').slice(0, 3).map(x => x.n.id) : null;
   const lure = c === 'lure' ? deal.filter(x => !x.done && x.st !== 'eaten').map(x => x.n.id) : null;
-  (D.played[T] = D.played[T] || []).push({ c, ids: bet || lure || ids, at: m, t: Date.now() });
+  (D.played[T] = D.played[T] || []).push({ c, i: slot.i, ids: bet || lure || ids, at: m, t: Date.now() });
   save(); sync(); onUpdate(); return true;
 }
 
@@ -137,6 +164,7 @@ export function dealOn(d, grace) {
       if (p.c === 'shield') { q.by = Math.min(q.by + 60, D.bed); q.shield = true; }
       else if (p.c === 'lure' && q.e > p.at - 1) { q.e = Math.min(q.e + 30, D.bed); q.by = Math.min(q.by + 30, D.bed); q.lured = true; }
       else if (p.c === 'bet') q.bet = true;
+      else if (p.c === 'wind') q.wind = true;
     }
     q.r = roundOf(q.e);
     if (q.n.rs) { const run = streakOf(q.n.rs, d, 40); q.foil = foilOf(run); q.run = run; q.g = 10 + q.foil.b; }
@@ -150,7 +178,7 @@ function judge(q, d, now) {
   q.dm = t;
   if (q.done) q.st = t == null || t <= q.by ? 'kept' : 'late';
   else q.st = now > q.by ? 'eaten' : now > q.e ? 'jaws' : 'open';
-  q.you = q.st === 'kept' ? q.g : q.st === 'late' ? Math.ceil(q.g / 2) : 0;
+  q.you = q.st === 'kept' || (q.st === 'late' && q.wind) ? q.g : q.st === 'late' ? Math.ceil(q.g / 2) : 0;
   q.him = q.st === 'eaten' ? q.g : q.st === 'late' ? q.g - q.you : 0;
   return q;
 }
@@ -168,16 +196,27 @@ const markOf = (d, Qs) => {
   for (const k of Object.keys(D.marks)) if (daysBetween(k, d) > 40) delete D.marks[k];
   save(); sync(); return q;
 };
-export function dayOf(d, grace, now) {
+export function dayOf(d, grace, now, o = {}) {
+  const eq = new Set(o.eq || []), curses = o.curses || [];
   const Qs = dealOn(d, grace).map(q => judge(q, d, now));
+  if (D.off[d]) { for (const q of Qs) { q.g = 0; q.you = 0; q.him = 0; q.off = true; } } // a day off: he sleeps, nothing counts
+  // Sloth: one quest starts half eaten
+  if (curses.includes('sloth') && !D.off[d]) { const L = Qs.filter(q => q.g >= 10); const v = L.length && L[seedOf(d + 'sloth') % L.length];
+    if (v) { const bite = Math.floor(v.g / 2); v.g -= bite; v.sloth = bite; judge(v, d, now); } }
   // each swoop takes the richest unshielded quest in his jaws at that minute
   const sw = swoopsOn(d).map(t => {
-    const L = Qs.filter(q => !q.shield && q.e <= t && t < q.by && (q.dm == null || q.dm > t));
+    const L = Qs.filter(q => !q.shield && !q.off && !(eq.has('iron') && q.n.rs && (q.run || 0) >= 7) && q.e <= t && t < q.by && (q.dm == null || q.dm > t));
     const v = L.sort((a, b) => b.g - a.g)[0];
     if (v) { v.by = t; v.swooped = true; judge(v, d, now); }
     return { t, q: v || null, past: now >= t };
   });
-  const mk = markOf(d, Qs); if (mk) { mk.mark = true; if (mk.st === 'kept') mk.you += mk.g; }
+  const mk = D.off[d] ? null : markOf(d, Qs); if (mk) { mk.mark = true; if (mk.st === 'kept') mk.you += mk.g; }
+  // charms
+  const byDone = Qs.filter(q => q.st === 'kept' && q.dm != null).sort((a, b) => a.dm - b.dm);
+  if (eq.has('early')) for (const q of byDone) if (q.dm < 9 * 60) { const b = Math.ceil(q.g / 2); q.you += b; q.charm = 'Early Bird'; }
+  if (eq.has('batch')) for (let i = 1; i < byDone.length; i++) { const a = byDone[i - 1], b = byDone[i]; if (a.n.ar && a.n.ar === b.n.ar && !a.batched) { b.you += b.g; b.batched = true; b.charm = 'Batch'; } }
+  let raid = 0;
+  if (eq.has('ember')) { let n = 0; for (const q of Qs.slice().sort((a, b) => a.by - b.by)) { if (q.st === 'kept') { if (++n % 3 === 0) raid += 10; } else if (q.st !== 'open' && q.st !== 'jaws') n = 0; } }
   // a bet: all three saved in time pays double, one missed and he takes the lot
   const bet = Qs.filter(q => q.bet);
   if (bet.length) { const all = bet.every(q => q.st === 'kept'), lost = bet.some(q => q.st === 'eaten' || q.st === 'late');
@@ -192,20 +231,75 @@ export function dayOf(d, grace, now) {
   const played = R.filter(x => x.res !== 'none'), wins = played.filter(x => x.res === 'won').length;
   const rest = !Qs.length, closed = now >= D.bed;
   const verdict = rest ? 'rest' : wins === played.length && Qs.every(q => q.st === 'kept') ? 'starves' : wins >= Math.min(2, played.length) ? 'driven' : 'stuffed';
-  return { d, Qs, R, total, you, him, wins, played: played.length, rest, closed, verdict, swoops: sw, mark: mk, hand: handOn(d) };
+  if (eq.has('calm')) for (const x of R) if (x.over && x.total && !Qs.some(q => q.e <= x.end && x.end < q.by && (q.dm == null || q.dm > x.end))) x.calm = Math.round(x.kept * 0.2);
+  const bonus = raid + R.reduce((a, x) => a + (x.calm || 0), 0);
+  const v = D.off[d] ? 'off' : verdict;
+  return { d, Qs, R, total, you: you + bonus, him, bonus, raid, wins, played: played.length, rest: rest || !!D.off[d], off: D.off[d] || null, closed, verdict: v, swoops: sw, mark: mk, hand: handOn(d, !!o.comeback), curses, chest: closed ? CHEST[v] || 0 : 0 };
 }
 /** The whole fight so far: every day since you began, today live, your gold, his belly and your run. */
+/** The chest at bedtime: bigger the better the verdict. */
+export const CHEST = { starves: 30, driven: 15, stuffed: 5, rest: 0, off: 0 };
 export function state() {
   const T = today(), start = D.start || T, days = [];
-  let run = 0, gold = D.carry || 0, belly = 0;
+  let run = 0, gold = D.carry || 0, belly = 0, shards = 0, stuffedRun = 0; const curses = [];
+  const eqOn = d => D.eq.filter(c => D.charms.includes(c));
   for (let d = start; d <= T; d = add(d, 1)) {
-    const H = huntAt(run), r = dayOf(d, H.grace, d < T ? 1e5 : nowMin());
+    const H = huntAt(run), r = dayOf(d, H.grace, d < T ? 1e5 : nowMin(), { eq: eqOn(d), curses: curses.slice(), comeback: stuffedRun >= 2 });
     r.hunt = H; r.run = run; days.push(r);
-    gold += r.you; belly += r.him;
-    if (d < T && !r.rest) run = r.verdict === 'stuffed' ? 0 : run + 1;
+    gold += r.you + r.chest; belly += r.him; shards += r.Qs.filter(q => q.st === 'kept').length;
+    if (d < T && !r.rest) {
+      if (r.verdict === 'stuffed') { run = 0; stuffedRun++; if (curses.length < 2) curses.push(curses.includes('sloth') ? 'fog' : 'sloth'); }
+      else { run++; stuffedRun = 0; curses.pop(); }
+    }
   }
-  const H = huntAt(run);
-  return { start, days, today: days[days.length - 1], gold, belly, run, hunt: H, bed: D.bed, wake: D.wake, byDay: new Map(days.map(x => [x.d, x])) };
+  gold -= D.spent.reduce((a, x) => a + x.g, 0); gold += D.packs.reduce((a, p) => a + (p.sold || 0), 0);
+  const H = huntAt(run), packs = Math.floor(shards / PACK) - D.packs.length;
+  return { start, days, today: days[days.length - 1], gold, belly, run, hunt: H, bed: D.bed, wake: D.wake, shards, packs, toPack: PACK - shards % PACK, curses,
+    deck: D.deck || STARTER, charms: D.charms, eq: eqOn(T), byDay: new Map(days.map(x => [x.d, x])) };
 }
+
+/* ---------- dawn: the Market, packs, days off ---------- */
+/** Today's three Market offers, the same on every device. Already-owned charms aren't offered. */
+export function market(d = today()) {
+  // charms gained today stay on today's shelf, so buying one doesn't reshuffle the Market
+  const fresh = new Set([...D.spent.filter(x => x.d === d).map(x => x.id), ...D.packs.filter(p => p.d === d).map(p => p.kept)]);
+  const L = POOL.filter(it => it.k === 'card' || !D.charms.includes(it.id) || fresh.has(it.id)), out = []; let h = seedOf(d + 'market');
+  while (out.length < 3 && L.length) { h = (h * 16807) % 2147483647; out.push(L.splice(h % L.length, 1)[0]); }
+  const bought = D.spent.filter(x => x.d === d).map(x => x.id);
+  return out.map(it => ({ ...itemOf(it), g: PRICE[it.k], bought: bought.includes(it.id), owned: it.k === 'charm' && D.charms.includes(it.id) }));
+}
+export const marketOpen = () => nowMin() < 12 * 60;
+function gain(it) {
+  if (it.k === 'card') D.deck = [...(D.deck || STARTER), it.id];
+  else if (!D.charms.includes(it.id)) { D.charms.push(it.id); if (D.eq.length < EQUIP) { D.eq.push(it.id); D.eqT = Date.now(); } }
+}
+export function buy(id, S) {
+  const it = market().find(x => x.id === id); if (!it || it.bought || it.owned || !marketOpen() || S.gold < it.g) return false;
+  D.spent.push({ t: Date.now(), d: today(), id, k: it.k, g: it.g }); gain(it); save(); sync(); onUpdate(); return true;
+}
+/** The next pack: three picks, keep one, the other two turn into gold. */
+export function packOffer() {
+  const L = POOL.filter(it => it.k === 'card' || !D.charms.includes(it.id)), out = []; let h = seedOf('pack' + D.packs.length + (D.start || ''));
+  while (out.length < 3 && L.length) { h = (h * 16807) % 2147483647; out.push(L.splice(h % L.length, 1)[0]); }
+  return out.map(itemOf);
+}
+export function openPack(keep, S) {
+  if (S.packs < 1) return false;
+  const offer = packOffer(), it = offer.find(x => x.id === keep); if (!it) return false;
+  D.packs.push({ t: Date.now(), d: today(), kept: keep, sold: SELL * (offer.length - 1) }); gain(it); save(); sync(); onUpdate(); return true;
+}
+export function equip(id, on) {
+  if (!D.charms.includes(id)) return;
+  D.eq = on ? [...D.eq.filter(x => x !== id), id].slice(-EQUIP) : D.eq.filter(x => x !== id); D.eqT = Date.now(); save(); sync(); onUpdate();
+}
+/** A day off: rest (one free a week) or sick or on holiday. He sleeps and nothing counts. */
+export const restLeft = d => !Object.entries(D.off).some(([k, v]) => v === 'rest' && k !== d && weekOf(k) === weekOf(d));
+const weekOf = d => { const t = pd(d); t.setDate(t.getDate() - ((t.getDay() + 6) % 7)); return t.toDateString(); };
+export function dayOff(d, kind) {
+  if (kind === 'rest' && !restLeft(d)) return false;
+  if (kind) D.off[d] = kind; else delete D.off[d]; save(); sync(); onUpdate(); return true;
+}
+export const dawnSeen = d => !!D.dawn[d];
+export function seeDawn(d) { D.dawn[d] = 1; save(); sync(); onUpdate(); }
 /** A day before you began, or still ahead: judged at its start. */
-export const dayView = (d, S) => S.byDay.get(d) || dayOf(d, S.hunt.grace, d > today() ? -1 : 1e5);
+export const dayView = (d, S) => S.byDay.get(d) || dayOf(d, S.hunt.grace, d > today() ? -1 : 1e5, { eq: S.eq, curses: S.curses });

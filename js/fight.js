@@ -44,9 +44,11 @@ function build() {
     <div class="td-banner" hidden></div>
     <div class="td-foot"><div class="td-belly"></div><div class="td-aim" hidden></div><div class="td-hand"></div></div>
     <div class="td-verdict" hidden></div>
+    <button class="td-pill" data-td="dawn" hidden></button>
+    <div class="td-dawn" hidden></div>
     <div class="td-flash"></div></div>`;
   const $ = s => root.querySelector(s);
-  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), rounds: $('.td-rounds'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash') };
+  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), rounds: $('.td-rounds'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill') };
   cv = $('.td-cv'); ctx = cv.getContext('2d');
   // while a card is picked, tapping a quest plays it there instead of opening or finishing it
   root.addEventListener('click', e => {
@@ -61,6 +63,12 @@ function build() {
     else if (b.dataset.td === 'up' || b.dataset.td === 'down') nudge(b.dataset.id, b.dataset.td === 'up' ? -1 : 1);
     else if (b.dataset.td === 'verdict-x') { lsSet(SEEN, { ...lsGet(SEEN, {}), [view]: 1 }); refresh(); }
     else if (b.dataset.td === 'verdict') { const v = lsGet(SEEN, {}); delete v[view]; lsSet(SEEN, v); refresh(); }
+    else if (b.dataset.td === 'dawn') { dawnOpen = true; refresh(); }
+    else if (b.dataset.td === 'dawn-x') { dawnOpen = false; if (!dragon.dawnSeen(today())) dragon.seeDawn(today()); else refresh(); }
+    else if (b.dataset.td === 'buy') { if (dragon.buy(b.dataset.id, S)) sfx.coin(); }
+    else if (b.dataset.td === 'pack') { if (dragon.openPack(b.dataset.id, S)) sfx.fanfare(); }
+    else if (b.dataset.td === 'eq') dragon.equip(b.dataset.id, b.getAttribute('aria-pressed') !== 'true');
+    else if (b.dataset.td === 'off') dragon.dayOff(today(), b.dataset.k || null);
   });
   addEventListener('resize', () => { if (root?.isConnected) fit(); });
 }
@@ -91,40 +99,41 @@ function refresh(force) {
       if (was && was !== q.st && (q.st === 'kept' || q.st === 'late')) saved(q);
       else if (was && (was === 'open' || was === 'jaws') && q.st === 'eaten') chomped(q);
     }
-    R.R.forEach((x, i) => { if (seen.r[i] === 'open' && x.res !== 'open') roundOver(x); });
+    R.R.forEach((x, i) => { if (seen.r[i] === 'open' && (x.res === 'won' || x.res === 'lost')) roundOver(x); });
   }
   seen = { q: st, r: R.R.map(x => x.res) };
-  hud(); lane(); foot(); verdict(); say();
+  hud(); lane(); foot(); verdict(); dawn(); say();
 }
 function hud() {
   const live = view === today(), r = R.R.find(x => x.live) || R.R[R.R.length - 1];
   el.purse.textContent = S.gold;
   if (view > today()) el.rnd.innerHTML = `<b>${view === add(today(), 1) ? 'Tomorrow' : DAYL[pd(view).getDay()]}</b><span>${R.Qs.length} quests · ${R.total} gold on the table</span>`;
   else if (!live || R.closed) el.rnd.innerHTML = `<b>${live ? 'Today' : DAYL[pd(view).getDay()] + ' ' + MON[pd(view).getMonth()] + ' ' + pd(view).getDate()}</b><span>${R.you} kept · ${R.him} eaten</span>`;
+  else if (R.off) el.rnd.innerHTML = `<b>Day off</b><span>${OFF[R.off]} He sleeps; nothing counts.</span>`;
   else { const sw = R.swoops.find(x => !x.past);
-    el.rnd.innerHTML = `<b>${r.name} round</b><span>${r.total ? `${r.kept} of ${r.total} kept · need ${r.need}` : 'Nothing due this round'}</span>${sw ? `<span class="td-sw">Swoops at ${fmtT(sw.t)} on the richest in his jaws</span>` : ''}`; }
+    el.rnd.innerHTML = `<b>${r.name} round</b><span>${r.total ? `${r.kept} of ${r.total} kept · need ${r.need}` : 'Nothing due this round'}</span>${sw ? `<span class="td-sw">Swoops at ${fmtT(sw.t)} on the richest in his jaws</span>` : ''}${R.curses.length ? `<span class="td-cu">Cursed: ${R.curses.map(c => dragon.CURSES[c].n).join(', ')}</span>` : ''}`; }
   el.nowLine.hidden = !live || R.closed;
   el.rounds.innerHTML = R.R.map(x => `<i class="td-pip ${x.res}${x.live && live && !R.closed ? ' live' : ''}" title="${x.name}: ${x.res === 'none' ? 'no contest' : `${x.kept} of ${x.total}`}"></i>`).join('');
 }
 /** The quests still in play, positioned by when they reach his jaws, never closer than one card apart. */
 function lane() {
   const live = view === today() && !R.closed;
-  const L = R.Qs.filter(q => view > today() || (live && (q.st === 'open' || q.st === 'jaws')));
+  const L = R.off ? [] : R.Qs.filter(q => view > today() || (live && (q.st === 'open' || q.st === 'jaws')));
   const keep = new Set(L.map(q => q.n.id));
   for (const [id, c] of cards) if (!keep.has(id) && !c.leaving) { c.el.remove(); cards.delete(id); }
   for (const q of L) {
     let c = cards.get(q.n.id);
     if (!c) { const b = document.createElement('div'); b.className = 'td-q'; el.lane.appendChild(b); c = { el: b, y: null }; cards.set(q.n.id, c); }
     c.q = q;
-    const habit = !!q.n.rs, nt = esc(q.n.t || 'Untitled');
+    const habit = !!q.n.rs, nt = esc(q.n.t || 'Untitled'), fog = live && R.curses.includes('fog') && q.e - nowMin() > 180;
     const when = q.st === 'jaws' ? `<em>In his jaws</em>` : q.soft ? `by ${fmtT(q.e)}` : fmtT(q.s0);
-    const tag = q.mark ? '<i class="td-tag mk">His mark · ×2</i>' : q.shield ? '<i class="td-tag sh">Shielded</i>' : q.bet ? '<i class="td-tag bt">Bet</i>' : q.left ? '<i class="td-tag">Leftover · half</i>' : habit && q.run ? `<i class="td-tag">↻ ${q.run} day${q.run === 1 ? '' : 's'}</i>` : '';
+    const tag = q.mark ? '<i class="td-tag mk">His mark · ×2</i>' : q.shield ? '<i class="td-tag sh">Shielded</i>' : q.bet ? '<i class="td-tag bt">Bet</i>' : q.sloth ? `<i class="td-tag cu">Sloth bit ${q.sloth}</i>` : q.wind ? '<i class="td-tag bt">Second Wind</i>' : q.left ? '<i class="td-tag">Leftover · half</i>' : habit && q.run ? `<i class="td-tag">↻ ${q.run} day${q.run === 1 ? '' : 's'}</i>` : '';
     const free = live && q.e - nowMin() >= FREE, lock = live && !free ? LOCK : '';
     const arrows = free ? `<span class="td-mv"><button data-td="up" data-id="${q.n.id}" aria-label="Move ${nt} earlier">▲</button><button data-td="down" data-id="${q.n.id}" aria-label="Move ${nt} later">▼</button></span>` : '';
-    const h = `<button class="td-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Finish ${nt}"></button><button class="td-n" data-act="open" data-id="${q.n.id}"><span class="td-r1"><span class="td-tm">${lock}${when}</span>${tag}</span><b>${habit ? '↻ ' : ''}${nt}</b></button><span class="td-g"><i></i>${q.g}</span>${arrows}`;
+    const h = `<button class="td-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Finish ${nt}"></button><button class="td-n" data-act="open" data-id="${q.n.id}"><span class="td-r1"><span class="td-tm">${lock}${when}</span>${tag}</span><b>${fog ? 'Face down in the fog' : (habit ? '↻ ' : '') + nt}</b></button><span class="td-g"><i></i>${q.g}</span>${arrows}`;
     if (c.h !== h) { c.el.innerHTML = h; c.h = h; }
     c.el.dataset.id = q.n.id;
-    c.el.className = `td-q${aim ? ' aimable' : ''}${q.mark ? ' marked' : ''}${q.shield ? ' shielded' : ''}${q.st === 'jaws' ? ' jaws' : ''}${habit ? ' habit' : ''}${q.foil?.n ? ' foil-' + q.foil.n : ''}${q.left ? ' left' : ''}`;
+    c.el.className = `td-q${aim ? ' aimable' : ''}${q.mark ? ' marked' : ''}${q.shield ? ' shielded' : ''}${q.st === 'jaws' ? ' jaws' : ''}${habit ? ' habit' : ''}${q.foil?.n ? ' foil-' + q.foil.n : ''}${q.left ? ' left' : ''}${fog ? ' fog' : ''}`;
     c.el.style.setProperty('--c', colorOf(q.n) || 'transparent');
   }
   place(true);
@@ -159,13 +168,13 @@ function foot() {
 const FREE = 120;
 const LOCK = '<svg class="td-lock" viewBox="0 0 10 12" aria-label="Locked: only a card moves it"><path d="M2.5 5V3.5a2.5 2.5 0 0 1 5 0V5" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="1" y="5" width="8" height="6.5" rx="1.2" fill="currentColor"/></svg>';
 let aim = null; // { c, ids: [] } while a card waits for its quest(s)
-const AIM_TXT = { shield: 'Tap the quest to shield', swap: 'Tap the first quest to swap', back: 'Tap the quest to send back', split: 'Tap the big quest to split' };
+const AIM_TXT = { wind: 'Tap the quest to give a Second Wind', shield: 'Tap the quest to shield', swap: 'Tap the first quest to swap', back: 'Tap the quest to send back', split: 'Tap the big quest to split' };
 function hand() {
   const live = view === today() && !R.closed;
-  if (!live) { el.hand.innerHTML = ''; el.aim.hidden = true; return; }
+  if (!live || R.off) { el.hand.innerHTML = ''; el.aim.hidden = true; return; }
   const n = R.hand.length;
   el.hand.innerHTML = R.hand.map((c, i) => { const off = i - (n - 1) / 2, sel = aim?.c === c.c;
-    return `<button class="td-card${c.used ? ' used' : ''}${sel ? ' sel' : ''}" data-td="card" data-c="${c.c}" style="--off:${off}" aria-pressed="${sel}"${c.used ? ' disabled' : ''}><b>${c.n}</b><span>${c.t}</span></button>`; }).join('');
+    return `<button class="td-card${c.used ? ' used' : ''}${c.comeback ? ' comeback' : ''}${sel ? ' sel' : ''}" data-td="card" data-c="${c.c}" style="--off:${off};--sp:${n > 3 ? 90 : 114}px" aria-pressed="${sel}"${c.used ? ' disabled' : ''}><b>${c.n}</b><span>${c.t}</span></button>`; }).join('');
   el.aim.hidden = !aim;
   if (aim) el.aim.innerHTML = `<span>${aim.c === 'swap' && aim.ids.length ? 'Now tap the quest to trade with' : AIM_TXT[aim.c]}</span><button data-td="aim-x">Cancel</button>`;
   for (const c of cards.values()) c.el.classList.toggle('aimable', !!aim);
@@ -173,14 +182,14 @@ function hand() {
 function pickCard(c) {
   const card = R.hand.find(h => h.c === c); if (!card || card.used) return;
   if (aim?.c === c) { aim = null; hand(); return; }
-  if (!card.aim) { if (dragon.play(c, [], { deal: R.Qs })) played(card); return; }
+  if (!card.aim) { if (dragon.play(c, [], { deal: R.Qs, hand: R.hand })) played(card); return; }
   aim = { c, ids: [] }; hand();
 }
 function target(id) {
   const card = R.hand.find(h => h.c === aim.c); if (!card) { aim = null; return; }
   if (!aim.ids.includes(id)) aim.ids.push(id);
   if (aim.ids.length < card.aim) { hand(); return; }
-  const ok = dragon.play(aim.c, aim.ids, { deal: R.Qs }); aim = null;
+  const ok = dragon.play(aim.c, aim.ids, { deal: R.Qs, hand: R.hand }); aim = null;
   if (ok) played(card); else { hand(); show('That card won\'t work there.'); }
 }
 function played(card) {
@@ -199,8 +208,10 @@ const VERDICT = {
   starves: ['He starves', 'Every round, every coin. He curls up on an empty hoard, whimpering.'],
   driven: ['You drove him off', 'He sulks back to his cave with scraps. The day is yours.'],
   stuffed: ['He\'s stuffed', 'He rolls onto his back, burping up your quest names. Rematch at dawn.'],
-  rest: ['A quiet day', 'No quests, no gold. He napped on his hoard.']
+  rest: ['A quiet day', 'No quests, no gold. He napped on his hoard.'],
+  off: ['A day off', 'He slept right through it. Nothing counted, nothing lost.']
 };
+const OFF = { rest: 'Rest day.', sick: 'Sick day.', holiday: 'Holiday.' };
 function verdict() {
   const live = view === today(), show = view < today() || (live && R.closed);
   const dismissed = !!lsGet(SEEN, {})[view];
@@ -212,7 +223,44 @@ function verdict() {
   el.verdict.innerHTML = `<div class="td-vc"><small>${live ? 'Bedtime verdict' : 'The verdict'}</small><h2>${t}</h2><p>${sub}</p>
     ${R.rest ? '' : `<ol>${R.R.map((x, i) => `<li class="${x.res}" style="--i:${i}"><b>${x.name}</b><span>${x.res === 'none' ? 'No contest' : `${x.res === 'won' ? 'Won' : 'Lost'} · ${x.kept} of ${x.total}`}</span></li>`).join('')}</ol>`}
     <div class="td-chest"><span><i></i>${R.you}</span><small>kept ${live ? 'today' : 'that day'}${R.him ? ` · he ate ${R.him}` : ''}</small></div>
+    ${R.chest ? `<div class="td-box"><i></i><span><b>+${R.chest}</b> from the bedtime chest</span></div>` : ''}
     ${live ? `<p class="td-bye">Phone down. See you at dawn.</p>` : ''}<button class="td-btn" data-td="verdict-x">${live ? 'Good night' : 'Close'}</button></div>`;
+}
+
+/* ---------- dawn: the morning look, the Market, packs, charms, days off ---------- */
+let dawnOpen = false;
+const DAWN = ['I\'m up. I\'m hungry. Guess whose list I\'ve been reading.', 'Morning. I can smell your to-do list from here.', 'Another dawn, another menu. Let\'s see what you\'ve cooked for me.', 'Stretch. Yawn. Count your quests. I already did.'];
+function dawn() {
+  const T = today(), live = view === T && !R.closed && !!S.start;
+  const auto = live && !dragon.dawnSeen(T), open = live && (auto || dawnOpen);
+  // the pill brings Dawn back: the Market before noon, a pack waiting, or just the day's look
+  el.pill.hidden = !live || open;
+  if (!el.pill.hidden) el.pill.innerHTML = S.packs > 0 ? '<b>A pack waits</b>' : dragon.marketOpen() ? '<b>Market</b><span>open till noon</span>' : '<b>Dawn</b>';
+  root.parentElement?.classList.toggle('td-dawning', open);
+  if (!open) { el.dawn.hidden = true; el.dawn.innerHTML = ''; return; }
+  const mk = R.mark, sw = R.swoops, mkt = dragon.market(T), offer = S.packs > 0 ? dragon.packOffer() : null;
+  const coin = '<i class="td-c"></i>';
+  const item = (x, extra) => `<div class="td-it ${x.k}"><div><small>${x.k === 'card' ? 'Card' : `${x.r} charm`}</small><b>${x.n}</b><span>${x.t}</span></div>${extra || ''}</div>`;
+  const offs = R.off
+    ? `<p class="td-dm">${OFF[R.off]} He sleeps today.</p><button class="td-btn td-gh" data-td="off">Undo, let's fight</button>`
+    : `<div class="td-offs">${dragon.restLeft(T) ? '<button data-td="off" data-k="rest">Rest day <small>one a week</small></button>' : '<button disabled>Rest day <small>used this week</small></button>'}<button data-td="off" data-k="sick">Sick</button><button data-td="off" data-k="holiday">Holiday</button></div>`;
+  const again = !el.dawn.hidden; el.dawn.hidden = false;
+  el.dawn.innerHTML = `<div class="td-vc td-dc${again ? ' still' : ''}"><small>Dawn · ${DAYL[pd(T).getDay()]} ${MON[pd(T).getMonth()]} ${pd(T).getDate()}</small>
+    <h2>${R.off ? 'He sleeps' : 'He wakes hungry'}</h2><p class="td-q1">“${esc(pick(DAWN, T))}”</p>
+    ${R.off ? '' : `<ul class="td-facts"><li><b>${R.Qs.length}</b> quest${R.Qs.length === 1 ? '' : 's'} · <b>${R.total}</b> gold on the table</li>
+      ${sw.length ? `<li>Swoops at ${sw.map(x => fmtT(x.t)).join(', ')}</li>` : ''}
+      ${mk ? `<li>His mark: <b>${esc(mk.n.t || 'Untitled')}</b>, worth double</li>` : ''}
+      ${R.curses.map(c => `<li class="cu">Cursed with <b>${dragon.CURSES[c].n}</b>: ${dragon.CURSES[c].t}</li>`).join('')}
+      ${R.hand.some(h => h.comeback) ? '<li class="ok">Two rough days: a free <b>Second Wind</b> is in your hand.</li>' : ''}
+      <li>Your hand: ${R.hand.map(h => h.n).join(', ')}</li></ul>`}
+    ${offer ? `<h3>A pack <small>keep one, the other two sell for ${dragon.SELL} each</small></h3><div class="td-its">${offer.map(x => item(x, `<button class="td-btn" data-td="pack" data-id="${x.id}">Keep</button>`)).join('')}</div>` : ''}
+    ${R.off ? '' : dragon.marketOpen() ? `<h3>Morning Market <small>open till noon · you have ${coin}${S.gold}</small></h3><div class="td-its">${mkt.map(x => item(x,
+      x.bought || x.owned ? `<button class="td-btn" disabled>${x.bought ? 'Bought' : 'Owned'}</button>` : `<button class="td-btn" data-td="buy" data-id="${x.id}"${S.gold < x.g ? ' disabled' : ''}>${coin}${x.g}</button>`)).join('')}</div>` : '<h3>Market <small>closed till tomorrow morning</small></h3>'}
+    ${S.charms.length ? `<h3>Charms <small>${S.eq.length} of ${dragon.EQUIP} worn</small></h3><div class="td-chs">${S.charms.map(id => { const c = dragon.CHARMS[id], on = S.eq.includes(id);
+      return `<button data-td="eq" data-id="${id}" aria-pressed="${on}" title="${c.t}"><b>${c.n}</b><span>${c.t}</span></button>`; }).join('')}</div>` : ''}
+    <p class="td-dm">Shards ${S.shards % dragon.PACK} of ${dragon.PACK} to the next pack · deck of ${S.deck.length}</p>
+    <h3>${R.off ? 'Day off' : 'Taking today off?'}</h3>${offs}
+    <button class="td-btn go" data-td="dawn-x">${R.off ? 'Close' : 'To the fight'}</button></div>`;
 }
 
 /* ---------- moments ---------- */
@@ -259,6 +307,7 @@ function fallback() {
   const next = R.Qs.find(q => q.st === 'open' || q.st === 'jaws'), jaws = R.Qs.find(q => q.st === 'jaws'), last = R.Qs.filter(q => q.st === 'eaten').pop();
   if (view > today()) return pick(['Tomorrow\'s menu. I\'ve already picked my favourite.', `${R.total} gold on tomorrow's table. Sleep well. I won't.`, 'Planning ahead? Adorable. I plan too. Mostly lunch.'], seed);
   if (view < today()) return VERDICT[R.verdict][1];
+  if (R.off) return pick(['Zzz. Day off. Don\'t think I\'m not counting.', 'Mmh. Wake me tomorrow. I\'ll be twice as hungry.'], seed);
   if (R.rest) return pick(['An empty day? Then I nap on my hoard. Wake me when there\'s something to eat.', 'No quests. No gold. No fun. Add something, I\'m starving.'], seed);
   if (R.closed) return pick(['Bedtime. Put the phone down, I\'ll still be here at dawn.', 'The day is done. Go to sleep, I\'ll count my coins.'], seed);
   if (jaws) return pick([`${jaws.n.t} is in my mouth. I'm just savouring it.`, `Mmm. ${jaws.n.t}. ${Math.max(1, Math.round(jaws.by - m))} minutes and it's mine.`, `Careful. ${jaws.n.t} is between my teeth.`, `I can taste the gold on ${jaws.n.t} already.`], seed);
