@@ -1794,13 +1794,13 @@ function showWelcome(show) { document.getElementById('welcome').hidden = !show; 
 function enterDemo() {
   S.demo = true; saveUI(); user = null; showWelcome(false);
   store.useLocal('daybook-sample', store.sampleData); calendar.useSample(); notes.useLocal(['s4', 's3', 's26']);
-  initAI({ cloud: false, client: null }); quest.init({ client: null }); fight.init({ client: null }); remind.init(null); routine.init({ client: null }); if (S.mode === 'quest' || S.mode === 'dragon') quest.begin(null); if (S.mode === 'dragon') beginDragon(); render();
+  initAI({ cloud: false, client: null }); quest.init({ client: null }); fight.init({ client: null, free: () => +S.free || 10 }); remind.init(null); routine.init({ client: null }); if (S.mode === 'quest' || S.mode === 'dragon') quest.begin(null); if (S.mode === 'dragon') beginDragon(); render();
 }
 async function enterCloud(u) {
   user = u; S.demo = false; if (u.user_metadata?.free_hours) S.free = u.user_metadata.free_hours; saveUI(); showWelcome(false);
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; // so Claude reads and writes finish times in local time
   if (tz && u.user_metadata?.tz !== tz) client.auth.updateUser({ data: { tz } }).catch(() => {});
-  calendar.useGoogle(client, u.id); initAI({ cloud: true, client }); notes.useCloud(client, u); quest.init({ client }); fight.init({ client }); dragon.init({ client }); if (S.mode === 'quest' || S.mode === 'dragon' || u.user_metadata?.quest_start) quest.begin(u); if (S.mode === 'dragon' || u.user_metadata?.dragon) beginDragon(); remind.init(client); routine.init({ client });
+  calendar.useGoogle(client, u.id); initAI({ cloud: true, client }); notes.useCloud(client, u); quest.init({ client }); fight.init({ client, free: () => +S.free || 10 }); dragon.init({ client }); if (S.mode === 'quest' || S.mode === 'dragon' || u.user_metadata?.quest_start) quest.begin(u); if (S.mode === 'dragon' || u.user_metadata?.dragon) beginDragon(); remind.init(client); routine.init({ client });
   render();
   await store.useCloud(client, u);
   calendar.ensure(add(today(), -7), add(today(), 28), true);

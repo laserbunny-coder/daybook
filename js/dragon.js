@@ -148,7 +148,7 @@ const dayStart = d => Math.max(D.wake, D.open[d] ?? D.wake, d === D.start ? (D.s
 export function dealOn(d, grace) {
   const own = questsOn(d).map(q => ({ ...q, left: false }));
   const prev = add(d, -1);
-  const left = prev >= (D.start || d) ? questsOn(prev).filter(q => !q.done && !q.n.rs && !q.n.r).map(q => ({ ...q, s: null, left: true })) : [];
+  const left = prev >= (D.start || d) && prev < today() ? questsOn(prev).filter(q => !q.done && !q.n.rs && !q.n.r).map(q => ({ ...q, s: null, left: true })) : [];
   const L = left.concat(own);
   const busy = [...timedOn(d).map(e => [e.s, e.s + e.m]), ...L.filter(q => q.s != null).map(q => [q.s, q.s + q.m])].sort((a, b) => a[0] - b[0]);
   let cur = dayStart(d);
@@ -246,22 +246,23 @@ export function dayOf(d, grace, now, o = {}) {
 export const CHEST = { starves: 30, driven: 15, stuffed: 5, rest: 0, off: 0 };
 export function state() {
   const T = today(), start = D.start || T, days = [];
-  let run = 0, gold = D.carry || 0, belly = 0, shards = 0, stuffedRun = 0; const curses = [];
+  let run = 0, gold = D.carry || 0, belly = 0, shards = 0, stuffedRun = 0, best = 0, kept = 0; const curses = [], tally = { starves: 0, driven: 0, stuffed: 0 };
   const eqOn = d => D.eq.filter(c => D.charms.includes(c));
   for (let d = start; d <= T; d = add(d, 1)) {
     const H = huntAt(run), r = dayOf(d, H.grace, d < T ? 1e5 : nowMin(), { eq: eqOn(d), curses: curses.slice(), comeback: stuffedRun >= 2 });
     r.hunt = H; r.run = run; days.push(r);
-    gold += r.you + r.chest; belly += r.him; shards += r.Qs.filter(q => q.st === 'kept').length;
+    gold += r.you + r.chest; belly += r.him; kept += r.you; shards += r.Qs.filter(q => q.st === 'kept').length;
     if (d < T && !r.rest) {
       if (r.verdict === 'stuffed') { run = 0; stuffedRun++; if (curses.length < 2) curses.push(curses.includes('sloth') ? 'fog' : 'sloth'); }
       else { run++; stuffedRun = 0; curses.pop(); }
+      best = Math.max(best, run); if (r.verdict in tally) tally[r.verdict]++;
     }
   }
   gold -= D.spent.reduce((a, x) => a + x.g, 0); gold += D.packs.reduce((a, p) => a + (p.sold || 0), 0);
   const G = goals(), gifts = G.filter(g => g.status === 'tamed').length;
   const H = huntAt(run), packs = Math.floor(shards / PACK) + gifts - D.packs.length;
   return { start, days, today: days[days.length - 1], gold, belly, run, hunt: H, bed: D.bed, wake: D.wake, shards, packs, toPack: PACK - shards % PACK, curses,
-    deck: D.deck || STARTER, charms: D.charms, eq: eqOn(T), byDay: new Map(days.map(x => [x.d, x])), goals: G };
+    deck: D.deck || STARTER, charms: D.charms, eq: eqOn(T), byDay: new Map(days.map(x => [x.d, x])), goals: G, best, kept, tally, rank: rankOf(shards + 50 * gifts + 5 * best) };
 }
 
 /* ---------- dawn: the Market, packs, days off ---------- */
@@ -347,3 +348,8 @@ export function release(id) { delete D.goals[id]; save(); sync(); onUpdate(); }
 const SYL = [['Grim', 'Vex', 'Mor', 'Skar', 'Thal', 'Ash', 'Drav', 'Kel', 'Zor', 'Fen', 'Bram', 'Ruk'], ['a', 'o', 'u', 'e', 'i', 'ae'], ['rath', 'gul', 'mir', 'thax', 'vorn', 'lisk', 'dor', 'nax', 'grim', 'scale', 'wyrm', 'fang']];
 const EPI = ['the Unfinished', 'the Patient', 'Deadline-Eater', 'the Looming', 'Who Waits', 'the Procrastinator', 'Many-Steps', 'the Smouldering'];
 export function nameFor(t) { const h = seedOf(t); return `${SYL[0][h % 12]}${SYL[1][(h >> 4) % 6]}${SYL[2][(h >> 8) % 12]} ${EPI[(h >> 12) % EPI.length]}`; }
+
+/* ---------- Hunter rank ---------- */
+/** Your rank grows with every quest saved, every dragon tamed and your best run. */
+export const RANKS = [{ at: 0, n: 'Squire' }, { at: 40, n: 'Tracker' }, { at: 120, n: 'Hunter' }, { at: 300, n: 'Slayer' }, { at: 700, n: 'Wyrmwarden' }, { at: 1500, n: 'Dragonmaster' }];
+export function rankOf(xp) { const i = RANKS.filter(r => xp >= r.at).length - 1, nx = RANKS[i + 1]; return { ...RANKS[i], i, xp, next: nx || null, to: nx ? nx.at - xp : 0, p: nx ? (xp - RANKS[i].at) / (nx.at - RANKS[i].at) : 1 }; }
