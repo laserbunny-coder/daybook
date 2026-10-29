@@ -21,13 +21,24 @@ const mapH = () => size === 'strip' ? 160 : size === 'tall' ? 240 : Math.round(M
 let SH = mapH();
 const mapSrc = typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: SW, height: SH }) : null;
 const hash = (x, y) => { let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
+// smooth value noise, for a coast that wanders like a real one
+const vn = (x, y, k) => { x /= k; y /= k; const i = Math.floor(x), j = Math.floor(y), u = x - i, v = y - j, f = t => t * t * (3 - 2 * t), a = hash(i, j + 99), b = hash(i + 1, j + 99), c = hash(i, j + 100), d = hash(i + 1, j + 100);
+  return a + (b - a) * f(u) + (c - a) * f(v) + (a - b - c + d) * f(u) * f(v); };
+const ISLETS = [[180, 12, 5], [8, 104, 6], [184, 100, 4], [14, 10, 3.5]]; // little islands offshore
+/** The island: an oval with bays and headlands, ragged at the small scale, every region's heart safely inland. */
+function landAt(x, y) {
+  const nx = (x - 96) / 92, ny = (y - 56) / 52, a = Math.atan2(ny, nx);
+  const reach = 1 + .14 * Math.sin(3 * a + 1) + .09 * Math.sin(5 * a + 2.3) + .05 * Math.sin(8 * a + .7) + (vn(x, y, 14) - .5) * .4 + (vn(x, y, 5) - .5) * .14;
+  if (Math.hypot(nx, ny) < reach * .72) return true;
+  // each region pushes the land out around its heart, so the coast bulges and pinches between them
+  if ([HOME, ...REGIONS].some((r, i) => Math.hypot(x - r.seed[0], (y - r.seed[1]) * 1.15) < 17 + hash(i, 41) * 9 + (vn(x, y, 9) - .5) * 14)) return true;
+  return ISLETS.some(([ix, iy, r]) => Math.hypot(x - ix, y - iy) < r + (vn(x, y, 3) - .5) * 3);
+}
 const owner = new Array(W * H);
 for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { // each spot belongs to the nearest region's heart, with ragged borders
   let best = 0, bd = 1e9;
   ALL.forEach((r, i) => { const d = (x - r.seed[0]) ** 2 + (y - r.seed[1]) ** 2 * 1.4 + (hash(x >> 3, y >> 3) - .5) * 700 + (hash(x >> 1, y >> 1) - .5) * 200; if (d < bd) { bd = d; best = i; } });
-  // the coast: a ragged edge of sea all round
-  const edge = Math.min(x, y, W - 1 - x, H - 1 - y) + (hash(x >> 2, y >> 2) - .5) * 6 + (hash(x >> 3, y >> 3) - .5) * 6;
-  owner[y * W + x] = edge < 3 ? SEA : best;
+  owner[y * W + x] = landAt(x, y) ? best : SEA;
 }
 const ownAt = (x, y) => x < 0 || y < 0 || x >= W || y >= H ? SEA : owner[(y | 0) * W + (x | 0)];
 const LANDC = { vale: 0x567a3a, wood: 0x2c5a32, marsh: 0x5e6a3a, frost: 0x8a96a6, storm: 0x4a6a72, ember: 0x5a2c1e, spires: 0x5e5470, fog: 0x6a6478 };
@@ -53,7 +64,7 @@ function build3d() {
   const cam = new T.OrthographicCamera(-FW / 2, FW / 2, FW / 4, -FW / 4, 1, 900);
   const wx = x => x - W / 2, wz = y => y - H / 2; // map spot to world
   // the sea, then the land: one colour per face, darker along the borders, heights smoothed across them
-  add(new T.PlaneGeometry(1400, 1400).rotateX(-Math.PI / 2), M(0x22487a), 0, 0, 0, scene, false);
+  const water = add(new T.PlaneGeometry(1400, 1400).rotateX(-Math.PI / 2), seaMat(T), 0, -.7, 0, scene, false); water.receiveShadow = false;
   const S = 2, nx = W / S + 6, ny = H / S + 6, hts = [];
   for (let j = 0; j <= ny; j++) for (let i = 0; i <= nx; i++) { const x = (i - 3) * S, y = (j - 3) * S, o = ownAt(x, y); hts.push(o === SEA ? -2.5 : heightOf(ALL[o].id, x, y)); }
   const sm = hts.map((h, k) => { const i = k % (nx + 1), j = (k / (nx + 1)) | 0; let a = 0, n = 0; for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii > nx || jj > ny) continue; a += hts[jj * (nx + 1) + ii]; n++; } return ownAt((i - 3) * S, (j - 3) * S) === SEA ? Math.min(h, a / n) : a / n; });
@@ -111,7 +122,7 @@ function build3d() {
   for (let k = 0; k < n; k++) { const x = wx(st.seed[0] + (hash(k, 11) - .5) * 50), y = hash(k, 12) * 26, z = wz(st.seed[1] + (hash(k, 13) - .5) * 40); pos.set([x, y, z, x + .6, y - 2.4, z + .3], k * 6); }
   const rg = new T.BufferGeometry(); rg.setAttribute('position', new T.BufferAttribute(pos, 3)); const rain = new T.LineSegments(rg, new T.LineBasicMaterial({ color: 0x6a84a8 })); scene.add(rain);
   const ray = new T.Raycaster(), lmFaces = land.attributes.position.count / 3;
-  K = { view, scene, cam, aimed: '', land, cols, lm, lmFaces, deco, fogG, borders, marks, flags, drg, wings, rain, ray, wx, wz, groundAt, last: '' };
+  K = { view, scene, cam, water, aimed: '', land, cols, lm, lmFaces, deco, fogG, borders, marks, flags, drg, wings, rain, ray, wx, wz, groundAt, last: '' };
 }
 /* The person's own view of the map: drag to pan, pinch to zoom, twist to turn, double-tap to put it back */
 const A = .61, EL = 42 * Math.PI / 180, FW = 212, mv = { x: 0, z: 0, zoom: 1, rot: 0, tilt: 0 };
@@ -132,6 +143,33 @@ function nudge(dx, dy, w, zoom = 1, turn = 0, tilt = 0) {
   mv.tilt = Math.min(1.45 - EL, Math.max(.3 - EL, mv.tilt + tilt));
   const d = Math.hypot(mv.x, mv.z); if (d > 110) { mv.x *= 110 / d; mv.z *= 110 / d; }
   mv.zoom = Math.min(4, Math.max(.6, mv.zoom * zoom)); mv.rot += turn;
+}
+/** The sea: deep blue far out, turning teal over the shallows, with rows of surf rolling in to the shore and a glint
+    here and there. It knows how far each spot is from land through a small map made once. */
+function seaMat(T) {
+  const far = new Float32Array(W * H).fill(99), q = [];
+  for (let k = 0; k < W * H; k++) if (owner[k] !== SEA) { far[k] = 0; q.push(k); }
+  for (let h = 0; h < q.length; h++) { const k = q[h], x = k % W, y = (k / W) | 0; // spread out from the coast, one step at a time
+    for (const [dx, dy, c] of [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.41], [-1, 1, 1.41], [1, -1, 1.41], [-1, -1, 1.41]]) {
+      const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue; const n = yy * W + xx;
+      if (far[n] > far[k] + c) { far[n] = far[k] + c; q.push(n); } } }
+  const px = new Uint8Array(W * H * 4); for (let k = 0; k < W * H; k++) { px[k * 4] = Math.min(255, far[k] * 8); px[k * 4 + 3] = 255; }
+  const tex = new T.DataTexture(px, W, H, T.RGBAFormat); tex.magFilter = tex.minFilter = T.LinearFilter; tex.needsUpdate = true;
+  return new T.ShaderMaterial({ uniforms: { far: { value: tex }, t: { value: 0 } },
+    vertexShader: 'varying vec2 p; void main(){ p = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
+    fragmentShader: `uniform sampler2D far; uniform float t; varying vec2 p;
+      float h(vec2 q){ return fract(sin(dot(q, vec2(12.9898, 78.233))) * 43758.5453); }
+      void main(){
+        vec2 uv = (p + vec2(${W / 2}., ${H / 2}.)) / vec2(${W}., ${H}.), c = floor(p);
+        vec2 o = max(abs(p) - vec2(${W / 2}., ${H / 2}.), 0.); float d = texture2D(far, clamp(uv, 0., 1.)).r * 255. / 8. + length(o); // past the map's edge the sea keeps getting deeper
+        d += (h(floor(p / 3.)) - .5) * 1.2; // a little roughness so the bands aren't perfect rings
+        vec3 col = mix(vec3(.22, .62, .64), vec3(.13, .28, .5), smoothstep(1., 12., d));
+        col = mix(col, vec3(.1, .2, .4), smoothstep(14., 40., d));
+        float wave = fract(d / 5. + t * .35); // surf rows move in toward the shore
+        if (d < 11. && wave > .86) col = mix(col, vec3(.85, .93, .95), .55 * (1. - d / 11.) + .15);
+        if (d < 1.4) col = mix(col, vec3(.92, .96, .95), .7); // the foam right on the sand
+        float g = h(c + floor(t * 3.)); if (d > 4. && g > .992) col += .25; // glints out at sea
+        gl_FragColor = vec4(col, 1.); }` });
 }
 /** Colours the land for who holds what: hidden regions go grey under cloud. */
 function colour(heldN) {
@@ -158,7 +196,7 @@ function paint(cv, R, t) {
   K.flags.forEach((f, i) => { const p = f.geometry.attributes.position, b = f.userData.base; for (let k = 0; k < p.count; k++) p.setZ(k, b[k * 3 + 2] + Math.sin(s * 6 + b[k * 3] * 1.5 + i) * .3 * (b[k * 3] + 1.8) / 3.6); p.needsUpdate = true; });
   const r = regionOf(sel); K.drg.visible = !!r && !held.has(sel);
   if (K.drg.visible) { const a = s * 1.4, [x, y] = r.seed; K.drg.position.set(K.wx(x) + Math.cos(a) * 12, K.groundAt(x, y) + 16 + Math.sin(s * 3), K.wz(y) + Math.sin(a) * 9); K.drg.rotation.set(0, -a, .3); K.wings.forEach((w, i) => { w.rotation.z = (i ? 1 : -1) * Math.sin(s * 9) * .6; }); }
-  K.rain.position.y = -((s * 30) % 10);
+  K.rain.position.y = -((s * 30) % 10); K.water.material.uniforms.t.value = s;
   K.view.size(SW, SH); aim();
   const img = K.view.render(K.scene, K.cam); if (img) c.drawImage(img, 0, 0);
 }
