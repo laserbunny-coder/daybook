@@ -8,7 +8,7 @@
 import * as dragon from './dragon.js';
 import * as sfx from './sfx.js';
 import * as store from './store.js';
-import { colorOf } from './tree.js';
+import { colorOf, isDone } from './tree.js';
 import { esc, fmtT, lsGet, lsSet, today, nowMin, add, pd, DAYL, MON } from './util.js';
 
 const NOW_Y = 250, PPM = 1.1, GAP = 56, BW = 390;
@@ -46,9 +46,11 @@ function build() {
     <div class="td-verdict" hidden></div>
     <button class="td-pill" data-td="dawn" hidden></button>
     <div class="td-dawn" hidden></div>
+    <button class="td-drg" data-td="lair">Dragons</button>
+    <div class="td-dawn td-lair" hidden></div>
     <div class="td-flash"></div></div>`;
   const $ = s => root.querySelector(s);
-  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), rounds: $('.td-rounds'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill') };
+  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), rounds: $('.td-rounds'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small') };
   cv = $('.td-cv'); ctx = cv.getContext('2d');
   // while a card is picked, tapping a quest plays it there instead of opening or finishing it
   root.addEventListener('click', e => {
@@ -69,6 +71,15 @@ function build() {
     else if (b.dataset.td === 'pack') { if (dragon.openPack(b.dataset.id, S)) sfx.fanfare(); }
     else if (b.dataset.td === 'eq') dragon.equip(b.dataset.id, b.getAttribute('aria-pressed') !== 'true');
     else if (b.dataset.td === 'off') dragon.dayOff(today(), b.dataset.k || null);
+    else if (b.dataset.td === 'lair') { lairOpen = lairOpen ? null : 'list'; lair(); }
+    else if (b.dataset.td === 'lair-list') { lairOpen = 'list'; lair(); }
+    else if (b.dataset.td === 'lair-x') { lairOpen = null; lair(); }
+    else if (b.dataset.td === 'goal') { lairOpen = b.dataset.id; lair(); }
+    else if (b.dataset.td === 'hatch') { dragon.hatch(b.dataset.id); lairOpen = b.dataset.id; nameIt(b.dataset.id); }
+    else if (b.dataset.td === 'rename') { const g = S.goals.find(x => x.id === b.dataset.id), n = prompt('His name', g?.name || ''); if (n?.trim()) dragon.rename(b.dataset.id, n.trim()); }
+    else if (b.dataset.td === 'name-ai') nameIt(b.dataset.id, true);
+    else if (b.dataset.td === 'push') { const g = S.goals.find(x => x.id === b.dataset.id); if (g) store.update(g.id, { due: add(g.due && g.due > today() ? g.due : today(), 7) }); }
+    else if (b.dataset.td === 'release') { if (confirm('Let him go? The project stays; it just stops being a big goal.')) { dragon.release(b.dataset.id); lairOpen = 'list'; } }
   });
   addEventListener('resize', () => { if (root?.isConnected) fit(); });
 }
@@ -102,7 +113,7 @@ function refresh(force) {
     R.R.forEach((x, i) => { if (seen.r[i] === 'open' && (x.res === 'won' || x.res === 'lost')) roundOver(x); });
   }
   seen = { q: st, r: R.R.map(x => x.res) };
-  hud(); lane(); foot(); verdict(); dawn(); say();
+  goalMoments(); duty(); hud(); lane(); foot(); verdict(); dawn(); lair(); say();
 }
 function hud() {
   const live = view === today(), r = R.R.find(x => x.live) || R.R[R.R.length - 1];
@@ -127,13 +138,13 @@ function lane() {
     c.q = q;
     const habit = !!q.n.rs, nt = esc(q.n.t || 'Untitled'), fog = live && R.curses.includes('fog') && q.e - nowMin() > 180;
     const when = q.st === 'jaws' ? `<em>In his jaws</em>` : q.soft ? `by ${fmtT(q.e)}` : fmtT(q.s0);
-    const tag = q.mark ? '<i class="td-tag mk">His mark · ×2</i>' : q.shield ? '<i class="td-tag sh">Shielded</i>' : q.bet ? '<i class="td-tag bt">Bet</i>' : q.sloth ? `<i class="td-tag cu">Sloth bit ${q.sloth}</i>` : q.wind ? '<i class="td-tag bt">Second Wind</i>' : q.left ? '<i class="td-tag">Leftover · half</i>' : habit && q.run ? `<i class="td-tag">↻ ${q.run} day${q.run === 1 ? '' : 's'}</i>` : '';
+    const tag = q.boss ? '<i class="td-tag mk">Boss day · ×3</i>' : q.mark ? '<i class="td-tag mk">His mark · ×2</i>' : q.shield ? '<i class="td-tag sh">Shielded</i>' : q.bet ? '<i class="td-tag bt">Bet</i>' : q.sloth ? `<i class="td-tag cu">Sloth bit ${q.sloth}</i>` : q.wind ? '<i class="td-tag bt">Second Wind</i>' : q.left ? '<i class="td-tag">Leftover · half</i>' : habit && q.run ? `<i class="td-tag">↻ ${q.run} day${q.run === 1 ? '' : 's'}</i>` : '';
     const free = live && q.e - nowMin() >= FREE, lock = live && !free ? LOCK : '';
     const arrows = free ? `<span class="td-mv"><button data-td="up" data-id="${q.n.id}" aria-label="Move ${nt} earlier">▲</button><button data-td="down" data-id="${q.n.id}" aria-label="Move ${nt} later">▼</button></span>` : '';
     const h = `<button class="td-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Finish ${nt}"></button><button class="td-n" data-act="open" data-id="${q.n.id}"><span class="td-r1"><span class="td-tm">${lock}${when}</span>${tag}</span><b>${fog ? 'Face down in the fog' : (habit ? '↻ ' : '') + nt}</b></button><span class="td-g"><i></i>${q.g}</span>${arrows}`;
     if (c.h !== h) { c.el.innerHTML = h; c.h = h; }
     c.el.dataset.id = q.n.id;
-    c.el.className = `td-q${aim ? ' aimable' : ''}${q.mark ? ' marked' : ''}${q.shield ? ' shielded' : ''}${q.st === 'jaws' ? ' jaws' : ''}${habit ? ' habit' : ''}${q.foil?.n ? ' foil-' + q.foil.n : ''}${q.left ? ' left' : ''}${fog ? ' fog' : ''}`;
+    c.el.className = `td-q${aim ? ' aimable' : ''}${q.mark ? ' marked' : ''}${q.boss ? ' boss' : ''}${q.shield ? ' shielded' : ''}${q.st === 'jaws' ? ' jaws' : ''}${habit ? ' habit' : ''}${q.foil?.n ? ' foil-' + q.foil.n : ''}${q.left ? ' left' : ''}${fog ? ' fog' : ''}`;
     c.el.style.setProperty('--c', colorOf(q.n) || 'transparent');
   }
   place(true);
@@ -223,6 +234,7 @@ function verdict() {
   el.verdict.innerHTML = `<div class="td-vc"><small>${live ? 'Bedtime verdict' : 'The verdict'}</small><h2>${t}</h2><p>${sub}</p>
     ${R.rest ? '' : `<ol>${R.R.map((x, i) => `<li class="${x.res}" style="--i:${i}"><b>${x.name}</b><span>${x.res === 'none' ? 'No contest' : `${x.res === 'won' ? 'Won' : 'Lost'} · ${x.kept} of ${x.total}`}</span></li>`).join('')}</ol>`}
     <div class="td-chest"><span><i></i>${R.you}</span><small>kept ${live ? 'today' : 'that day'}${R.him ? ` · he ate ${R.him}` : ''}</small></div>
+    ${hit().map(g => `<div class="td-wl"><b>${esc(g.name)}</b><span class="td-bar"><i style="width:${Math.round(g.wild * 100)}%"></i></span><small>Wildness ${Math.round(g.wild * 100)}%</small></div>`).join('')}
     ${R.chest ? `<div class="td-box"><i></i><span><b>+${R.chest}</b> from the bedtime chest</span></div>` : ''}
     ${live ? `<p class="td-bye">Phone down. See you at dawn.</p>` : ''}<button class="td-btn" data-td="verdict-x">${live ? 'Good night' : 'Close'}</button></div>`;
 }
@@ -236,7 +248,7 @@ function dawn() {
   // the pill brings Dawn back: the Market before noon, a pack waiting, or just the day's look
   el.pill.hidden = !live || open;
   if (!el.pill.hidden) el.pill.innerHTML = S.packs > 0 ? '<b>A pack waits</b>' : dragon.marketOpen() ? '<b>Market</b><span>open till noon</span>' : '<b>Dawn</b>';
-  root.parentElement?.classList.toggle('td-dawning', open);
+  root.parentElement?.classList.toggle('td-dawning', open || !!lairOpen);
   if (!open) { el.dawn.hidden = true; el.dawn.innerHTML = ''; return; }
   const mk = R.mark, sw = R.swoops, mkt = dragon.market(T), offer = S.packs > 0 ? dragon.packOffer() : null;
   const coin = '<i class="td-c"></i>';
@@ -261,6 +273,72 @@ function dawn() {
     <p class="td-dm">Shards ${S.shards % dragon.PACK} of ${dragon.PACK} to the next pack · deck of ${S.deck.length}</p>
     <h3>${R.off ? 'Day off' : 'Taking today off?'}</h3>${offs}
     <button class="td-btn go" data-td="dawn-x">${R.off ? 'Close' : 'To the fight'}</button></div>`;
+}
+
+/* ---------- goal dragons: on duty, the Dragons panel, his page ---------- */
+let lairOpen = null, on = null, goalSeen = null, tint = 'none';
+const hit = () => { const ids = new Set(R.Qs.filter(q => q.goal && (q.st === 'kept' || q.st === 'late')).map(q => q.goal)); return S.goals.filter(g => ids.has(g.id)); };
+const hueOf = hex => { const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(hex || ''); if (!m) return 0;
+  const [r, g, b] = m.slice(1).map(x => parseInt(x, 16) / 255), mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; if (!d) return 0;
+  const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return (h * 60 + 360) % 360; };
+/** When the next quest belongs to a big goal, that goal's dragon slides in for it: his colour, his name. */
+function duty() {
+  const live = view === today() && !R.closed && !R.off;
+  const next = live ? R.Qs.find(q => q.st === 'jaws' || q.st === 'open') : null;
+  const g = next?.goal ? S.goals.find(x => x.id === next.goal) : null;
+  if ((g?.id || null) !== (on?.id || null) && g) { el.banner.hidden = false; el.banner.className = 'td-banner card'; el.banner.innerHTML = `<b>${esc(g.name)}</b><span>takes over for ${esc(next.n.t || 'this quest')}</span>`; clearTimeout(roundOver.t); roundOver.t = setTimeout(() => { el.banner.hidden = true; }, 3000); }
+  on = g || null;
+  tint = on ? `hue-rotate(${Math.round(hueOf(on.color) - 6)}deg) saturate(1.1)` : 'none';
+  el.who.textContent = (on ? on.name.split(/[\s,]/)[0] : NAME).toUpperCase();
+}
+/** Taming and escapes get their moment when they happen. */
+function goalMoments() {
+  const st = new Map(S.goals.map(g => [g.id, g.status]));
+  if (goalSeen) for (const g of S.goals) {
+    const was = goalSeen.get(g.id); if (!was || was === g.status) continue;
+    if (g.status === 'tamed') { el.banner.hidden = false; el.banner.className = 'td-banner won'; el.banner.innerHTML = `<b>Tamed!</b><span>${esc(g.name)} joins your lair. A pack waits at dawn.</span>`; sfx.fanfare(); }
+    else if (g.status === 'escaped') { el.banner.hidden = false; el.banner.className = 'td-banner lost'; el.banner.innerHTML = `<b>${esc(g.name)} escaped</b><span>Push the due date to hunt him again.</span>`; sfx.thud(); }
+    else continue;
+    clearTimeout(roundOver.t); roundOver.t = setTimeout(() => { el.banner.hidden = true; }, 6000);
+  }
+  goalSeen = st;
+}
+/** Asks Claude for a better name. Kept only if it comes back looking like a name. */
+async function nameIt(id, loud) {
+  const p = store.get(id); if (!client || !p?.t) return;
+  try {
+    const { data } = await client.functions.invoke('quest', { body: { kind: 'name', facts: { goal: p.t, steps: (dragon.goals().find(g => g.id === id)?.steps) || 0, due: p.due || null } } });
+    const n = (data?.line || '').trim().replace(/[."]+$/, '');
+    if (n && n.length <= 40 && n.split(/\s+/).length <= 5) dragon.rename(id, n); else if (loud) show('He prefers the name he has.');
+  } catch { if (loud) show('He prefers the name he has.'); }
+}
+const STATUS = { hunting: 'Hunting', escaped: 'Escaped', tamed: 'Tamed' };
+const portrait = (g, big) => `<span class="td-pt${big ? ' big' : ''} ${g.status}" style="--h:${Math.round(hueOf(g.color) - 6)}deg"></span>`;
+const dueTxt = d => d ? `${MON[pd(d).getMonth()]} ${pd(d).getDate()}` : 'no due date';
+function lair() {
+  el.drg.hidden = !S.start;
+  root.parentElement?.classList.toggle('td-dawning', !!lairOpen || !el.dawn.hidden);
+  if (!lairOpen) { el.lair.hidden = true; el.lair.innerHTML = ''; return; }
+  const T = today(), again = !el.lair.hidden; el.lair.hidden = false;
+  const g = lairOpen !== 'list' && S.goals.find(x => x.id === lairOpen);
+  let h;
+  if (g) {
+    const bar = `<span class="td-bar"><i style="width:${Math.round(g.wild * 100)}%"></i></span>`;
+    const left = g.due && g.status !== 'tamed' ? Math.max(0, Math.round((pd(g.due) - pd(T)) / 864e5)) : null;
+    h = `<small><button class="td-back" data-td="lair-list">‹ Dragons</button></small>
+      <div class="td-gh">${portrait(g, true)}<div><h2>${esc(g.name)}</h2><p>Dragon of <b>${esc(g.p.t || 'Untitled')}</b></p></div></div>
+      <p class="td-st ${g.status}">${STATUS[g.status]}${g.esc ? ` · escaped ${g.esc}× (his quests pay +${g.esc * 25}%)` : ''}${g.tamed ? ` · since ${dueTxt(g.tamed)}` : ''}</p>
+      ${g.status === 'tamed' ? '<p>He lounges on your hoard now. You finished every step.</p>' : `<div class="td-wl"><b>Wildness</b>${bar}<small>${Math.round(g.wild * 100)}%</small></div>
+      <p class="td-dm">${Math.round(g.left / 60 * 10) / 10} of ${Math.round(g.total / 60 * 10) / 10} planned hours left · due ${dueTxt(g.due)}${left != null ? ` (${left} day${left === 1 ? '' : 's'})` : ''}</p>`}
+      ${g.bosses.length ? `<h3>Boss days <small>milestones pay ×3</small></h3><ul class="td-facts">${g.bosses.map(b => `<li class="${b.done ? 'ok' : b.d && b.d < T ? 'cu' : ''}">${esc(b.n.t || 'Milestone')} · ${b.d ? dueTxt(b.d) : 'no date'}${b.done ? ' · beaten' : ''}</li>`).join('')}</ul>` : '<p class="td-dm">No milestones yet. Mark a step as a milestone on the Roadmap to give him boss days.</p>'}
+      <div class="td-acts">${g.status !== 'tamed' ? `<button class="td-btn" data-td="push" data-id="${g.id}">Push due a week</button>` : ''}<button class="td-btn td-gh2" data-td="rename" data-id="${g.id}">Rename</button>${client ? `<button class="td-btn td-gh2" data-td="name-ai" data-id="${g.id}">Ask Claude to name him</button>` : ''}<button class="td-btn td-gh2" data-td="release" data-id="${g.id}">Let him go</button></div>`;
+  } else {
+    const tops = store.all().filter(n => n.p == null && !dragon.isGoal(n.id) && n.k !== 'area' && !isDone(n) && store.all().some(c => c.p === n.id));
+    h = `<small>Your big goals</small><h2>Dragons</h2>
+      ${S.goals.length ? `<div class="td-gl">${S.goals.map(g => `<button class="td-gi ${g.status}" data-td="goal" data-id="${g.id}">${portrait(g)}<span><b>${esc(g.name)}</b><small>${esc(g.p.t || '')} · ${STATUS[g.status]}${g.status === 'hunting' ? ` · ${Math.round(g.wild * 100)}% wild` : ''}</small></span></button>`).join('')}</div>` : '<p>No goal dragons yet. Pick a big project and he hatches.</p>'}
+      ${tops.length ? `<h3>Hatch a goal dragon <small>from a project</small></h3><div class="td-offs td-hatch">${tops.slice(0, 8).map(n => `<button data-td="hatch" data-id="${n.id}">${esc(n.t || 'Untitled')}</button>`).join('')}</div>` : ''}`;
+  }
+  el.lair.innerHTML = `<div class="td-vc td-dc${again ? ' still' : ''}">${h}<button class="td-btn go" data-td="lair-x">Back to the fight</button></div>`;
 }
 
 /* ---------- moments ---------- */
@@ -337,7 +415,7 @@ const ANGLES = ['gloat about something specific that happened', 'make a precise 
 async function ask(recent) {
   const m = nowMin(), r = R.R.find(x => x.live) || R.R[2];
   const facts = {
-    game: 'task_dragon', you_are: NAME, time: fmtT(m), round: r.name, round_gold: r.total, round_kept_so_far: r.kept, round_need_to_win: r.need,
+    game: 'task_dragon', you_are: on ? on.name : NAME, ...(on ? { you_are_the_dragon_of_their_big_goal: on.p.t, your_wildness_percent: Math.round(on.wild * 100), times_you_escaped_them: on.esc } : {}), time: fmtT(m), round: r.name, round_gold: r.total, round_kept_so_far: r.kept, round_need_to_win: r.need,
     rounds: R.R.map(x => ({ round: x.name, result: x.res, kept: x.kept, of: x.total })),
     gold_today: R.total, kept_today: R.you, you_ate_today: R.him, their_purse: S.gold, your_belly_all_time: S.belly, their_run_of_days_you_did_not_win: S.run, your_hunger: S.hunt.n,
     quests: R.Qs.map(q => ({ title: q.n.t, gold: q.g, reaches_your_jaws: fmtT(Math.round(q.e)), you_eat_it_at: fmtT(Math.round(q.by)), state: q.st, ...(q.left ? { leftover_from_yesterday: true } : {}), ...(q.n.rs ? { habit_days_running: q.run } : {}) })),
@@ -418,7 +496,7 @@ function draw(p, time, dt) {
   g = ctx.createRadialGradient(90, hy, 10, 90, hy, 340); g.addColorStop(0, `rgba(255,150,60,${.42 * p.flicker})`); g.addColorStop(1, 'rgba(255,120,40,0)');
   ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = g; ctx.fillRect(0, 250, BW, H - 250); ctx.globalCompositeOperation = 'source-over';
   // the dragon
-  ctx.save(); ctx.translate(HX + p.lean, HY + p.bob); ctx.rotate(p.tilt);
+  ctx.save(); ctx.filter = tint; ctx.translate(HX + p.lean, HY + p.bob); ctx.rotate(p.tilt);
   const lights = [{ x: 90, y: hy, r: 520, c: `rgba(255,120,40,${.3 * p.flicker})` }, { x: HX + 70, y: HY + 30, r: 120 + p.jaw * 200, c: `rgba(255,140,50,${.15 + p.heat * .45 * p.flicker})` }];
   const skin = ['#7d2a22', '#3a0f12'];
   part(neck(H - HY + 40), skin, lights);

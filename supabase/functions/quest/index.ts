@@ -45,6 +45,10 @@ Write exactly one line for right now, 6 to 30 words, plain text with no quotes, 
 - Taunt and tempt, never shame. Never mock health, family, money, work troubles or rest. After bedtime, tell them to go to sleep.
 - Don't explain the rules.`;
 
+const NAME = `You name dragons in Task Dragon, a game made out of someone's real plans. Each of their big goals (a real project) hatches a dragon they hunt until the project is done, then he's tamed.
+
+Give this goal's dragon a name: a short, memorable dragon name plus a playful epithet that slyly nods to the goal (for example "Vexmorath the Unwritten" for a script, or "Skarngul, Eater of Inboxes"). At most 5 words. Reply with the name only: plain text, no quotes, no explanation.`;
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const user = await userFrom(req);
@@ -56,8 +60,8 @@ Deno.serve(async (req) => {
     const response = await client.beta.messages.create({
       model: "claude-opus-5-5",
       max_tokens: 2000,
-      system: isReport ? `${SYSTEM}\n\n${REPORT}` : kind === "fight" ? FIGHT : SYSTEM,
-      messages: [{ role: "user", content: isReport ? `The week:\n${JSON.stringify(facts)}\n\nThe Dragon's Due:` : `How the day stands:\n${JSON.stringify(facts)}\n\nYour line:` }],
+      system: isReport ? `${SYSTEM}\n\n${REPORT}` : kind === "fight" ? FIGHT : kind === "name" ? NAME : SYSTEM,
+      messages: [{ role: "user", content: isReport ? `The week:\n${JSON.stringify(facts)}\n\nThe Dragon's Due:` : kind === "name" ? `The goal:\n${JSON.stringify(facts)}\n\nHis name:` : `How the day stands:\n${JSON.stringify(facts)}\n\nYour line:` }],
       output_config: { effort: "low" },
       betas: ["server-side-fallback-2026-07-01"],
       // @ts-ignore: server-side fallback parameter (beta)
