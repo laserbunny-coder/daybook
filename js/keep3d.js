@@ -259,12 +259,19 @@ function trees() {
     const s = 2.4 + rnd(i + 1) * 3.2; addJ(new THREE.DodecahedronGeometry(s, 0), C.rock, 0, s * .45, 0, b, .12).scale.set(1, .7 + rnd(i + 2) * .6, 1);
     for (let j = 0; j < 3; j++) { const a = j * 2.1 + rnd(i + j) * 1.4, r2 = s * (.35 + rnd(i + j + 7) * .3); addJ(new THREE.DodecahedronGeometry(r2, 0), j % 2 ? 0x8a8074 : C.rock, Math.cos(a) * s * .9, r2 * .4, Math.sin(a) * s * .9, b, .12); }
   }
-  // mountains far off all round, with snow on top, for a low look over the hills
-  for (let i = 0; i < 26; i++) {
-    const a = i / 26 * Math.PI * 2 + rnd(i + 6000) * .2, r = 285 + rnd(i + 6100) * 50, x = Math.cos(a) * r, z = Math.sin(a) * r, h = 45 + rnd(i + 6200) * 60, w = 32 + rnd(i + 6300) * 26;
-    const m = new THREE.Group(); m.position.set(x, ht(x, z) - 4, z); m.rotation.y = rnd(i) * 6.28; forest.push(m);
-    addJ(new THREE.ConeGeometry(w, h, 7), i % 2 ? 0x6e6a74 : 0x625e6a, 0, h / 2, 0, m, .1);
-    addJ(new THREE.ConeGeometry(w * .34, h * .34, 7), 0xe8eef4, 0, h * .83 + .3, 0, m, .05);
+  // low mountains far off all round, hazy blue-grey with the odd snowy top: lumpy ridges, not cones
+  const haze = new THREE.Color(0x8c94a8), snow = new THREE.Color(0xe4eaf2), cc = new THREE.Color();
+  for (let i = 0; i < 34; i++) {
+    const a = i / 34 * Math.PI * 2 + rnd(i + 6000) * .15, r = 300 + rnd(i + 6100) * 40, x = Math.cos(a) * r, z = Math.sin(a) * r;
+    const w = 26 + rnd(i + 6300) * 22, h = 18 + rnd(i + 6200) * 26, m = new THREE.Group(); m.position.set(x, ht(x, z) - 6, z); m.rotation.y = -a; forest.push(m);
+    const geo = new THREE.IcosahedronGeometry(1, 2), p = geo.attributes.position, col = new Float32Array(p.count * 3);
+    for (let k = 0; k < p.count; k++) { // squash into a ridge, push the surface in and out, and flatten the bottom
+      const vx = p.getX(k), vy = p.getY(k), vz = p.getZ(k), n = 1 + (rnd(Math.round((vx * 7 + vy * 13 + vz * 17) * 10) + i * 97) - .5) * .35;
+      p.setXYZ(k, vx * w * n, Math.max(0, vy) * h * n * (1 + Math.cos(vx * 2.4 + i) * .25), vz * w * .55 * n);
+    }
+    geo.computeVertexNormals();
+    for (let f = 0; f < p.count; f += 3) { const y = (p.getY(f) + p.getY(f + 1) + p.getY(f + 2)) / 3; cc.copy(haze).multiplyScalar(.9 + rnd(f + i) * .14); if (h > 34 && y > h * .78) cc.lerp(snow, .85); for (let v = 0; v < 3; v++) col.set([cc.r, cc.g, cc.b], (f + v) * 3); }
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3)); add(geo, VC, 0, 0, 0, m, false);
   }
   add(merge(forest), VC, 0, 0, 0, scene);
 }
