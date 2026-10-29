@@ -1668,7 +1668,7 @@ function zoomTo(v, y) { // keep the time under y (screen position) in place whil
 }
 const inGrid = t => S.tab === 'plan' && S.mode === 'timed' && t instanceof Element && !!t.closest('#mbody .tw');
 document.addEventListener('wheel', e => {
-  if (!(e.ctrlKey || e.metaKey) || !inGrid(e.target)) return;
+  if (!(e.ctrlKey || e.metaKey) || !inGrid(e.target) || e.target.closest('.q-scene')) return;
   e.preventDefault();
   const dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
   zoomTo(HP() * Math.exp(-Math.max(-50, Math.min(50, dy)) * 0.006), e.clientY);
@@ -1678,7 +1678,7 @@ let Z = null;
 const span = ts => Math.hypot(ts[0].clientX - ts[1].clientX, ts[0].clientY - ts[1].clientY);
 const mid = ts => ({ x: (ts[0].clientX + ts[1].clientX) / 2, y: (ts[0].clientY + ts[1].clientY) / 2 });
 document.addEventListener('touchstart', e => {
-  if (e.touches.length !== 2 || D || !inGrid(e.target)) { if (e.touches.length !== 2) Z = null; return; }
+  if (e.touches.length !== 2 || D || !inGrid(e.target) || e.target.closest('.q-scene')) { if (e.touches.length !== 2) Z = null; return; }
   Z = { d: span(e.touches), hp: HP(), m: mid(e.touches) };
 }, { passive: true });
 document.addEventListener('touchmove', e => {
@@ -1726,7 +1726,7 @@ function swGo(dir) { // dir 1 = next day, -1 = previous
 }
 document.addEventListener('touchstart', e => {
   DS = null; if (e.touches.length !== 1 || swBusy || D) return;
-  const mb = dayBody(e.target); if (!mb || e.target.closest('input,textarea,select,.rs')) return;
+  const mb = dayBody(e.target); if (!mb || e.target.closest('input,textarea,select,.rs,.q-scene')) return; // the Quest picture uses drags to look around
   if (quiet() && e.touches[0].clientY > innerHeight - 40) return; // Quiet: the bottom edge brings in projects
   const t = e.touches[0]; DS = { x: t.clientX, y: t.clientY, lx: t.clientX, h: [[e.timeStamp, t.clientX]], on: false };
 }, { passive: true });
@@ -1754,7 +1754,7 @@ const swEnd = () => {
 };
 document.addEventListener('touchend', swEnd); document.addEventListener('touchcancel', swEnd);
 document.addEventListener('wheel', e => {
-  if (e.ctrlKey || e.metaKey || !dayBody(e.target)) return;
+  if (e.ctrlKey || e.metaKey || !dayBody(e.target) || e.target.closest('.q-scene')) return;
   const ax = Math.abs(e.deltaX), ay = Math.abs(e.deltaY);
   if (WS?.lock || swBusy) { if (ax > ay) e.preventDefault(); clearTimeout(WS?.tm); WS = { lock: true, tm: setTimeout(() => WS = null, 300) }; return; } // let a flick's glide run out
   if (!WS && ax <= ay * 1.2) return; // up and down scrolls as usual
