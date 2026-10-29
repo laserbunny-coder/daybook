@@ -1627,7 +1627,7 @@ button.q-say.poked .q-face{animation:q-poke .5s}
 .td-pip{width:22px;height:6px;border-radius:3px;background:rgba(243,228,196,.25)}
 .td-pip.won{background:#f2c14e}.td-pip.lost{background:#c0442a}.td-pip.none{background:rgba(243,228,196,.1)}.td-pip.live{outline:1.5px solid #f2c14e;outline-offset:1px}
 .td-hand{position:relative;height:90px}
-.td-card{position:absolute;bottom:0;left:calc(50% - 54px + var(--off) * 114px);width:108px;height:86px;box-sizing:border-box;padding:6px 8px;display:flex;flex-direction:column;gap:4px;text-align:left;cursor:pointer;color:#3a2414;background:linear-gradient(175deg,#efe0bf,#cdb183);border:0;border-radius:8px;box-shadow:0 10px 20px rgba(0,0,0,.6),inset 0 0 0 3px #f8efda,inset 0 0 0 4px #8a5f33;transform:translateY(calc(var(--off) * var(--off) * 5px)) rotate(calc(var(--off) * 4deg));transition:transform .25s,opacity .3s,filter .3s;font:inherit}
+.td-card{position:absolute;bottom:0;left:calc(50% - 54px + var(--off) * var(--sp,114px));width:108px;height:86px;box-sizing:border-box;padding:6px 8px;display:flex;flex-direction:column;gap:4px;text-align:left;cursor:pointer;color:#3a2414;background:linear-gradient(175deg,#efe0bf,#cdb183);border:0;border-radius:8px;box-shadow:0 10px 20px rgba(0,0,0,.6),inset 0 0 0 3px #f8efda,inset 0 0 0 4px #8a5f33;transform:translateY(calc(var(--off) * var(--off) * 5px)) rotate(calc(var(--off) * 4deg));transition:transform .25s,opacity .3s,filter .3s;font:inherit}
 .td-card b{font-family:'Alegreya SC',serif;font-size:13.5px;color:#8a2414}
 .td-card span{font-size:10.5px;line-height:1.15}
 .td-card.sel{transform:translateY(-18px) rotate(0);box-shadow:0 0 0 2px #f2c14e,0 14px 28px rgba(0,0,0,.7),inset 0 0 0 3px #f8efda}
@@ -1643,3 +1643,45 @@ button.q-say.poked .q-face{animation:q-poke .5s}
 .td-mv button:hover{color:#3a2414}
 .td-lock{width:8px;height:10px;margin-right:3px;vertical-align:-1px;color:#8a5f33}
 .td-banner.card{background:#dfe8ff;color:#1a2a4a}
+
+/* Task Dragon, dawn: the morning look, Market, packs, charms, days off, curses */
+.td-dawn{position:absolute;inset:0;z-index:10;display:flex;justify-content:center;align-items:flex-start;padding:14px 14px 20px;overflow-y:auto;background:rgba(10,6,12,.55);overscroll-behavior:contain}
+.td-dc{max-width:362px;gap:7px}
+.td-dc h3{margin:8px 0 0;font:700 15px 'Alegreya SC',serif;display:flex;flex-wrap:wrap;align-items:baseline;gap:6px}
+.td-dc h3 small{font:400 12px 'Alegreya Sans',sans-serif;letter-spacing:0;color:#7a5530;display:inline-flex;align-items:center;gap:3px}
+.td-q1{font-style:italic;color:#5a2414}
+.td-facts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;font-size:13.5px}
+.td-facts li{padding-left:12px;position:relative}.td-facts li::before{content:'';position:absolute;left:2px;top:7px;width:4px;height:4px;border-radius:50%;background:#8a5f33}
+.td-facts li.cu{color:#7a1a10}.td-facts li.ok{color:#2a5a20}
+.td-its{display:flex;flex-direction:column;gap:6px}
+.td-it{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:10px;background:rgba(255,255,255,.4);box-shadow:inset 0 0 0 1px rgba(138,95,51,.35)}
+.td-it.charm{background:rgba(242,193,78,.25)}
+.td-it>div{flex:1;min-width:0;display:flex;flex-direction:column}
+.td-it small{font-size:10.5px}
+.td-it b{font:700 14px 'Alegreya SC',serif;color:#8a2414}.td-it span{font-size:12px;line-height:1.25}
+.td-it .td-btn{margin:0;flex:none;display:inline-flex;align-items:center;gap:4px;padding:6px 12px;font-size:13px}
+.td-btn:disabled{opacity:.4;cursor:default}
+.td-btn.go{align-self:stretch;margin-top:10px;padding:11px;font-size:15px;text-align:center;justify-content:center}
+.td-btn.td-gh{background:none;color:#3a2414;box-shadow:inset 0 0 0 1.5px #3a2414}
+.td-c{display:inline-block;width:11px;height:11px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff3b0,#f2c14e 45%,#a8701e)}
+.td-chs{display:flex;flex-wrap:wrap;gap:6px}
+.td-chs button{flex:1 1 140px;text-align:left;display:flex;flex-direction:column;padding:6px 9px;border-radius:10px;border:1.5px dashed #8a5f33;background:none;color:#3a2414;font:inherit;cursor:pointer}
+.td-chs button[aria-pressed=true]{border-style:solid;background:rgba(242,193,78,.45)}
+.td-chs b{font:700 13px 'Alegreya SC',serif}.td-chs span{font-size:11px;line-height:1.2}
+.td-offs{display:flex;gap:6px}
+.td-offs button{flex:1;display:flex;flex-direction:column;align-items:center;padding:7px 4px;border-radius:10px;border:1px solid #8a5f33;background:rgba(255,255,255,.3);color:#3a2414;font:600 13px 'Alegreya Sans',sans-serif;cursor:pointer}
+.td-offs button small{font:400 10.5px 'Alegreya Sans',sans-serif;letter-spacing:0}
+.td-offs button:disabled{opacity:.45;cursor:default}
+.td-dm{font-size:12.5px!important;color:#6a4422}
+.td-pill{position:absolute;right:14px;top:48px;z-index:6;display:flex;align-items:baseline;gap:5px;padding:4px 11px;border-radius:999px;border:1px solid rgba(242,193,78,.6);background:rgba(30,18,14,.75);color:#ffd978;font:inherit;font-size:12px;cursor:pointer}
+.td-pill b{font-family:'Alegreya SC',serif;font-size:13px}.td-pill span{color:#d9c9ae}
+.td-cu{font-size:11.5px;color:#c9a0ff}
+.td-tag.cu{color:#5a2a8a;opacity:1;font-weight:700}
+.td-q.fog{filter:saturate(.2) brightness(.75);background:repeating-linear-gradient(135deg,#bcb3a4 0 8px,#ada392 8px 16px)}
+.td-q.fog .td-g{opacity:.4}
+.td-card.comeback{background:linear-gradient(175deg,#dff0d0,#a8c890)}
+.td-box{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:10px;background:rgba(242,193,78,.4);font-size:14px}
+.td-box i{width:18px;height:14px;border-radius:3px 3px 2px 2px;background:linear-gradient(#a8701e 0 40%,#7a4a10 40%);box-shadow:inset 0 0 0 1.5px #3a2414}
+.td-dc .td-facts li{display:block;padding:0 0 0 12px;background:none;animation:none;font-size:13.5px}
+.td-dawning .td-add{display:none}
+.td-dc.still{animation:none}
