@@ -14,13 +14,14 @@ import * as store from './store.js';
 import { questsOn, gold, deadline, streakOf } from './quest.js';
 import { timedOn } from './calendar.js';
 import { add, lsGet, lsSet, pd, today, nowMin, daysBetween } from './util.js';
+import { children, colorOf, isDone, leaves, node, rootOf } from './tree.js';
 
 const KEY = 'daybook-dragon';
 export const WIN = 0.7;
 let client = null, me = null, onUpdate = () => {};
 let D = { start: null, startMin: null, open: {}, wake: 8 * 60, bed: 22 * 60 + 30, carry: null, ...lsGet(KEY, {}) };
 D.open = D.open || {}; D.played = D.played || {}; D.deck = D.deck || null;
-D.charms = D.charms || []; D.eq = D.eq || []; D.spent = D.spent || []; D.packs = D.packs || []; D.off = D.off || {}; D.dawn = D.dawn || {};
+D.charms = D.charms || []; D.eq = D.eq || []; D.spent = D.spent || []; D.packs = D.packs || []; D.off = D.off || {}; D.dawn = D.dawn || {}; D.goals = D.goals || {};
 const save = () => lsSet(KEY, D);
 const sync = () => { if (client && me) client.auth.updateUser({ data: { dragon: D } }).then(({ data }) => { if (data?.user) me = data.user; }).catch(() => {}); };
 
@@ -41,6 +42,7 @@ export function begin(u, carry = 0) {
     for (const c of theirs.charms || []) if (!D.charms.includes(c)) D.charms.push(c);
     if ((theirs.eqT || 0) > (D.eqT || 0)) { D.eq = theirs.eq || []; D.eqT = theirs.eqT; }
     Object.assign(D.off, theirs.off || {}); Object.assign(D.dawn, theirs.dawn || {});
+    for (const [id, g] of Object.entries(theirs.goals || {})) if (!D.goals[id] || (g.u || 0) > (D.goals[id].u || 0)) D.goals[id] = g; // goal dragons: the newest change wins
   }
   const T = today(); let changed = false;
   if (!D.start) { D.start = T; D.startMin = nowMin(); changed = true; }
@@ -169,6 +171,9 @@ export function dealOn(d, grace) {
     q.r = roundOf(q.e);
     if (q.n.rs) { const run = streakOf(q.n.rs, d, 40); q.foil = foilOf(run); q.run = run; q.g = 10 + q.foil.b; }
     else q.g = q.left ? Math.max(1, Math.ceil(gold(q.m) / 2)) : gold(q.m);
+    const G = goalOf(q.n);
+    if (G) { q.goal = G.id; if (G.esc) q.g = Math.round(q.g * (1 + 0.25 * G.esc)); // he came back bigger: his quests are worth more
+      if (q.n.ms && !q.left) { q.boss = true; q.g *= 3; } } // a milestone of a goal is his boss day
   }
   return L.sort((a, b) => a.s0 - b.s0 || (a.left ? -1 : 0) - (b.left ? -1 : 0));
 }
@@ -253,9 +258,10 @@ export function state() {
     }
   }
   gold -= D.spent.reduce((a, x) => a + x.g, 0); gold += D.packs.reduce((a, p) => a + (p.sold || 0), 0);
-  const H = huntAt(run), packs = Math.floor(shards / PACK) - D.packs.length;
+  const G = goals(), gifts = G.filter(g => g.status === 'tamed').length;
+  const H = huntAt(run), packs = Math.floor(shards / PACK) + gifts - D.packs.length;
   return { start, days, today: days[days.length - 1], gold, belly, run, hunt: H, bed: D.bed, wake: D.wake, shards, packs, toPack: PACK - shards % PACK, curses,
-    deck: D.deck || STARTER, charms: D.charms, eq: eqOn(T), byDay: new Map(days.map(x => [x.d, x])) };
+    deck: D.deck || STARTER, charms: D.charms, eq: eqOn(T), byDay: new Map(days.map(x => [x.d, x])), goals: G };
 }
 
 /* ---------- dawn: the Market, packs, days off ---------- */
@@ -303,3 +309,41 @@ export const dawnSeen = d => !!D.dawn[d];
 export function seeDawn(d) { D.dawn[d] = 1; save(); sync(); onUpdate(); }
 /** A day before you began, or still ahead: judged at its start. */
 export const dayView = (d, S) => S.byDay.get(d) || dayOf(d, S.hunt.grace, d > today() ? -1 : 1e5, { eq: S.eq, curses: S.curses });
+
+/* ---------- goal dragons ---------- */
+/** A big goal is a top-level project with a dragon of its own. His Wildness is the share of the project's planned
+    minutes still left. Finish the project and he's tamed into your lair (and leaves you a pack). If the due date passes
+    first he escapes; push the date and he's back, bigger and smugger: each escape makes his quests worth 25% more. */
+const mins = n => n.m || 30;
+export function goals() {
+  const T = today(), out = []; let changed = false;
+  for (const [id, g] of Object.entries(D.goals)) {
+    const p = node(id); if (!p) continue;
+    const L = leaves(id).filter(n => n && n.id !== id), total = L.reduce((a, n) => a + mins(n), 0), left = L.filter(n => !n.done).reduce((a, n) => a + mins(n), 0);
+    const done = L.length > 0 && isDone(p), due = p.due || null;
+    let status = done ? 'tamed' : due && due < T ? 'escaped' : 'hunting';
+    if (done && !g.tamed) { g.tamed = T; g.u = Date.now(); changed = true; }
+    if (!done && g.tamed) { g.tamed = null; g.u = Date.now(); changed = true; }
+    if (status === 'escaped' && g.gone !== due) { g.gone = due; g.esc = (g.esc || 0) + 1; g.u = Date.now(); changed = true; } // counted once per due date
+    const bosses = all().filter(n => n.ms && rootOf(n).id === id).map(n => ({ n, d: n.due || n.d || null, done: !!n.done })).sort((a, b) => (a.d || '9') < (b.d || '9') ? -1 : 1);
+    out.push({ id, p, name: g.n, at: g.at, esc: g.esc || 0, tamed: g.tamed || null, status, wild: total ? left / total : 1, left, total, due, bosses, color: colorOf(p), steps: L.length });
+  }
+  if (changed) { save(); sync(); }
+  return out.sort((a, b) => (a.status === 'tamed') - (b.status === 'tamed') || ((a.due || '9') < (b.due || '9') ? -1 : 1));
+}
+const all = () => store.all();
+/** The goal dragon a quest belongs to, while he's being hunted. */
+export function goalOf(n) {
+  const id = n && rootOf(n.rs ? (store.get(n.rs) || n) : n)?.id, g = id && D.goals[id]; if (!g) return null;
+  const p = node(id); if (!p || (p.due && p.due < today() && !g.tamed && !isDone(p))) return null;
+  return { id, n: g.n, esc: g.esc || 0 };
+}
+export const isGoal = id => !!D.goals[id];
+/** Turns a top-level project into a big goal and hatches his dragon. */
+export function hatch(id, name) { if (D.goals[id]) return; D.goals[id] = { n: name || nameFor(node(id)?.t || id), at: Date.now(), esc: 0, u: Date.now() }; save(); sync(); onUpdate(); }
+export function rename(id, name) { const g = D.goals[id]; if (!g || !name) return; g.n = name.slice(0, 40); g.u = Date.now(); save(); sync(); onUpdate(); }
+export function release(id) { delete D.goals[id]; save(); sync(); onUpdate(); }
+/** A name of his own, until Claude gives him a better one. */
+const SYL = [['Grim', 'Vex', 'Mor', 'Skar', 'Thal', 'Ash', 'Drav', 'Kel', 'Zor', 'Fen', 'Bram', 'Ruk'], ['a', 'o', 'u', 'e', 'i', 'ae'], ['rath', 'gul', 'mir', 'thax', 'vorn', 'lisk', 'dor', 'nax', 'grim', 'scale', 'wyrm', 'fang']];
+const EPI = ['the Unfinished', 'the Patient', 'Deadline-Eater', 'the Looming', 'Who Waits', 'the Procrastinator', 'Many-Steps', 'the Smouldering'];
+export function nameFor(t) { const h = seedOf(t); return `${SYL[0][h % 12]}${SYL[1][(h >> 4) % 6]}${SYL[2][(h >> 8) % 12]} ${EPI[(h >> 12) % EPI.length]}`; }
