@@ -62,11 +62,11 @@ export function setTimes(t) { if (t.wake != null) D.wake = t.wake; if (t.bed != 
 /** Every card. aim: what you tap after it (0 = plays at once, 1 = one quest, 2 = two quests). */
 export const CARDS = {
   shield: { n: 'Shield', t: 'One quest stays in his jaws an hour longer, and he can\'t swoop on it.', aim: 1 },
-  swap: { n: 'Swap', t: 'Two quests trade places, even close ones.', aim: 2 },
-  back: { n: 'Send back', t: 'One quest goes to the end of today, free. Already last? Tomorrow.', aim: 1 },
+  swap: { n: 'Swap', t: 'Two quests trade time slots.', aim: 2, plan: true },
+  back: { n: 'Send back', t: 'One quest moves after everything else today. Already last? Tomorrow.', aim: 1, plan: true },
   lure: { n: 'Lure', t: 'Everything still coming backs off 30 minutes.', aim: 0 },
   bet: { n: 'Bet', t: 'Save the next 3 quests on time for double. Miss one and he takes their gold.', aim: 0 },
-  split: { n: 'Split', t: 'Cut a big quest in two halves, each with half the gold and its own time.', aim: 1 },
+  split: { n: 'Split', t: 'Cut a big quest in two halves, each with half the gold and its own time.', aim: 1, plan: true },
   wind: { n: 'Second Wind', t: 'One quest finished late pays its full gold instead of half.', aim: 1, comeback: true }
 };
 /** Charms sit there and change how gold counts. Up to three equipped. */
@@ -103,30 +103,54 @@ export function handOn(d, comeback = false) {
 }
 export const playedOn = d => D.played[d] || [];
 /** Plays a card from today's hand on the given quests (their ids). The plan-changing cards edit the plan here. */
+/** What a plan-changing card would do to the plan, in words, before it's played. null when it can't be played there.
+    Swap trades the two quests' slots: both take the other's start time (two untimed ones just trade order).
+    Send back moves a quest after the last one today, keeping a time if it had one; already last, it goes to tomorrow.
+    A leftover from yesterday that a card moves becomes today's. */
+export function planOf(c, ids, deal) {
+  const T = today(), q = id => deal.find(x => x.n.id === id), at = x => Math.round(x.s0 / 5) * 5;
+  const here = x => x.left ? { d: T } : {}, name = x => x.n.t || 'Untitled';
+  if (c === 'swap') {
+    const [a, b] = ids.map(q); if (!a || !b || a === b) return null;
+    const timed = a.s != null || b.s != null;
+    const pa = { ...here(a), ds: orderOf(b.n), ...(timed ? { s: at(b) } : {}) }, pb = { ...here(b), ds: orderOf(a.n), ...(timed ? { s: at(a) } : {}) };
+    return { changes: [[a.n.id, pa], [b.n.id, pb]], text: timed ? `${name(a)} moves to ${fmt(at(b))}, ${name(b)} moves to ${fmt(at(a))}.` : `${name(a)} and ${name(b)} trade places in your list.` };
+  }
+  if (c === 'back') {
+    const a = q(ids[0]); if (!a) return null;
+    const rest = deal.filter(x => !x.done && x !== a && x.st !== 'eaten'), last = rest[rest.length - 1];
+    if (last && last.e > a.e) {
+      const end = Math.max(...rest.map(x => x.e)), s = Math.min(Math.ceil(end / 5) * 5, D.bed - a.m);
+      if (a.s != null && s > a.s0) return { changes: [[a.n.id, { ...here(a), s, ds: Math.max(...deal.map(x => orderOf(x.n))) + 1 }]], text: `${name(a)} moves from ${fmt(at(a))} to ${fmt(s)}, after everything else today.` };
+      return { changes: [[a.n.id, { ...here(a), s: null, ds: Math.max(...deal.map(x => orderOf(x.n))) + 1 }]], text: `${name(a)} goes to the end of today's list.` };
+    }
+    return { changes: [[a.n.id, { d: add(T, 1), s: null }]], text: `${name(a)} moves to tomorrow, with no time set.` };
+  }
+  if (c === 'split') {
+    const a = q(ids[0]); if (!a || a.m < 20 || a.n.rs) return null;
+    const half = Math.round(a.m / 2 / 5) * 5;
+    return { changes: [[a.n.id, { ...here(a), m: half, t: name(a) + ' (part 1)' }]], create: { t: name(a) + ' (part 2)', d: T, s: a.s != null ? at(a) + half : null, m: a.m - half, p: a.n.p ?? null, ar: a.n.ar ?? null, ds: orderOf(a.n) + 0.5 },
+      text: `${name(a)} becomes two parts: ${half} minutes${a.s != null ? ` at ${fmt(at(a))}` : ''} and ${a.m - half} minutes${a.s != null ? ` at ${fmt(at(a) + half)}` : ''}.` };
+  }
+  return null;
+}
+const fmt = m => { let h = Math.floor(m / 60), mm = m % 60; const ap = h >= 12 && h < 24 ? 'pm' : 'am'; h = h % 12 || 12; return h + (mm ? ':' + String(mm).padStart(2, '0') : '') + ap; };
+/** Plays a card from today's hand on the given quests (their ids). The plan-changing cards edit the plan here. */
 export function play(c, ids = [], ctx = {}) {
   const T = today(), card = CARDS[c], slot = (ctx.hand || handOn(T)).find(h => h.c === c && !h.used); if (!card || !slot) return false;
   const m = nowMin(), deal = ctx.deal || [];
-  const q = id => deal.find(x => x.n.id === id);
-  if (c === 'swap') {
-    const [a, b] = ids.map(q); if (!a || !b || a === b) return false;
-    const pa = { s: a.s, ds: orderOf(a.n) }, pb = { s: b.s, ds: orderOf(b.n) };
-    store.updateMany([[a.n.id, { s: pb.s, ds: pb.ds }], [b.n.id, { s: pa.s, ds: pa.ds }]]);
-  } else if (c === 'back') {
-    const a = q(ids[0]); if (!a) return false;
-    const last = deal.filter(x => !x.done).pop();
-    if (last && last !== a) store.update(a.n.id, { s: null, ds: Math.max(...deal.map(x => orderOf(x.n))) + 1 });
-    else store.update(a.n.id, { d: add(T, 1), s: null });
-  } else if (c === 'split') {
-    const a = q(ids[0]); if (!a || a.m < 20 || a.n.rs) return false;
-    const half = Math.round(a.m / 2 / 5) * 5;
-    store.update(a.n.id, { m: half, t: a.n.t + ' (part 1)' });
-    store.create({ t: a.n.t + ' (part 2)', d: T, s: a.s != null ? a.s + half : null, m: a.m - half, p: a.n.p ?? null, ar: a.n.ar ?? null, ds: orderOf(a.n) + 0.5 });
+  if (card.plan) {
+    const P = planOf(c, ids, deal); if (!P) return false;
+    store.updateMany(P.changes); if (P.create) store.create(P.create);
   }
   const bet = c === 'bet' ? deal.filter(x => !x.done && x.st !== 'eaten').slice(0, 3).map(x => x.n.id) : null;
   const lure = c === 'lure' ? deal.filter(x => !x.done && x.st !== 'eaten').map(x => x.n.id) : null;
   (D.played[T] = D.played[T] || []).push({ c, i: slot.i, ids: bet || lure || ids, at: m, t: Date.now() });
   save(); sync(); onUpdate(); return true;
 }
+
+/** Takes back today's last card (its plan change is undone by the caller). */
+export function unplay() { const L = D.played[today()]; if (!L?.length) return; L.pop(); save(); sync(); onUpdate(); }
 
 /** The three rounds. Evening ends at bedtime. */
 export const rounds = () => [{ id: 'morning', name: 'Morning', end: 12 * 60 }, { id: 'afternoon', name: 'Afternoon', end: 17 * 60 }, { id: 'evening', name: 'Evening', end: D.bed }];

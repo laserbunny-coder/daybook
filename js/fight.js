@@ -2,8 +2,8 @@
 // right, scrolling up into his jaws: steady, with a little crank every quarter hour. The red NOW line sits at his mouth.
 // Quests past it shake in his jaws until CHOMP. Finishing one flips its card and sends its coins to your purse.
 // The screen is one element kept across renders, so the dragon keeps breathing while the rest of the app redraws.
-// Your hand of power cards sits at the bottom: tap one, then the quest (or two) it works on. Quests 2+ hours out
-// move freely with their arrows; closer than that they're locked, and only a card can move them.
+// Your hand of power cards sits at the bottom: tap one, then the quest (or two) it works on. The Fight never moves
+// your plan by itself: only Swap, Send back and Split do, and each says what it will change and waits for a yes.
 // The dragon is painted in code for now; the painted-parts rig for real artwork plugs in where draw() is.
 import * as dragon from './dragon.js';
 import * as sfx from './sfx.js';
@@ -47,7 +47,7 @@ function build() {
     <div class="td-verdict" hidden></div>
     <button class="td-pill" data-td="dawn" hidden></button>
     <div class="td-dawn" hidden></div>
-    <button class="td-drg" data-td="lair">Dragons</button>
+    <button class="td-drg" data-td="lair">Dragons</button><button class="td-help" data-td="help" aria-label="How the Fight works">?</button>
     <div class="td-dawn td-lair" hidden></div>
     <div class="td-flash"></div></div>`;
   const $ = s => root.querySelector(s);
@@ -64,7 +64,9 @@ function build() {
     if (b.dataset.td === 'poke') { poke(); }
     else if (b.dataset.td === 'card') pickCard(b.dataset.c);
     else if (b.dataset.td === 'aim-x') { aim = null; hand(); }
-    else if (b.dataset.td === 'up' || b.dataset.td === 'down') nudge(b.dataset.id, b.dataset.td === 'up' ? -1 : 1);
+    else if (b.dataset.td === 'aim-go') go();
+    else if (b.dataset.td === 'undo-card') undoCard();
+    else if (b.dataset.td === 'help') { lairOpen = lairOpen === 'help' ? null : 'help'; lair(); }
     else if (b.dataset.td === 'verdict-x') { lsSet(SEEN, { ...lsGet(SEEN, {}), [view]: 1 }); refresh(); }
     else if (b.dataset.td === 'verdict') { const v = lsGet(SEEN, {}); delete v[view]; lsSet(SEEN, v); refresh(); }
     else if (b.dataset.td === 'dawn') { dawnOpen = true; refresh(); }
@@ -87,7 +89,7 @@ function build() {
   });
   addEventListener('resize', () => { if (root?.isConnected) fit(); });
   // drag (or wheel) the lane to look further ahead; a drag never counts as a tap on a quest
-  const inLane = e => { if (e.target.closest('.td-foot,.td-dawn,.td-verdict,.td-hud,.td-pill,.td-drg,.td-say,.td-poke,.td-back2,.td-add')) return false; const r = el.stage.getBoundingClientRect(); return (e.clientX - r.left) / k > 140; };
+  const inLane = e => { if (e.target.closest('.td-foot,.td-dawn,.td-verdict,.td-hud,.td-pill,.td-drg,.td-help,.td-banner,.td-say,.td-poke,.td-back2,.td-add')) return false; const r = el.stage.getBoundingClientRect(); return (e.clientX - r.left) / k > 140; };
   el.stage.addEventListener('pointerdown', e => { if (!inLane(e) || aim) return; scroll.drag = { y0: e.clientY, s0: scroll.to, id: e.pointerId, moved: false }; });
   el.stage.addEventListener('pointermove', e => { const d = scroll.drag; if (!d || d.id !== e.pointerId) return; const dy = (d.y0 - e.clientY) / k;
     if (!d.moved && Math.abs(dy) > 6) { d.moved = true; el.stage.setPointerCapture?.(e.pointerId); }
@@ -153,9 +155,7 @@ function lane() {
     const habit = !!q.n.rs, nt = esc(q.n.t || 'Untitled'), fog = live && R.curses.includes('fog') && q.e - nowMin() > 180;
     const when = q.st === 'jaws' ? `<em>In his jaws</em>` : q.soft ? `by ${fmtT(q.e)}` : `${fmtT(q.s0).replace(/(am|pm)$/, fmtT(q.s0).slice(-2) === fmtT(q.e).slice(-2) ? '' : '$1')}–${fmtT(q.e)}`;
     const tag = q.boss ? '<i class="td-tag mk">Boss day · ×3</i>' : q.mark ? '<i class="td-tag mk">His mark · ×2</i>' : q.shield ? '<i class="td-tag sh">Shielded</i>' : q.bet ? '<i class="td-tag bt">Bet</i>' : q.sloth ? `<i class="td-tag cu">Sloth bit ${q.sloth}</i>` : q.wind ? '<i class="td-tag bt">Second Wind</i>' : q.left ? '<i class="td-tag">Leftover · half</i>' : habit && q.run ? `<i class="td-tag">↻ ${q.run} day${q.run === 1 ? '' : 's'}</i>` : '';
-    const free = live && q.e - nowMin() >= FREE, lock = live && !free ? LOCK : '';
-    const arrows = free ? `<span class="td-mv"><button data-td="up" data-id="${q.n.id}" aria-label="Move ${nt} earlier">▲</button><button data-td="down" data-id="${q.n.id}" aria-label="Move ${nt} later">▼</button></span>` : '';
-    const h = `<button class="td-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Finish ${nt}"></button><button class="td-n" data-act="open" data-id="${q.n.id}"><span class="td-r1"><span class="td-tm">${lock}${when}</span>${tag}</span><b>${fog ? 'Face down in the fog' : (habit ? '↻ ' : '') + nt}</b></button><span class="td-g"><i></i>${q.g}</span>${arrows}`;
+    const h = `<button class="td-ck" data-act="${aim ? 'aim' : 'toggle'}" data-id="${q.n.id}" aria-label="Finish ${nt}"></button><button class="td-n" data-act="${aim ? 'aim' : 'open'}" data-id="${q.n.id}"><span class="td-r1"><span class="td-tm">${when}</span>${tag}</span><b>${fog ? 'Face down in the fog' : (habit ? '↻ ' : '') + nt}</b></button><span class="td-g"><i></i>${q.g}</span>`;
     if (c.h !== h) { c.el.innerHTML = h; c.h = h; }
     c.el.dataset.id = q.n.id;
     c.el.className = `td-q${aim ? ' aimable' : ''}${q.mark ? ' marked' : ''}${q.boss ? ' boss' : ''}${q.shield ? ' shielded' : ''}${q.st === 'jaws' ? ' jaws' : ''}${habit ? ' habit' : ''}${q.foil?.n ? ' foil-' + q.foil.n : ''}${q.left ? ' left' : ''}${fog ? ' fog' : ''}`;
@@ -235,18 +235,19 @@ function foot() {
   hand();
 }
 /* ---------- your hand ---------- */
-const FREE = 120;
-const LOCK = '<svg class="td-lock" viewBox="0 0 10 12" aria-label="Locked: only a card moves it"><path d="M2.5 5V3.5a2.5 2.5 0 0 1 5 0V5" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="1" y="5" width="8" height="6.5" rx="1.2" fill="currentColor"/></svg>';
-let aim = null; // { c, ids: [] } while a card waits for its quest(s)
+let aim = null; // { c, ids: [], plan } while a card waits for its quest(s), then for your yes
 const AIM_TXT = { wind: 'Tap the quest to give a Second Wind', shield: 'Tap the quest to shield', swap: 'Tap the first quest to swap', back: 'Tap the quest to send back', split: 'Tap the big quest to split' };
 function hand() {
   const live = view === today() && !R.closed;
   if (!live || R.off) { el.hand.innerHTML = ''; el.aim.hidden = true; return; }
   const n = R.hand.length;
   el.hand.innerHTML = R.hand.map((c, i) => { const off = i - (n - 1) / 2, sel = aim?.c === c.c;
-    return `<button class="td-card${c.used ? ' used' : ''}${c.comeback ? ' comeback' : ''}${sel ? ' sel' : ''}" data-td="card" data-c="${c.c}" style="--off:${off};--sp:${n > 3 ? 90 : 114}px" aria-pressed="${sel}"${c.used ? ' disabled' : ''}><b>${c.n}</b><span>${c.t}</span></button>`; }).join('');
+    return `<button class="td-card${c.used ? ' used' : ''}${c.comeback ? ' comeback' : ''}${sel ? ' sel' : ''}" data-td="card" data-c="${c.c}" style="--off:${off};--sp:${n > 3 ? 90 : 114}px" aria-pressed="${sel}"${c.used ? ' disabled' : ''}><b>${c.n}</b><span>${c.t}</span><small class="${c.plan ? 'pl' : ''}">${c.plan ? 'Moves your plan' : 'Game only'}</small></button>`; }).join('');
   el.aim.hidden = !aim;
-  if (aim) el.aim.innerHTML = `<span>${aim.c === 'swap' && aim.ids.length ? 'Now tap the quest to trade with' : AIM_TXT[aim.c]}</span><button data-td="aim-x">Cancel</button>`;
+  if (aim) el.aim.innerHTML = aim.plan
+    ? `<span><b>${dragon.CARDS[aim.c].n}:</b> ${esc(aim.plan.text)}</span><span class="td-aim-b"><button data-td="aim-x">Cancel</button><button class="go" data-td="aim-go">Play it</button></span>`
+    : `<span>${aim.c === 'swap' && aim.ids.length ? 'Now tap the quest to trade with' : AIM_TXT[aim.c]}</span><button data-td="aim-x">Cancel</button>`;
+  el.aim.classList.toggle('ask', !!aim?.plan);
   for (const c of cards.values()) c.el.classList.toggle('aimable', !!aim);
 }
 function pickCard(c) {
@@ -257,22 +258,33 @@ function pickCard(c) {
 }
 function target(id) {
   const card = R.hand.find(h => h.c === aim.c); if (!card) { aim = null; return; }
+  if (aim.plan) return; // waiting for Play it or Cancel
   if (!aim.ids.includes(id)) aim.ids.push(id);
   if (aim.ids.length < card.aim) { hand(); return; }
-  const ok = dragon.play(aim.c, aim.ids, { deal: R.Qs, hand: R.hand }); aim = null;
-  if (ok) played(card); else { hand(); show('That card won\'t work there.'); }
+  if (card.plan) { // say exactly what moves, and wait for a yes
+    const P = dragon.planOf(aim.c, aim.ids, R.Qs);
+    if (!P) { aim = null; hand(); show('That card won\'t work there.'); return; }
+    aim.plan = P; hand(); return;
+  }
+  go();
 }
-function played(card) {
-  happened.push(`played ${card.n}`); sfx.coin(); flinch = .8;
-  el.banner.hidden = false; el.banner.className = 'td-banner card'; el.banner.innerHTML = `<b>${card.n}</b><span>${card.t}</span>`;
-  clearTimeout(roundOver.t); roundOver.t = setTimeout(() => { el.banner.hidden = true; }, 2600);
+function go() {
+  if (!aim) return; const card = R.hand.find(h => h.c === aim.c), text = aim.plan?.text;
+  const ok = card && dragon.play(aim.c, aim.ids, { deal: R.Qs, hand: R.hand }); aim = null;
+  if (ok) played(card, text); else { hand(); show('That card won\'t work there.'); }
+}
+let undoable = null;
+function played(card, text) {
+  happened.push(`played ${card.n}`); sfx.coin(); flinch = .8; undoable = card.plan ? card : null;
+  el.banner.hidden = false; el.banner.className = 'td-banner card';
+  el.banner.innerHTML = `<b>${card.n}</b><span>${esc(text || card.t)}</span>${card.plan ? '<button class="td-btn" data-td="undo-card">Undo</button>' : ''}`;
+  clearTimeout(roundOver.t); roundOver.t = setTimeout(() => { el.banner.hidden = true; undoable = null; }, card.plan ? 7000 : 2600);
   refresh(); line(true);
 }
-/** The free move: a quest 2+ hours out trades places with its neighbour, if that one is free to move too. */
-function nudge(id, dir) {
-  const L = targets(), i = L.findIndex(c => c.q.n.id === id), j = i + dir; if (i < 0 || j < 0 || j >= L.length) return;
-  const a = L[i].q, b = L[j].q; if (b.e - nowMin() < FREE) { show('That one is too close to move for free. Use Swap.'); return; }
-  store.updateMany([[a.n.id, { s: b.s, ds: dragon.orderOf(b.n) }], [b.n.id, { s: a.s, ds: dragon.orderOf(a.n) }]]);
+/** Takes back the card just played: its plan change and the card itself. */
+function undoCard() {
+  if (!undoable) return; store.undo(); dragon.unplay(); undoable = null;
+  el.banner.hidden = true; show('Fine. Put back as it was.'); refresh();
 }
 const VERDICT = {
   starves: ['He starves', 'Every round, every coin. He curls up on an empty hoard, whimpering.'],
@@ -381,7 +393,8 @@ function lair() {
   const T = today(), again = !el.lair.hidden; el.lair.hidden = false;
   const g = !TABS[lairOpen] && S.goals.find(x => x.id === lairOpen);
   let h;
-  if (lairOpen === 'week') h = weekView();
+  if (lairOpen === 'help') h = helpView();
+  else if (lairOpen === 'week') h = weekView();
   else if (lairOpen === 'realm') h = realmView();
   else if (lairOpen === 'lair') h = lairView();
   else if (g) {
@@ -403,6 +416,21 @@ function lair() {
   el.lair.innerHTML = `<div class="td-vc td-dc${again ? ' still' : ''}">${h}<button class="td-btn go" data-td="lair-x">Back to the fight</button></div>`;
 }
 
+/** How it works: what you do here, and what can change your plan. */
+function helpView() {
+  return `<small>How the Fight works</small><h2>Your day against ${NAME}</h2>
+    <h3>What you do here</h3><ul class="td-facts">
+      <li><b>Tap the circle</b> when a quest is done. <b>Tap its name</b> to open it.</li>
+      <li>Quests ride up the time line toward his jaws. When a quest's time ends it sits in his jaws for a little while, then he eats its gold. Finish it late and you win half back.</li>
+      <li>Drag the list up to look ahead. It drifts back to now on its own.</li></ul>
+    <h3>What changes your plan</h3><ul class="td-facts">
+      <li>Nothing here moves your plan unless you play <b>Swap</b>, <b>Send back</b> or <b>Split</b>. Each one says exactly what will move and waits for <b>Play it</b>. You can undo right after.</li>
+      <li>Every other card and charm is <b>game only</b>: it changes the gold, never your plan.</li>
+      <li>To plan or rearrange your day, use <b>List</b> or <b>Time blocks</b>. The Fight follows whatever you plan there.</li></ul>
+    <h3>Winning</h3><ul class="td-facts">
+      <li>The day has three rounds: morning till noon, afternoon till 5pm, evening till bedtime. Keep 70% of a round's gold to win it.</li>
+      <li>At bedtime: win every round and keep everything and he starves; win 2 and you drive him off; otherwise he's stuffed.</li></ul>`;
+}
 const TABS = { list: 'Dragons', week: 'War Table', realm: 'Realm', lair: 'Lair' };
 const tabs = at => `<nav class="td-tabs">${Object.entries(TABS).map(([k, n]) => `<button data-td="tab" data-v="${k}" aria-pressed="${k === at}">${n}</button>`).join('')}</nav>`;
 const hrs = m => `${Math.round(m / 6) / 10}h`;
