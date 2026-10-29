@@ -54,7 +54,9 @@ export const glow = o => new THREE.MeshBasicMaterial({ color: o });
 const INK_FS = `precision highp float; varying vec2 vq; uniform sampler2D tex, dep; uniform vec2 res;
     float D(vec2 o){ return texture2D(dep, vq + o / res).r; }
     void main(){ vec3 c = texture2D(tex, vq).rgb; float d = D(vec2(0.)), e = 0.;
-      e = max(e, d - D(vec2(1.,0.))); e = max(e, d - D(vec2(-1.,0.))); e = max(e, d - D(vec2(0.,1.))); e = max(e, d - D(vec2(0.,-1.)));
+      float r = D(vec2(1.,0.)), l = D(vec2(-1.,0.)), u = D(vec2(0.,1.)), w = D(vec2(0.,-1.));
+      // how far this pixel sits behind a neighbour, beyond what the slope of the surface explains (so ground seen low isn't inked)
+      e = max(max(e, (d - r) - max(l - d, 0.)), max((d - l) - max(r - d, 0.), max((d - u) - max(w - d, 0.), (d - w) - max(u - d, 0.))));
       if (e > .0025 && d < .9999) c *= .28; gl_FragColor = vec4(c, 1.); }`;
 /** The ink pass: darkens a pixel that sits just behind a nearer edge, so shapes get a 1px outline. */
 function inkPass(target) {
