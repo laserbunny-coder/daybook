@@ -6,6 +6,9 @@ export const SW = 256, SH = 128;
 export const SWOOP = 34, RECKON = 44; // how long a dive and the midnight reckoning last, in ticks (180ms each)
 export const phaseOf = m => m < 6 * 60 || m >= 21 * 60 ? 'night' : m < 8 * 60 ? 'dawn' : m < 18 * 60 ? 'day' : 'dusk';
 
+/** Knobs for trying looks (lab.html): villager size, ink strength (0 = none), and how many steps of light. */
+export const LOOK = { folk: 1, ink: 1, steps: 3 };
+let PW = SW; // the picture's width in pixels: the canvas it is painted into decides it, and the land always spans the same view
 let H = SH, FIT = 1; // the picture's height right now (the person can make it taller), and the zoom that keeps the land filling a tall one
 let THREE = null, ready = false, loading = false, failed = false, glLost = false;
 const waiting = [];
@@ -105,11 +108,11 @@ let hfolk, ground, groundGeo, landNow = '', village, piles, castle, dragon, nest
 const flags = [], smokes = [], torches = [], fires = [], embers = [], coins = [], sparks = [], folk = [];
 let WIN; // the shared window glass, lit up at night
 function init() {
-  out = document.createElement('canvas'); out.width = SW; out.height = SH;
+  out = document.createElement('canvas'); out.width = PW; out.height = SH;
   R = new THREE.WebGLRenderer({ canvas: out, antialias: false, preserveDrawingBuffer: true });
   // while the phone has dropped the 3D screen, keep showing the last picture; three.js rebuilds it when it comes back
   out.addEventListener('webglcontextlost', () => { glLost = true; }); out.addEventListener('webglcontextrestored', () => { glLost = false; });
-  R.setPixelRatio(1); R.setSize(SW, SH, false); R.shadowMap.enabled = true; R.shadowMap.type = THREE.BasicShadowMap;
+  R.setPixelRatio(1); R.setSize(PW, SH, false); R.shadowMap.enabled = true; R.shadowMap.type = THREE.BasicShadowMap;
   grad = new THREE.DataTexture(new Uint8Array([70, 70, 70, 255, 150, 150, 150, 255, 255, 255, 255, 255]), 3, 1, THREE.RGBAFormat);
   grad.minFilter = grad.magFilter = THREE.NearestFilter; grad.needsUpdate = true;
   VC = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: grad });
@@ -122,8 +125,8 @@ function init() {
   const k = 105 / 224 / .8; cam = new THREE.OrthographicCamera(-SW / 2 * k, SW / 2 * k, SH / 2 * k, -SH / 2 * k, 1, FAR);
   aim();
   // render small, then ink the edges where depth jumps
-  rt = new THREE.WebGLRenderTarget(SW, SH, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
-  rt.depthTexture = new THREE.DepthTexture(SW, SH); rt.depthTexture.type = THREE.UnsignedIntType;
+  rt = new THREE.WebGLRenderTarget(PW, SH, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+  rt.depthTexture = new THREE.DepthTexture(PW, SH); rt.depthTexture.type = THREE.UnsignedIntType;
   POST = inkPass(rt, INK); aimed = '';
   qcam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), POST); qs = new THREE.Scene(); qs.add(quad);
 
@@ -256,12 +259,19 @@ function trees() {
     const s = 2.4 + rnd(i + 1) * 3.2; addJ(new THREE.DodecahedronGeometry(s, 0), C.rock, 0, s * .45, 0, b, .12).scale.set(1, .7 + rnd(i + 2) * .6, 1);
     for (let j = 0; j < 3; j++) { const a = j * 2.1 + rnd(i + j) * 1.4, r2 = s * (.35 + rnd(i + j + 7) * .3); addJ(new THREE.DodecahedronGeometry(r2, 0), j % 2 ? 0x8a8074 : C.rock, Math.cos(a) * s * .9, r2 * .4, Math.sin(a) * s * .9, b, .12); }
   }
-  // mountains far off all round, with snow on top, for a low look over the hills
-  for (let i = 0; i < 26; i++) {
-    const a = i / 26 * Math.PI * 2 + rnd(i + 6000) * .2, r = 285 + rnd(i + 6100) * 50, x = Math.cos(a) * r, z = Math.sin(a) * r, h = 45 + rnd(i + 6200) * 60, w = 32 + rnd(i + 6300) * 26;
-    const m = new THREE.Group(); m.position.set(x, ht(x, z) - 4, z); m.rotation.y = rnd(i) * 6.28; forest.push(m);
-    addJ(new THREE.ConeGeometry(w, h, 7), i % 2 ? 0x6e6a74 : 0x625e6a, 0, h / 2, 0, m, .1);
-    addJ(new THREE.ConeGeometry(w * .34, h * .34, 7), 0xe8eef4, 0, h * .83 + .3, 0, m, .05);
+  // low mountains far off all round, hazy blue-grey with the odd snowy top: lumpy ridges, not cones
+  const haze = new THREE.Color(0x8c94a8), snow = new THREE.Color(0xe4eaf2), cc = new THREE.Color();
+  for (let i = 0; i < 34; i++) {
+    const a = i / 34 * Math.PI * 2 + rnd(i + 6000) * .15, r = 300 + rnd(i + 6100) * 40, x = Math.cos(a) * r, z = Math.sin(a) * r;
+    const w = 26 + rnd(i + 6300) * 22, h = 18 + rnd(i + 6200) * 26, m = new THREE.Group(); m.position.set(x, ht(x, z) - 6, z); m.rotation.y = -a; forest.push(m);
+    const geo = new THREE.IcosahedronGeometry(1, 2), p = geo.attributes.position, col = new Float32Array(p.count * 3);
+    for (let k = 0; k < p.count; k++) { // squash into a ridge, push the surface in and out, and flatten the bottom
+      const vx = p.getX(k), vy = p.getY(k), vz = p.getZ(k), n = 1 + (rnd(Math.round((vx * 7 + vy * 13 + vz * 17) * 10) + i * 97) - .5) * .35;
+      p.setXYZ(k, vx * w * n, Math.max(0, vy) * h * n * (1 + Math.cos(vx * 2.4 + i) * .25), vz * w * .55 * n);
+    }
+    geo.computeVertexNormals();
+    for (let f = 0; f < p.count; f += 3) { const y = (p.getY(f) + p.getY(f + 1) + p.getY(f + 2)) / 3; cc.copy(haze).multiplyScalar(.9 + rnd(f + i) * .14); if (h > 34 && y > h * .78) cc.lerp(snow, .85); for (let v = 0; v < 3; v++) col.set([cc.r, cc.g, cc.b], (f + v) * 3); }
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3)); add(geo, VC, 0, 0, 0, m, false);
   }
   add(merge(forest), VC, 0, 0, 0, scene);
 }
@@ -512,17 +522,16 @@ function text(c, s, x, y, col, bg) {
   const w = s.length * 4 - 1; if (bg) { c.fillStyle = bg; c.fillRect(x - 2, y - 2, w + 4, 9); }
   c.fillStyle = col; [...s].forEach((ch, i) => { const g = FONT[ch]; if (g) for (let k = 0; k < 15; k++) if (g[k] === '1') c.fillRect(x + i * 4 + k % 3, y + (k / 3 | 0), 1, 1); });
 }
-const onScreen = (x, y, z) => { const v = new THREE.Vector3(x, y, z).project(cam); return [Math.round((v.x + 1) / 2 * SW), Math.round((1 - v.y) / 2 * H)]; };
+const onScreen = (x, y, z) => { const v = new THREE.Vector3(x, y, z).project(cam); return [Math.round((v.x + 1) / 2 * PW), Math.round((1 - v.y) / 2 * H)]; };
 
 /** Draw the scene: { mode: sleep|perch|circle, piles [{slot, g, mark, hot}], gate (broken), fx [{kind, age, slot, n, g}],
     land, phase, buildings, ruins, held (regions), lvl, hoard, camp, campInk } */
 /** A taller (or shorter) picture: same width and scale, more ground above and below. */
 function resize(h) {
-  H = h; FIT = Math.max(1, h / 300); aimed = ''; R.setSize(SW, h, false);
-  const k = VK; cam.top = h / 2 * k; cam.bottom = -h / 2 * k; cam.updateProjectionMatrix();
+  H = h; FIT = Math.max(1, h * SW / PW / 300); aimed = ''; out.width = PW; R.setSize(PW, h, false);
   rt.dispose(); rt.depthTexture.dispose();
-  rt = new THREE.WebGLRenderTarget(SW, h, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
-  rt.depthTexture = new THREE.DepthTexture(SW, h); rt.depthTexture.type = THREE.UnsignedIntType;
+  rt = new THREE.WebGLRenderTarget(PW, h, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+  rt.depthTexture = new THREE.DepthTexture(PW, h); rt.depthTexture.type = THREE.UnsignedIntType;
   POST = inkPass(rt, INK); quad.material = POST;
 }
 /* ---------- the person's own view: pan, zoom and turn the camera with their fingers ---------- */
@@ -540,7 +549,9 @@ function aim() {
   cam.near = Math.max(1, r - g * Math.cos(e)); if (POST) POST.uniforms.thr.value = 1.5 / (cam.far - cam.near);
   // and when the cut edge would show inside the picture, the view slides up so the land runs to the bottom and the
   // sky and far mountains fill the top, like looking out to the horizon
-  const z2 = view.zoom * FIT, half = H / 2 * VK / z2, off = Math.min(half * .9, Math.max(0, half - g * Math.sin(e) + 2));
+  const vk = VK * SW / PW, z2 = view.zoom * FIT, half = H / 2 * vk / z2;
+  cam.left = -PW / 2 * vk; cam.right = PW / 2 * vk;
+  const off = Math.min(half * .9, Math.max(0, half - g * Math.sin(e) + 2));
   cam.top = (half + off) * z2; cam.bottom = (-half + off) * z2;
   cam.zoom = z2; cam.updateProjectionMatrix();
 }
@@ -560,7 +571,8 @@ export function paint(cv, Sc, t) {
   load();
   const c = cv.getContext('2d');
   if (!ready) { c.fillStyle = '#16200f'; c.fillRect(0, 0, cv.width, cv.height); return; }
-  if (cv.height !== H) resize(cv.height);
+  if (cv.height !== H || cv.width !== PW) { PW = cv.width; resize(cv.height); }
+  if (grad.image.width !== LOOK.steps) { const n = LOOK.steps, d = new Uint8Array(n * 4); for (let i = 0; i < n; i++) d.fill(Math.round(70 + 185 * i / (n - 1)), i * 4, i * 4 + 3), d[i * 4 + 3] = 255; grad.image = { data: d, width: n, height: 1 }; grad.needsUpdate = true; }
   const now = performance.now(), dt = lastMs ? Math.min(.2, (now - lastMs) / 1000) : 1; lastMs = now;
   aim();
   const s = t * .18, first = !sig.keep;
@@ -629,6 +641,8 @@ export function paint(cv, Sc, t) {
   for (; si2 < sparks.length; si2++) sparks[si2].position.y = -9;
 
   if (glLost) return;
+  POST.uniforms.thr.value = LOOK.ink > 0 ? 1.5 / (cam.far - cam.near) / LOOK.ink : 9;
+  for (const g of [...folk, ...hfolk.children]) g.scale.setScalar((g.userData.s ||= g.scale.x) * LOOK.folk);
   R.setRenderTarget(rt); R.render(scene, cam); R.setRenderTarget(null); R.render(qs, qcam);
   c.imageSmoothingEnabled = false; c.drawImage(out, 0, 0);
   // the breach: a flash and a burst at the gate
