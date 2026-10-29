@@ -20,6 +20,16 @@ function load() {
 /** Call f once the 3D library has loaded (the first picture is blank until then). */
 export const whenReady = f => { load(); if (ready || failed) f(); else waiting.push(f); };
 
+/** A ribbon following the river's bends, w wide, at height y. */
+function river(w, y, hex) {
+  const v = [];
+  for (let sz = -330; sz < 330; sz += 3) {
+    const pts = [sz, sz + 3].map(z => { const x = riverX(z), d = (riverX(z + .5) - riverX(z - .5)), n = Math.hypot(1, d); return [[x - w / 2 / n, z + d * w / 2 / n], [x + w / 2 / n, z - d * w / 2 / n]].map(q => at(...q)); });
+    const [[a, b], [c, e]] = pts; v.push(a[0], y, a[1], c[0], y, c[1], b[0], y, b[1], b[0], y, b[1], c[0], y, c[1], e[0], y, e[1]);
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); g.computeVertexNormals();
+  const m = new THREE.Mesh(g, M(hex, { side: THREE.DoubleSide })); m.receiveShadow = true; return m;
+}
 const rnd = i => Math.abs(Math.sin(i * 12.9898 + 78.233) * 43758.5453) % 1;
 const lerp = (a, b, k) => a + (b - a) * k;
 const ease = k => k * k * (3 - 2 * k);
@@ -29,6 +39,13 @@ const A = .61, EL = 36 * Math.PI / 180; // the corner turn and the camera's heig
 const RX = Math.cos(A), RZ = -Math.sin(A), FX = Math.sin(A), FZ = Math.cos(A);
 const at = (sx, sz) => [sx * RX + sz * FX, sx * RZ + sz * FZ]; // screen spot to world x, z
 const NEST = [46, -12], NEST_Y = 10;
+const FAR = 1500, INK = .0025 * 600 / FAR; // the camera sits far back so a low look still sees the near ground; the ink's depth step scales with it
+/** Where the river runs: across the screen at sx near -47, winding as it goes, but straight where the bridge crosses it. */
+function riverX(sz) {
+  const k = Math.min(1, Math.max(0, (Math.abs(sz - CROSS()) - 8) / 30));
+  return -47 + (16 * Math.sin(sz * .031 + .6) + 8 * Math.sin(sz * .077 + 2) + 4 * Math.sin(sz * .17)) * k * k * (3 - 2 * k);
+}
+let crossZ = null; const CROSS = () => crossZ ?? (crossZ = at2s(0, 30)[1]);
 const SPOT = { Tent: [30, 14], Hut: [-26, -20], Well: [-32, 4], Farm: [14, -34], Watchtower: [-38, -30], Mill: [40, 30], Smithy: [12, 36], Market: [-36, 40] };
 const PILES = [[22, 26], [-26, 18], [40, 4], [-36, -6], [28, -20], [-14, 38], [48, 42], [-40, 26], [0, -36], [26, 42], [-18, -40], [58, 12]];
 const pileAt = slot => PILES[slot % PILES.length];
@@ -51,16 +68,16 @@ export function add(geo, mat, x, y, z, parent, shadow = true) { const m = new TH
 export const addJ = (geo, hex, x, y, z, parent, amt) => add(jit(geo, hex, amt), VC, x, y, z, parent);
 export const glow = o => new THREE.MeshBasicMaterial({ color: o });
 
-const INK_FS = `precision highp float; varying vec2 vq; uniform sampler2D tex, dep; uniform vec2 res;
+const INK_FS = `precision highp float; varying vec2 vq; uniform sampler2D tex, dep; uniform vec2 res; uniform float thr;
     float D(vec2 o){ return texture2D(dep, vq + o / res).r; }
     void main(){ vec3 c = texture2D(tex, vq).rgb; float d = D(vec2(0.)), e = 0.;
       float r = D(vec2(1.,0.)), l = D(vec2(-1.,0.)), u = D(vec2(0.,1.)), w = D(vec2(0.,-1.));
       // how far this pixel sits behind a neighbour, beyond what the slope of the surface explains (so ground seen low isn't inked)
       e = max(max(e, (d - r) - max(l - d, 0.)), max((d - l) - max(r - d, 0.), max((d - u) - max(w - d, 0.), (d - w) - max(u - d, 0.))));
-      if (e > .0025 && d < .9999) c *= .28; gl_FragColor = vec4(c, 1.); }`;
+      if (e > thr && d < .9999) c *= .28; gl_FragColor = vec4(c, 1.); }`;
 /** The ink pass: darkens a pixel that sits just behind a nearer edge, so shapes get a 1px outline. */
-function inkPass(target) {
-  return new THREE.ShaderMaterial({ uniforms: { tex: { value: target.texture }, dep: { value: target.depthTexture }, res: { value: new THREE.Vector2(target.width, target.height) } },
+function inkPass(target, thr = .0025) {
+  return new THREE.ShaderMaterial({ uniforms: { tex: { value: target.texture }, dep: { value: target.depthTexture }, res: { value: new THREE.Vector2(target.width, target.height) }, thr: { value: thr } },
     vertexShader: 'varying vec2 vq; void main(){ vq = position.xy * .5 + .5; gl_Position = vec4(position.xy, 0., 1.); }', fragmentShader: INK_FS });
 }
 /** A small screen of its own (w x h pixels) for another 3D picture, drawn the same way: stepped light, ink edges.
@@ -102,12 +119,12 @@ function init() {
   Object.assign(sun.shadow.camera, { left: -80, right: 80, top: 80, bottom: -80, near: 1, far: 320 }); scene.add(sun, sun.target);
   amb = new THREE.HemisphereLight(0xbcd8ff, 0x405020, .45); scene.add(amb);
   // the camera: high on a corner, looking a little right of the keep so the crag fits
-  const k = 105 / 224 / .8; cam = new THREE.OrthographicCamera(-SW / 2 * k, SW / 2 * k, SH / 2 * k, -SH / 2 * k, 1, 600);
+  const k = 105 / 224 / .8; cam = new THREE.OrthographicCamera(-SW / 2 * k, SW / 2 * k, SH / 2 * k, -SH / 2 * k, 1, FAR);
   aim();
   // render small, then ink the edges where depth jumps
   rt = new THREE.WebGLRenderTarget(SW, SH, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
   rt.depthTexture = new THREE.DepthTexture(SW, SH); rt.depthTexture.type = THREE.UnsignedIntType;
-  POST = inkPass(rt);
+  POST = inkPass(rt, INK); aimed = '';
   qcam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), POST); qs = new THREE.Scene(); qs.add(quad);
 
   // ground, river, roads and the crag never change
@@ -115,7 +132,7 @@ function init() {
   { const p = groundGeo.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, ht(p.getX(i), p.getZ(i))); groundGeo = groundGeo.toNonIndexed(); groundGeo.computeVertexNormals(); }
   setLand('vale');
   const strip = (a, b, w, mat, y = .08) => { const [ax, az] = at(...a), [bx, bz] = at(...b), m = add(box(w, .12, Math.hypot(bx - ax, bz - az)), mat, (ax + bx) / 2, y, (az + bz) / 2, scene, false); m.rotation.y = Math.atan2(bx - ax, bz - az); return m; };
-  strip([-47, -320], [-47, 320], 9, M(0x6a5a40), .05); strip([-47, -320], [-47, 320], 7, M(C.water), .14); // the river and its banks
+  scene.add(river(9, .05, 0x6a5a40), river(7, .14, C.water)); // the river and its banks
   { const m = add(box(6, .14, 60), M(C.dirt), 0, .08, 49, scene, false); } // the road south from the gate
   strip(at2s(0, 30), [-62, at2s(0, 30)[1]], 5, M(C.dirt)); // and west to the bridge
   { const [x, z] = at(-47, at2s(0, 30)[1]), b = new THREE.Group(); b.position.set(x, 0, z); b.rotation.y = -A; scene.add(b);
@@ -169,7 +186,7 @@ function setLand(land) {
 function free(sx, sz, pad) {
   const [wx, wz] = at(sx, sz);
   if (Math.abs(wx) < 22 + pad && Math.abs(wz) < 22 + pad) return false;
-  if (sx > -54 - pad && sx < -40 + pad) return false;
+  if (Math.abs(sx - riverX(sz)) < 7 + pad) return false;
   if (Math.abs(wx) < 4 + pad && wz > 17) return false;
   const cross = at2s(0, 30)[1]; if (Math.abs(sz - cross) < 4 + pad && sx < -10 && sx > -64) return false;
   if (Math.hypot(sx - NEST[0], sz - NEST[1]) < 11 + pad) return false;
@@ -184,11 +201,21 @@ function vn(x, z, k) { x /= k; z /= k; const i = Math.floor(x), j = Math.floor(z
     it, with the river keeping its valley. */
 function ht(x, z) {
   const sx = x * RX + z * RZ, sz = x * FX + z * FZ, out = Math.max(Math.abs(sx) / 74, Math.abs(sz) / 58);
-  const rise = Math.max(0, Math.min(1, (out - .95) * 1.6)), valley = Math.min(1, Math.max(0, (Math.abs(sx + 47) - 7) / 26));
+  const rd = Math.abs(sx - riverX(sz)), rise = Math.max(0, Math.min(1, (out - .95) * 1.6)), valley = Math.min(1, Math.max(0, (rd - 7) / 26));
   const bump = Math.sin(x * .15) * Math.cos(z * .12) * .3 + rise * (vn(x, z, 18) - .5) * 1.6;
   const hills = vn(x, z, 46) * 22 + vn(x + 300, z, 19) * 9 + Math.max(0, vn(x, z + 200, 31) - .55) * 40; // rolling hills, and a few sharp ridges
-  const y = bump + rise * rise * hills * valley;
-  return Math.abs(sx + 47) < 6 ? Math.min(y, 0) : y; // the river always shows
+  // gentle rises in the meadow too, but only well clear of everything that stands on the ground
+  const y = bump + rise * rise * hills * valley + (1 - rise) * Math.max(0, vn(x + 90, z, 20) - .4) * 7 * clear(sx, sz, x, z, rd);
+  return rd < 6 ? Math.min(y, 0) : y; // the river always shows
+}
+/** 0 on or near the keep, the buildings, the gold, the crag, the roads and the river, rising to 1 well away from them. */
+function clear(sx, sz, x, z, rd) {
+  let d = Math.min(Math.hypot(x, z) - 40, rd - 9, Math.hypot(sx - NEST[0], sz - NEST[1]) - 15);
+  for (const [px, pz] of Object.values(SPOT)) d = Math.min(d, Math.hypot(sx - px, sz - pz) - 12);
+  for (const [px, pz] of PILES) d = Math.min(d, Math.hypot(sx - px, sz - pz) - 8);
+  d = Math.min(d, (z > 17 ? Math.abs(x) : Math.hypot(x, z - 17)) - 7); // the road south
+  if (sx < at2s(0, 30)[0] + 4 && sx > -70) d = Math.min(d, Math.abs(sz - CROSS()) - 7); // the road west
+  return Math.max(0, Math.min(1, d / 12));
 }
 // woods beyond the meadow: thicker where this gentle noise is high, so they gather into groves rather than an even scatter
 const wood = (sx, sz) => Math.sin(sx * .045 + 1.3) * Math.cos(sz * .05 - .7) + Math.sin((sx + sz) * .021) * .6;
@@ -217,17 +244,24 @@ function trees() {
   // and the woods all around it, out past where the camera can go
   for (let i = 0; i < 2600 && placed.length < 190; i++) {
     const sx = -240 + rnd(i + 900) * 480, sz = -190 + rnd(i + 3100) * 380, out = Math.max(Math.abs(sx) / 70, Math.abs(sz) / 54);
-    if (out < 1 || Math.abs(sx + 47) < 9 || wood(sx, sz) < .15 - Math.min(.5, (out - 1) * .25) || near(sx, sz, 6.5)) continue;
+    if (out < 1 || Math.abs(sx - riverX(sz)) < 9 || wood(sx, sz) < .15 - Math.min(.5, (out - 1) * .25) || near(sx, sz, 6.5)) continue;
     tree(sx, sz, i + 500);
   }
   // a few boulders among the grass, and rocky outcrops up on the hills: a big stone with smaller ones leaning on it
-  for (let i = 0; i < 18; i++) { const sx = -150 + rnd(i + 77) * 300, sz = -120 + rnd(i + 99) * 240; if (!free(sx, sz, 3) || near(sx, sz, 5) || Math.abs(sx + 47) < 8) continue; const [x, z] = at(sx, sz), b = new THREE.Group(); addJ(new THREE.DodecahedronGeometry(1.2 + rnd(i) * 1.4, 0), i % 2 ? C.rock : 0x8a8074, x, ht(x, z) + .6, z, b, .1); forest.push(b); }
+  for (let i = 0; i < 18; i++) { const sx = -150 + rnd(i + 77) * 300, sz = -120 + rnd(i + 99) * 240; if (!free(sx, sz, 3) || near(sx, sz, 5)) continue; const [x, z] = at(sx, sz), b = new THREE.Group(); addJ(new THREE.DodecahedronGeometry(1.2 + rnd(i) * 1.4, 0), i % 2 ? C.rock : 0x8a8074, x, ht(x, z) + .6, z, b, .1); forest.push(b); }
   for (let i = 0, n = 0; i < 600 && n < 26; i++) {
     const sx = -230 + rnd(i + 4400) * 460, sz = -180 + rnd(i + 5400) * 360, [x, z] = at(sx, sz), y = ht(x, z);
     if (y < 5 || near(sx, sz, 8)) continue; n++; placed.push([sx, sz]);
     const b = new THREE.Group(); b.position.set(x, y, z); b.rotation.y = rnd(i) * 6.28; forest.push(b);
     const s = 2.4 + rnd(i + 1) * 3.2; addJ(new THREE.DodecahedronGeometry(s, 0), C.rock, 0, s * .45, 0, b, .12).scale.set(1, .7 + rnd(i + 2) * .6, 1);
     for (let j = 0; j < 3; j++) { const a = j * 2.1 + rnd(i + j) * 1.4, r2 = s * (.35 + rnd(i + j + 7) * .3); addJ(new THREE.DodecahedronGeometry(r2, 0), j % 2 ? 0x8a8074 : C.rock, Math.cos(a) * s * .9, r2 * .4, Math.sin(a) * s * .9, b, .12); }
+  }
+  // mountains far off all round, with snow on top, for a low look over the hills
+  for (let i = 0; i < 26; i++) {
+    const a = i / 26 * Math.PI * 2 + rnd(i + 6000) * .2, r = 285 + rnd(i + 6100) * 50, x = Math.cos(a) * r, z = Math.sin(a) * r, h = 45 + rnd(i + 6200) * 60, w = 32 + rnd(i + 6300) * 26;
+    const m = new THREE.Group(); m.position.set(x, ht(x, z) - 4, z); m.rotation.y = rnd(i) * 6.28; forest.push(m);
+    addJ(new THREE.ConeGeometry(w, h, 7), i % 2 ? 0x6e6a74 : 0x625e6a, 0, h / 2, 0, m, .1);
+    addJ(new THREE.ConeGeometry(w * .34, h * .34, 7), 0xe8eef4, 0, h * .83 + .3, 0, m, .05);
   }
   add(merge(forest), VC, 0, 0, 0, scene);
 }
@@ -446,11 +480,11 @@ function flight(age, dur, tx, tz, low) { // out from the nest, down to the targe
 
 /* ---------- moods: the light drifts toward one that fits the moment ---------- */
 const MOODS = {
-  dawn: { sun: [-80, 28, 50], sc: 0xffb8a0, si: .95, sky: 0xa8a8e0, gnd: 0x503848, ai: .42, bg: 0x2a3a30, torch: 0, win: 0, rain: 0, bolt: 0, fire: 0 },
-  day: { sun: [50, 90, 40], sc: 0xffffff, si: 1, sky: 0xbcd8ff, gnd: 0x405020, ai: .45, bg: 0x2a4a20, torch: 0, win: 0, rain: 0, bolt: 0, fire: 0 },
-  dusk: { sun: [90, 24, 30], sc: 0xff9050, si: 1.1, sky: 0x8a70b0, gnd: 0x402030, ai: .36, bg: 0x302030, torch: .2, win: .5, rain: 0, bolt: 0, fire: 0 },
-  night: { sun: [-40, 80, -30], sc: 0x7a9ae0, si: .7, sky: 0x5468a4, gnd: 0x18203a, ai: .55, bg: 0x0c1020, torch: 1, win: 1, rain: 0, bolt: 0, fire: 0 },
-  storm: { sun: [20, 90, 20], sc: 0x8a98a8, si: .5, sky: 0x6a7888, gnd: 0x202820, ai: .4, bg: 0x1a2020, torch: .6, win: .4, rain: 1, bolt: 1, fire: 0 },
+  dawn: { sun: [-80, 28, 50], sc: 0xffb8a0, si: .95, sky: 0xa8a8e0, gnd: 0x503848, ai: .42, bg: 0xd8a890, torch: 0, win: 0, rain: 0, bolt: 0, fire: 0 },
+  day: { sun: [50, 90, 40], sc: 0xffffff, si: 1, sky: 0xbcd8ff, gnd: 0x405020, ai: .45, bg: 0x9cc4e8, torch: 0, win: 0, rain: 0, bolt: 0, fire: 0 },
+  dusk: { sun: [90, 24, 30], sc: 0xff9050, si: 1.1, sky: 0x8a70b0, gnd: 0x402030, ai: .36, bg: 0x6a4a80, torch: .2, win: .5, rain: 0, bolt: 0, fire: 0 },
+  night: { sun: [-40, 80, -30], sc: 0x7a9ae0, si: .7, sky: 0x5468a4, gnd: 0x18203a, ai: .55, bg: 0x0c1430, torch: 1, win: 1, rain: 0, bolt: 0, fire: 0 },
+  storm: { sun: [20, 90, 20], sc: 0x8a98a8, si: .5, sky: 0x6a7888, gnd: 0x202820, ai: .4, bg: 0x4a5560, torch: .6, win: .4, rain: 1, bolt: 1, fire: 0 },
   fire: { sun: [60, 40, 40], sc: 0xc06040, si: .45, sky: 0x5a3848, gnd: 0x200c08, ai: .32, bg: 0x200c08, torch: .8, win: 0, rain: 0, bolt: 0, fire: 1 },
 };
 let cur = null, bolt = 0, nextBolt = 3;
@@ -489,25 +523,33 @@ function resize(h) {
   rt.dispose(); rt.depthTexture.dispose();
   rt = new THREE.WebGLRenderTarget(SW, h, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
   rt.depthTexture = new THREE.DepthTexture(SW, h); rt.depthTexture.type = THREE.UnsignedIntType;
-  POST = inkPass(rt); quad.material = POST;
+  POST = inkPass(rt, INK); quad.material = POST;
 }
 /* ---------- the person's own view: pan, zoom and turn the camera with their fingers ---------- */
 export const view = { x: 0, z: 0, zoom: 1, rot: 0, tilt: 0 };
-const elev = () => Math.min(1.45, Math.max(.3, EL + view.tilt)); // the camera's height as an angle, kept between a low look and straight down
+const elev = () => Math.min(1.45, Math.max(.1, EL + view.tilt)); // the camera's height as an angle, kept between a low look and straight down
 const VK = 105 / 224 / .8;
 let aimed = '';
 function aim() {
   const k = [view.x, view.z, view.zoom, view.rot, view.tilt].join(); if (k === aimed) return; aimed = k;
-  const a = A + view.rot, e = elev(), [lx, lz] = at(6, 2), x = lx + view.x, z = lz + view.z, r = 200;
+  const a = A + view.rot, e = elev(), [lx, lz] = at(6, 2), x = lx + view.x, z = lz + view.z, r = FAR / 2;
   cam.position.set(x + Math.sin(a) * r * Math.cos(e), 4 + r * Math.sin(e), z + Math.cos(a) * r * Math.cos(e)); cam.lookAt(x, 4, z);
-  cam.zoom = view.zoom * FIT; cam.updateProjectionMatrix();
+  // anything nearer the camera than a cut a little way past the village is left out, like the cut edge of a model, so
+  // hills and mountains on the near side never block the view when looking low; the ink's depth step follows the range
+  const sm = Math.min(1, Math.max(0, (e - .3) / .25)), g = 110 + 120 * sm * sm * (3 - 2 * sm);
+  cam.near = Math.max(1, r - g * Math.cos(e)); if (POST) POST.uniforms.thr.value = 1.5 / (cam.far - cam.near);
+  // and when the cut edge would show inside the picture, the view slides up so the land runs to the bottom and the
+  // sky and far mountains fill the top, like looking out to the horizon
+  const z2 = view.zoom * FIT, half = H / 2 * VK / z2, off = Math.min(half * .9, Math.max(0, half - g * Math.sin(e) + 2));
+  cam.top = (half + off) * z2; cam.bottom = (-half + off) * z2;
+  cam.zoom = z2; cam.updateProjectionMatrix();
 }
 /** Move the view by a drag of dx, dy screen pixels on a picture w pixels wide, zoom by a factor, turn around and tilt by angles. */
 export function nudge(dx, dy, w, zoom = 1, turn = 0, tilt = 0) {
   const a = A + view.rot, e = elev(), s = SW * VK / (view.zoom * FIT) / Math.max(1, w);
   view.x -= (Math.cos(a) * dx + Math.sin(a) * dy / Math.sin(e)) * s;
   view.z -= (-Math.sin(a) * dx + Math.cos(a) * dy / Math.sin(e)) * s;
-  view.tilt = Math.min(1.45 - EL, Math.max(.3 - EL, view.tilt + tilt));
+  view.tilt = Math.min(1.45 - EL, Math.max(.1 - EL, view.tilt + tilt));
   const d = Math.hypot(view.x, view.z); if (d > 70) { view.x *= 70 / d; view.z *= 70 / d; }
   view.zoom = Math.min(3.5, Math.max(.6, view.zoom * zoom)); view.rot += turn;
 }
