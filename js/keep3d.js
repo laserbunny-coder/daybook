@@ -71,7 +71,13 @@ export function makeView(w, h) {
   t.depthTexture = new THREE.DepthTexture(w, h); t.depthTexture.type = THREE.UnsignedIntType;
   const q = new THREE.Scene(), qc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); q.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), inkPass(t)));
   let lost = false; cv.addEventListener('webglcontextlost', () => { lost = true; }); cv.addEventListener('webglcontextrestored', () => { lost = false; });
-  return { canvas: cv, render(sc, c) { if (lost) return null; r.setRenderTarget(t); r.render(sc, c); r.setRenderTarget(null); r.render(q, qc); return cv; } };
+  let t2 = t;
+  return { canvas: cv, render(sc, c) { if (lost) return null; r.setRenderTarget(t2); r.render(sc, c); r.setRenderTarget(null); r.render(q, qc); return cv; },
+    size(w2, h2) { // a taller or shorter screen, same pixels across
+      if (t2.width === w2 && t2.height === h2) return; r.setSize(w2, h2, false); t2.dispose(); t2.depthTexture.dispose();
+      t2 = new THREE.WebGLRenderTarget(w2, h2, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+      t2.depthTexture = new THREE.DepthTexture(w2, h2); t2.depthTexture.type = THREE.UnsignedIntType; q.children[0].material = inkPass(t2);
+    } };
 }
 
 /* ---------- the scene ---------- */

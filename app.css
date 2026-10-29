@@ -1438,6 +1438,10 @@ button.q-say.poked .q-face{animation:q-poke .5s}
 .kg-top b{font:500 22px/1.1 var(--f-display)}
 .kg-map{flex:none;position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--line2)}
 .kg-map canvas{display:block;width:100%;height:auto;image-rendering:pixelated;cursor:pointer}
+.kg-map #kg-map{touch-action:none;max-width:100%}
+.kg-map.full{position:fixed;inset:0;z-index:200;border-radius:0;border:0;background:#000;display:grid;align-content:center;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+.kg-map.full .kg-held{top:max(10px,env(safe-area-inset-top,0px))}
+.kg-map.full .q-size{bottom:max(12px,env(safe-area-inset-bottom,0px))}
 .kg-held{position:absolute;right:10px;top:8px;font:400 10px var(--f-pixel);letter-spacing:.05em;text-transform:uppercase;color:#f2e2c8;text-shadow:0 1px 0 #000}
 .kg-picks{display:flex;flex-wrap:wrap;gap:6px}
 .kg-pick{font:500 13px var(--f-body);padding:5px 10px;border-radius:999px;border:1px solid var(--line2);color:var(--muted)}

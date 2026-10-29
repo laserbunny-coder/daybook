@@ -10,11 +10,15 @@ let onChange = () => {}, sel = null, askRetreat = false, anim = 0, tick = 0;
 const el = document.createElement('div'); el.className = 'kg-sheet'; el.hidden = true; document.body.appendChild(el);
 export function init(o) { if (o.changed) onChange = o.changed; }
 export function open() { quest.settle(); const R = quest.realm(); sel = R.camp?.id || REGIONS.find(r => !R.held.includes(r.id))?.id || 'wood'; askRetreat = false; el.hidden = false; draw(); }
-function close() { el.hidden = true; clearInterval(anim); }
+function close() { el.hidden = true; clearInterval(anim); if (size === 'full') { size = 'tall'; SH = mapH(); if (mapSrc) mapSrc.height = SH; } }
 
 /* ---------- the map: the kingdom as an island, built in 3D and seen from the same corner as the keep ---------- */
 const W = 192, H = 112, ALL = [HOME, ...REGIONS], SEA = -1;
-const SW = 256, SH = 160; // the screen
+const SW = 256; // the screen's width in pixels; its height depends on the size picked
+const SIZES = ['strip', 'tall', 'full'];
+let size = (() => { try { return localStorage.getItem('daybook-kingdom-size') === 'tall' ? 'tall' : 'strip'; } catch { return 'strip'; } })();
+const mapH = () => size === 'strip' ? 160 : size === 'tall' ? 240 : Math.round(Math.min(560, Math.max(128, SW * innerHeight / Math.max(1, innerWidth))) / 2) * 2;
+let SH = mapH();
 const mapSrc = typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: SW, height: SH }) : null;
 const hash = (x, y) => { let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
 const owner = new Array(W * H);
@@ -46,12 +50,10 @@ function build3d() {
   Object.assign(sun.shadow.camera, { left: -140, right: 140, top: 140, bottom: -140, near: 1, far: 400 }); scene.add(sun, sun.target);
   scene.add(new T.HemisphereLight(0xbcd8ff, 0x405020, .45));
   // the camera: the keep's corner view, a little higher, framing the whole island
-  const A = .61, EL = 42 * Math.PI / 180, fw = 212, fh = fw * SH / SW;
-  const cam = new T.OrthographicCamera(-fw / 2, fw / 2, fh / 2, -fh / 2, 1, 900), r = 300;
-  cam.position.set(Math.sin(A) * r * Math.cos(EL), r * Math.sin(EL), Math.cos(A) * r * Math.cos(EL)); cam.lookAt(4, 0, -6);
+  const cam = new T.OrthographicCamera(-FW / 2, FW / 2, FW / 4, -FW / 4, 1, 900);
   const wx = x => x - W / 2, wz = y => y - H / 2; // map spot to world
   // the sea, then the land: one colour per face, darker along the borders, heights smoothed across them
-  add(new T.PlaneGeometry(600, 600).rotateX(-Math.PI / 2), M(0x22487a), 0, 0, 0, scene, false);
+  add(new T.PlaneGeometry(1400, 1400).rotateX(-Math.PI / 2), M(0x22487a), 0, 0, 0, scene, false);
   const S = 2, nx = W / S + 6, ny = H / S + 6, hts = [];
   for (let j = 0; j <= ny; j++) for (let i = 0; i <= nx; i++) { const x = (i - 3) * S, y = (j - 3) * S, o = ownAt(x, y); hts.push(o === SEA ? -2.5 : heightOf(ALL[o].id, x, y)); }
   const sm = hts.map((h, k) => { const i = k % (nx + 1), j = (k / (nx + 1)) | 0; let a = 0, n = 0; for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii > nx || jj > ny) continue; a += hts[jj * (nx + 1) + ii]; n++; } return ownAt((i - 3) * S, (j - 3) * S) === SEA ? Math.min(h, a / n) : a / n; });
@@ -109,7 +111,25 @@ function build3d() {
   for (let k = 0; k < n; k++) { const x = wx(st.seed[0] + (hash(k, 11) - .5) * 50), y = hash(k, 12) * 26, z = wz(st.seed[1] + (hash(k, 13) - .5) * 40); pos.set([x, y, z, x + .6, y - 2.4, z + .3], k * 6); }
   const rg = new T.BufferGeometry(); rg.setAttribute('position', new T.BufferAttribute(pos, 3)); const rain = new T.LineSegments(rg, new T.LineBasicMaterial({ color: 0x6a84a8 })); scene.add(rain);
   const ray = new T.Raycaster(), lmFaces = land.attributes.position.count / 3;
-  K = { view, scene, cam, land, cols, lm, lmFaces, deco, fogG, borders, marks, flags, drg, wings, rain, ray, wx, wz, groundAt, last: '' };
+  K = { view, scene, cam, aimed: '', land, cols, lm, lmFaces, deco, fogG, borders, marks, flags, drg, wings, rain, ray, wx, wz, groundAt, last: '' };
+}
+/* The person's own view of the map: drag to pan, pinch to zoom, twist to turn, double-tap to put it back */
+const A = .61, EL = 42 * Math.PI / 180, FW = 212, mv = { x: 0, z: 0, zoom: 1, rot: 0 };
+// on a tall phone screen the island is turned to run up the screen, and drawn bigger
+const base = () => SH > SW * 1.4 ? { rot: ROT, zoom: ZOOM } : { rot: 0, zoom: 1 };
+const ROT = .7, ZOOM = 1.45;
+function aim() {
+  const b = base(), k = [mv.x, mv.z, mv.zoom, mv.rot, SH].join(); if (k === K.aimed) return; K.aimed = k;
+  const cam = K.cam, a = A + mv.rot + b.rot, r = 300, fh = FW * SH / SW, lx = 4 + mv.x, lz = -6 + mv.z;
+  Object.assign(cam, { left: -FW / 2, right: FW / 2, top: fh / 2, bottom: -fh / 2, zoom: mv.zoom * b.zoom });
+  cam.position.set(lx + Math.sin(a) * r * Math.cos(EL), r * Math.sin(EL), lz + Math.cos(a) * r * Math.cos(EL)); cam.lookAt(lx, 0, lz); cam.updateProjectionMatrix();
+}
+function nudge(dx, dy, w, zoom = 1, turn = 0) {
+  const b = base(), a = A + mv.rot + b.rot, s = FW / (mv.zoom * b.zoom) / Math.max(1, w);
+  mv.x -= (Math.cos(a) * dx + Math.sin(a) * dy / Math.sin(EL)) * s;
+  mv.z -= (-Math.sin(a) * dx + Math.cos(a) * dy / Math.sin(EL)) * s;
+  const d = Math.hypot(mv.x, mv.z); if (d > 110) { mv.x *= 110 / d; mv.z *= 110 / d; }
+  mv.zoom = Math.min(4, Math.max(.6, mv.zoom * zoom)); mv.rot += turn;
 }
 /** Colours the land for who holds what: hidden regions go grey under cloud. */
 function colour(heldN) {
@@ -137,11 +157,12 @@ function paint(cv, R, t) {
   const r = regionOf(sel); K.drg.visible = !!r && !held.has(sel);
   if (K.drg.visible) { const a = s * 1.4, [x, y] = r.seed; K.drg.position.set(K.wx(x) + Math.cos(a) * 12, K.groundAt(x, y) + 16 + Math.sin(s * 3), K.wz(y) + Math.sin(a) * 9); K.drg.rotation.set(0, -a, .3); K.wings.forEach((w, i) => { w.rotation.z = (i ? 1 : -1) * Math.sin(s * 9) * .6; }); }
   K.rain.position.y = -((s * 30) % 10);
+  K.view.size(SW, SH); aim();
   const img = K.view.render(K.scene, K.cam); if (img) c.drawImage(img, 0, 0);
 }
 /** Which region a tap on the map lands on. */
 function regionAtTap(cv, e) {
-  if (!K) return null; const T = window.THREE, b = cv.getBoundingClientRect();
+  if (!K) return null; aim(); const T = window.THREE, b = cv.getBoundingClientRect();
   K.ray.setFromCamera(new T.Vector2((e.clientX - b.left) / b.width * 2 - 1, -((e.clientY - b.top) / b.height * 2 - 1)), K.cam);
   const hit = K.ray.intersectObject(K.lm)[0]; if (!hit) return null;
   const o = ownAt(hit.point.x + W / 2, hit.point.z + H / 2); return o === SEA ? null : ALL[o];
@@ -168,27 +189,57 @@ function draw() {
   const R = quest.realm(), rank = TITLES.indexOf(R.title);
   el.innerHTML = `<div class="kg-bg" data-kg="close"></div><div class="kg-panel" role="dialog" aria-label="Your kingdom">
     <div class="kg-top"><div><small>${esc(R.title)}</small><b>Your kingdom</b></div><button class="rt-x" data-kg="close" aria-label="Close">×</button></div>
-    <div class="kg-map"><div id="kg-map"></div><span class="kg-held">${R.held.length} of ${REGIONS.length} held</span></div>
+    <div class="kg-map${size === 'full' ? ' full' : ''}"><div id="kg-map" style="aspect-ratio:${SW} / ${SH}"></div><span class="kg-held">${R.held.length} of ${REGIONS.length} held${size === 'full' ? ` · ${esc(regionOf(sel)?.name || '')}` : ''}</span><button class="q-size" data-kg="size" data-v="${size}" aria-label="Map size: ${size === 'full' ? 'whole screen' : size}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5H2.5V6M10 2.5h3.5V6M6 13.5H2.5V10M10 13.5h3.5V10"/></svg></button></div>
     <div class="kg-picks">${REGIONS.map(r => `<button class="kg-pick${r.id === sel ? ' on' : ''}${R.held.includes(r.id) ? ' held' : ''}" data-kg="pick" data-id="${r.id}">${esc(r.name)}</button>`).join('')}</div>
     ${regionCard(R)}
     <div class="kg-titles">${TITLES.map((t, i) => `<span class="${i === rank ? 'cur' : i < rank ? 'past' : ''}">${esc(t)}</span>`).join('<i>›</i>')}</div>
   </div>`;
   const show = () => { // the screen can be replaced if the phone dropped the old one, so it's looked up every time
     const scr = screen('map', SW, SH), h = el.querySelector('#kg-map'); paint(mapSrc, R, tick); scr.show(mapSrc);
-    if (h && scr.cv.parentNode !== h) { mount(scr, h, 'Map of the kingdom'); scr.cv.onclick = e => { const r = regionAtTap(scr.cv, e); if (r && r.id !== 'vale') { sel = r.id; askRetreat = false; draw(); } }; }
+    if (h && scr.cv.parentNode !== h) { mount(scr, h, 'Map of the kingdom'); touch(scr.cv, show); }
   };
   show();
   if (!K) k3.whenReady(() => { if (!K && window.THREE) { build3d(); if (!el.hidden) draw(); } });
   clearInterval(anim); if (!matchMedia('(prefers-reduced-motion: reduce)').matches) anim = setInterval(() => { if (el.hidden || !el.querySelector('#kg-map')) { clearInterval(anim); return; } tick += 1; show(); }, 80);
 }
+/** Touch on the map: a tap picks a region, a drag pans, a pinch zooms, a twist turns; a double-tap puts the view back.
+    On a computer: drag, scroll to zoom, shift-drag or right-drag to turn. */
+function touch(cv, show) {
+  const pts = new Map(); let last = 0, moved = 0, prev = null;
+  const pair = () => { const [a, b] = [...pts.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(b.x - a.x, b.y - a.y), ang: Math.atan2(b.y - a.y, b.x - a.x) }; };
+  cv.onpointerdown = e => { cv.setPointerCapture?.(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY, turn: e.shiftKey || e.button === 2 }); if (pts.size === 1) moved = 0; prev = pts.size === 2 ? pair() : null; };
+  cv.onpointermove = e => {
+    const p = pts.get(e.pointerId); if (!p) return;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y, w = cv.clientWidth; p.x = e.clientX; p.y = e.clientY; moved += Math.abs(dx) + Math.abs(dy);
+    if (pts.size >= 2) { const q = pair(); if (prev) nudge(q.x - prev.x, q.y - prev.y, w, q.d / Math.max(1, prev.d), prev.ang - q.ang); prev = q; moved += 10; }
+    else if (p.turn) nudge(0, 0, w, 1, -dx / w * 3);
+    else nudge(dx, dy, w);
+    show();
+  };
+  cv.onpointerup = cv.onpointercancel = e => {
+    const one = pts.size === 1; pts.delete(e.pointerId); prev = pts.size === 2 ? pair() : null;
+    if (e.type !== 'pointerup' || !one || moved >= 6) return;
+    if (performance.now() - last < 320) { Object.assign(mv, { x: 0, z: 0, zoom: 1, rot: 0 }); last = 0; show(); return; }
+    last = performance.now();
+    const r = regionAtTap(cv, e); if (r && r.id !== 'vale' && r.id !== sel) { sel = r.id; askRetreat = false; draw(); }
+  };
+  cv.onwheel = e => { e.preventDefault(); nudge(0, 0, cv.clientWidth, Math.exp(-e.deltaY / 400)); show(); };
+  cv.oncontextmenu = e => e.preventDefault();
+}
+function setSize(v) {
+  size = v; try { localStorage.setItem('daybook-kingdom-size', v === 'full' ? 'tall' : v); } catch {} // the whole screen isn't kept for next time
+  SH = mapH(); mapSrc.height = SH; draw();
+}
+addEventListener('resize', () => { if (size === 'full' && !el.hidden) { SH = mapH(); mapSrc.height = SH; draw(); } });
 el.addEventListener('click', e => {
   const b = e.target.closest('[data-kg]'); if (!b) return;
   const a = b.dataset.kg;
   if (a === 'close') close();
+  else if (a === 'size') setSize(SIZES[(SIZES.indexOf(size) + 1) % SIZES.length]);
   else if (a === 'pick') { sel = b.dataset.id; askRetreat = false; draw(); }
   else if (a === 'march') { if (quest.march(sel)) { draw(); onChange(`Marching on ${regionOf(sel).name}. The campaign begins tomorrow at dawn.`); } }
   else if (a === 'ask-retreat') { askRetreat = true; draw(); }
   else if (a === 'stay') { askRetreat = false; draw(); }
   else if (a === 'retreat') { quest.retreat(); askRetreat = false; draw(); onChange('You retreated. The region is still there when you want it.'); }
 });
-addEventListener('keydown', e => { if (e.key === 'Escape' && !el.hidden) { e.stopPropagation(); close(); } }, true);
+addEventListener('keydown', e => { if (e.key === 'Escape' && !el.hidden) { e.stopPropagation(); if (size === 'full') setSize('strip'); else close(); } }, true);
