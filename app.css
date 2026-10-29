@@ -1770,4 +1770,20 @@ button.q-say.poked .q-face{animation:q-poke .5s}
 .td-aim.ask button{padding:6px 14px;border-radius:999px;color:#3a2414;box-shadow:inset 0 0 0 1.5px #3a2414}
 .td-aim.ask button.go{background:#3a2414;color:#f3e4c4;box-shadow:none}
 .td-banner .td-btn{align-self:center;margin-top:6px;padding:5px 14px;font-size:13px}
-.td-help{position:absolute;left:108px;top:96px;z-index:6;width:26px;height:26px;border-radius:50%;border:1px solid rgba(243,228,196,.35);background:rgba(30,18,14,.7);color:#f3e4c4;font:700 13px 'Alegreya Sans',sans-serif;cursor:pointer;padding:0}
+.td-help{position:absolute;left:14px;top:128px;z-index:6;width:26px;height:26px;border-radius:50%;border:1px solid rgba(243,228,196,.35);background:rgba(30,18,14,.7);color:#f3e4c4;font:700 13px 'Alegreya Sans',sans-serif;cursor:pointer;padding:0}
+/* Task Dragon quick hit: strike when his eye flashes, flick the coins, the combo meter */
+.td-hit{position:absolute;inset:0;z-index:12;touch-action:none;cursor:pointer}
+.td-hp{position:absolute;left:50%;bottom:170px;transform:translateX(-50%);white-space:nowrap;margin:0;padding:6px 10px;border-radius:10px;background:rgba(20,8,10,.82);border:1px solid #f2c14e;color:#ffe9a8;font:700 13px/1.25 'Alegreya SC',serif;letter-spacing:.03em;text-align:center;animation:td-pop .3s ease}
+
+.td-pile{position:absolute;width:68px;height:52px;animation:td-pop .35s ease}
+.td-pile i{position:absolute;width:18px;height:11px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff3b0,#f2c14e 45%,#a8701e);box-shadow:0 1px 0 #6a4010}
+.td-pile i:nth-child(1){left:4px;top:34px}.td-pile i:nth-child(2){left:22px;top:36px}.td-pile i:nth-child(3){left:40px;top:34px}.td-pile i:nth-child(4){left:12px;top:25px}.td-pile i:nth-child(5){left:31px;top:25px}.td-pile i:nth-child(6){left:21px;top:15px}.td-pile i:nth-child(7){left:46px;top:22px}
+.td-pile::after{content:"";position:absolute;inset:-14px;border-radius:50%;border:2px dashed rgba(255,217,120,.6);animation:td-spin 4s linear infinite}
+@keyframes td-spin{to{rotate:360deg}}
+.td-popx{position:absolute;left:50%;top:200px;z-index:13;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;pointer-events:none;color:#ffe08a;text-shadow:0 2px 6px rgba(0,0,0,.8);animation:td-rise 1.6s ease forwards}
+.td-popx b{font:700 22px/1.1 'Alegreya SC',serif}.td-popx span{font-size:15px;font-weight:700}
+@keyframes td-rise{0%{opacity:0;translate:0 12px;scale:.8}15%{opacity:1;translate:0 0;scale:1.05}75%{opacity:1}100%{opacity:0;translate:0 -30px}}
+.td-combo{position:absolute;right:12px;top:110px;z-index:6;min-width:120px;padding:5px 9px 7px;border-radius:10px;background:rgba(60,34,8,.85);border:1px solid #f2c14e;color:#ffe08a;display:flex;flex-direction:column;line-height:1.15;pointer-events:none}
+.td-combo b{font:700 14px 'Alegreya SC',serif}.td-combo span{font-size:11.5px;color:#e8d4a8}
+.td-combo i{position:absolute;left:8px;right:8px;bottom:3px;height:2px;border-radius:2px;background:linear-gradient(90deg,#f2c14e calc(var(--p)*100%),rgba(242,193,78,.2) 0)}
+@media (prefers-reduced-motion:reduce){.td-popx,.td-pile,.td-pile::after{animation-duration:.01s}}
