@@ -1759,3 +1759,15 @@ button.q-say.poked .q-face{animation:q-poke .5s}
 .td-back2{position:absolute;left:14px;top:136px;z-index:6;padding:4px 11px;border-radius:999px;border:1px solid rgba(255,90,60,.6);background:rgba(30,18,14,.85);color:#ffb39c;font:600 12px 'Alegreya Sans',sans-serif;cursor:pointer}
 .td-say{width:146px}
 .td-tk{left:150px}.td-tk span,.td-tk.end span,.td-tk.bed span{left:14px;top:-7px;font-size:10.5px}
+
+/* Task Dragon, clear rules: card labels, the yes step before a plan change, undo, How it works */
+.td-card span{font-size:10px;line-height:1.12}
+.td-card small{margin-top:auto;font:700 9.5px 'Alegreya Sans',sans-serif;letter-spacing:.04em;text-transform:uppercase;color:#6a4422;opacity:.75}
+.td-card small.pl{color:#a8220c;opacity:1}
+.td-aim.ask{flex-direction:column;align-items:stretch;gap:6px;background:rgba(243,228,196,.95);border-color:#8a5f33;color:#3a2414;font-size:13.5px}
+.td-aim.ask b{font-family:'Alegreya SC',serif}
+.td-aim-b{display:flex;justify-content:flex-end;gap:8px}
+.td-aim.ask button{padding:6px 14px;border-radius:999px;color:#3a2414;box-shadow:inset 0 0 0 1.5px #3a2414}
+.td-aim.ask button.go{background:#3a2414;color:#f3e4c4;box-shadow:none}
+.td-banner .td-btn{align-self:center;margin-top:6px;padding:5px 14px;font-size:13px}
+.td-help{position:absolute;left:108px;top:96px;z-index:6;width:26px;height:26px;border-radius:50%;border:1px solid rgba(243,228,196,.35);background:rgba(30,18,14,.7);color:#f3e4c4;font:700 13px 'Alegreya Sans',sans-serif;cursor:pointer;padding:0}
