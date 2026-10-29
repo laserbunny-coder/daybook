@@ -56,3 +56,5 @@ export function chase() { if (!can()) return; tone('square', 659, 659, 0, .08, .
 export function thud() { if (!can()) return; tone('triangle', 140, 50, 0, .35, .12); noise(0, .25, 600, 100, .08); }
 /** Midnight, the gate gives way. */
 export function crash() { if (!can()) return; noise(0, .7, 3000, 200, .16); tone('square', 90, 40, 0, .5, .05); noise(.18, .4, 1200, 150, .1); }
+/** Task Dragon: the timeline cranks up a notch every quarter hour. */
+export function tick() { if (!can()) return; tone('square', 180, 120, 0, .05, .03); tone('triangle', 90, 70, .03, .08, .05); }
