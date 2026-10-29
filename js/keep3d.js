@@ -6,6 +6,7 @@ export const SW = 256, SH = 128;
 export const SWOOP = 34, RECKON = 44; // how long a dive and the midnight reckoning last, in ticks (180ms each)
 export const phaseOf = m => m < 6 * 60 || m >= 21 * 60 ? 'night' : m < 8 * 60 ? 'dawn' : m < 18 * 60 ? 'day' : 'dusk';
 
+let H = SH, FIT = 1; // the picture's height right now (the person can make it taller), and the zoom that keeps the land filling a tall one
 let THREE = null, ready = false, loading = false, failed = false, glLost = false;
 const waiting = [];
 function load() {
@@ -413,10 +414,19 @@ function text(c, s, x, y, col, bg) {
   const w = s.length * 4 - 1; if (bg) { c.fillStyle = bg; c.fillRect(x - 2, y - 2, w + 4, 9); }
   c.fillStyle = col; [...s].forEach((ch, i) => { const g = FONT[ch]; if (g) for (let k = 0; k < 15; k++) if (g[k] === '1') c.fillRect(x + i * 4 + k % 3, y + (k / 3 | 0), 1, 1); });
 }
-const onScreen = (x, y, z) => { const v = new THREE.Vector3(x, y, z).project(cam); return [Math.round((v.x + 1) / 2 * SW), Math.round((1 - v.y) / 2 * SH)]; };
+const onScreen = (x, y, z) => { const v = new THREE.Vector3(x, y, z).project(cam); return [Math.round((v.x + 1) / 2 * SW), Math.round((1 - v.y) / 2 * H)]; };
 
 /** Draw the scene: { mode: sleep|perch|circle, piles [{slot, g, mark, hot}], gate (broken), fx [{kind, age, slot, n, g}],
     land, phase, buildings, ruins, held (regions), lvl, hoard, camp, campInk } */
+/** A taller (or shorter) picture: same width and scale, more ground above and below. */
+function resize(h) {
+  H = h; FIT = Math.max(1, h / 300); aimed = ''; R.setSize(SW, h, false);
+  const k = VK; cam.top = h / 2 * k; cam.bottom = -h / 2 * k; cam.updateProjectionMatrix();
+  rt.dispose(); rt.depthTexture.dispose();
+  rt = new THREE.WebGLRenderTarget(SW, h, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+  rt.depthTexture = new THREE.DepthTexture(SW, h); rt.depthTexture.type = THREE.UnsignedIntType;
+  POST = inkPass(rt); quad.material = POST;
+}
 /* ---------- the person's own view: pan, zoom and turn the camera with their fingers ---------- */
 export const view = { x: 0, z: 0, zoom: 1, rot: 0 };
 const VK = 105 / 224 / .8;
@@ -425,11 +435,11 @@ function aim() {
   const k = [view.x, view.z, view.zoom, view.rot].join(); if (k === aimed) return; aimed = k;
   const a = A + view.rot, [lx, lz] = at(6, 2), x = lx + view.x, z = lz + view.z, r = 200;
   cam.position.set(x + Math.sin(a) * r * Math.cos(EL), 4 + r * Math.sin(EL), z + Math.cos(a) * r * Math.cos(EL)); cam.lookAt(x, 4, z);
-  cam.zoom = view.zoom; cam.updateProjectionMatrix();
+  cam.zoom = view.zoom * FIT; cam.updateProjectionMatrix();
 }
 /** Move the view by a drag of dx, dy screen pixels on a picture w pixels wide, zoom by a factor, turn by an angle. */
 export function nudge(dx, dy, w, zoom = 1, turn = 0) {
-  const a = A + view.rot, s = SW * VK / view.zoom / Math.max(1, w);
+  const a = A + view.rot, s = SW * VK / (view.zoom * FIT) / Math.max(1, w);
   view.x -= (Math.cos(a) * dx + Math.sin(a) * dy / Math.sin(EL)) * s;
   view.z -= (-Math.sin(a) * dx + Math.cos(a) * dy / Math.sin(EL)) * s;
   const d = Math.hypot(view.x, view.z); if (d > 70) { view.x *= 70 / d; view.z *= 70 / d; }
@@ -441,7 +451,8 @@ let sig = {}, lastMs = 0, lastT = 0;
 export function paint(cv, Sc, t) {
   load();
   const c = cv.getContext('2d');
-  if (!ready) { c.fillStyle = '#16200f'; c.fillRect(0, 0, SW, SH); return; }
+  if (!ready) { c.fillStyle = '#16200f'; c.fillRect(0, 0, cv.width, cv.height); return; }
+  if (cv.height !== H) resize(cv.height);
   const now = performance.now(), dt = lastMs ? Math.min(.2, (now - lastMs) / 1000) : 1; lastMs = now;
   aim();
   const s = t * .18, first = !sig.keep;
