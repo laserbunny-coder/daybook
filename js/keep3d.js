@@ -2,7 +2,7 @@
 // lit in hard steps with a dark ink line where depth jumps, then shown through crt.js's old TV. The keep and village
 // stand left of centre; the dragon's nest is on a crag to the right, and it flies over to circle and dive.
 // three.js (r128, MIT) is in js/vendor and loads the first time the picture is wanted.
-export const SW = 256, SH = 112;
+export const SW = 256, SH = 128;
 export const SWOOP = 34, RECKON = 44; // how long a dive and the midnight reckoning last, in ticks (180ms each)
 export const phaseOf = m => m < 6 * 60 || m >= 21 * 60 ? 'night' : m < 8 * 60 ? 'dawn' : m < 18 * 60 ? 'day' : 'dusk';
 
