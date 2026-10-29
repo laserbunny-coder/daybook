@@ -11,7 +11,7 @@ import * as store from './store.js';
 import { colorOf, isDone } from './tree.js';
 import { esc, fmtT, lsGet, lsSet, today, nowMin, add, pd, DAYL, MON } from './util.js';
 
-const NOW_Y = 250, PPM = 1.1, GAP = 56, BW = 390;
+const NOW_Y = 250, PPM = 0.6, GAP = 48, HALF = 21, BW = 390;
 const NAME = 'Gristlemaw';
 let client = null, onUpdate = () => {}, freeH = () => 10;
 let root = null, cv = null, ctx = null, el = {}, view = null, S = null, R = null, LH = 760, k = 1, raf = 0, last = 0, seen = null, pose = null;
@@ -38,7 +38,8 @@ function build() {
   root.innerHTML = `<div class="td-stage"><canvas class="td-cv" aria-hidden="true"></canvas>
     <button class="td-poke" data-td="poke" aria-label="Poke ${NAME}"></button>
     <div class="td-hud"><div class="td-rnd"></div><div class="td-hr"><div class="td-purse" title="Your gold"><i></i><b></b></div><div class="td-rounds"></div></div></div>
-    <div class="td-lane" aria-label="Your quests, in order"></div>
+    <div class="td-lane" aria-label="Your quests, in order"><div class="td-ruler" aria-hidden="true"></div></div>
+    <button class="td-back2" data-td="now" hidden>Back to now</button>
     <div class="td-now"><span></span></div>
     <button class="td-say" data-td="poke"><small>${NAME.toUpperCase()}</small><span></span></button>
     <div class="td-banner" hidden></div>
@@ -50,7 +51,7 @@ function build() {
     <div class="td-dawn td-lair" hidden></div>
     <div class="td-flash"></div></div>`;
   const $ = s => root.querySelector(s);
-  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), rounds: $('.td-rounds'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small') };
+  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), rounds: $('.td-rounds'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small'), ruler: $('.td-ruler'), back: $('.td-back2') };
   cv = $('.td-cv'); ctx = cv.getContext('2d');
   // while a card is picked, tapping a quest plays it there instead of opening or finishing it
   root.addEventListener('click', e => {
@@ -73,6 +74,7 @@ function build() {
     else if (b.dataset.td === 'eq') dragon.equip(b.dataset.id, b.getAttribute('aria-pressed') !== 'true');
     else if (b.dataset.td === 'off') dragon.dayOff(today(), b.dataset.k || null);
     else if (b.dataset.td === 'lair') { lairOpen = lairOpen ? null : 'list'; lair(); }
+    else if (b.dataset.td === 'now') { scroll.to = 0; }
     else if (b.dataset.td === 'lair-list') { lairOpen = 'list'; lair(); }
     else if (b.dataset.td === 'tab') { lairOpen = b.dataset.v; lair(); }
     else if (b.dataset.td === 'lair-x') { lairOpen = null; lair(); }
@@ -84,6 +86,16 @@ function build() {
     else if (b.dataset.td === 'release') { if (confirm('Let him go? The project stays; it just stops being a big goal.')) { dragon.release(b.dataset.id); lairOpen = 'list'; } }
   });
   addEventListener('resize', () => { if (root?.isConnected) fit(); });
+  // drag (or wheel) the lane to look further ahead; a drag never counts as a tap on a quest
+  const inLane = e => { if (e.target.closest('.td-foot,.td-dawn,.td-verdict,.td-hud,.td-pill,.td-drg,.td-say,.td-poke,.td-back2,.td-add')) return false; const r = el.stage.getBoundingClientRect(); return (e.clientX - r.left) / k > 140; };
+  el.stage.addEventListener('pointerdown', e => { if (!inLane(e) || aim) return; scroll.drag = { y0: e.clientY, s0: scroll.to, id: e.pointerId, moved: false }; });
+  el.stage.addEventListener('pointermove', e => { const d = scroll.drag; if (!d || d.id !== e.pointerId) return; const dy = (d.y0 - e.clientY) / k;
+    if (!d.moved && Math.abs(dy) > 6) { d.moved = true; el.stage.setPointerCapture?.(e.pointerId); }
+    if (d.moved) { scroll.to = d.s0 + dy; scroll.at = Date.now(); e.preventDefault(); } });
+  const end = e => { const d = scroll.drag; if (!d || d.id !== e.pointerId) return; scroll.drag = null; if (d.moved) scroll.at = scroll.end = Date.now(); };
+  root.addEventListener('click', e => { if (Date.now() - (scroll.end || 0) < 350) { e.stopPropagation(); e.preventDefault(); } }, true);
+  el.stage.addEventListener('pointerup', end); el.stage.addEventListener('pointercancel', end);
+  el.stage.addEventListener('wheel', e => { if (!inLane(e)) return; e.preventDefault(); scroll.to += e.deltaY / k; scroll.at = Date.now(); }, { passive: false });
 }
 const SEEN = 'daybook-td-verdict-seen';
 /** The stage is drawn 390 wide and scaled to the screen; its height is whatever is left above the tab bar. */
@@ -139,7 +151,7 @@ function lane() {
     if (!c) { const b = document.createElement('div'); b.className = 'td-q'; el.lane.appendChild(b); c = { el: b, y: null }; cards.set(q.n.id, c); }
     c.q = q;
     const habit = !!q.n.rs, nt = esc(q.n.t || 'Untitled'), fog = live && R.curses.includes('fog') && q.e - nowMin() > 180;
-    const when = q.st === 'jaws' ? `<em>In his jaws</em>` : q.soft ? `by ${fmtT(q.e)}` : fmtT(q.s0);
+    const when = q.st === 'jaws' ? `<em>In his jaws</em>` : q.soft ? `by ${fmtT(q.e)}` : `${fmtT(q.s0).replace(/(am|pm)$/, fmtT(q.s0).slice(-2) === fmtT(q.e).slice(-2) ? '' : '$1')}–${fmtT(q.e)}`;
     const tag = q.boss ? '<i class="td-tag mk">Boss day · ×3</i>' : q.mark ? '<i class="td-tag mk">His mark · ×2</i>' : q.shield ? '<i class="td-tag sh">Shielded</i>' : q.bet ? '<i class="td-tag bt">Bet</i>' : q.sloth ? `<i class="td-tag cu">Sloth bit ${q.sloth}</i>` : q.wind ? '<i class="td-tag bt">Second Wind</i>' : q.left ? '<i class="td-tag">Leftover · half</i>' : habit && q.run ? `<i class="td-tag">↻ ${q.run} day${q.run === 1 ? '' : 's'}</i>` : '';
     const free = live && q.e - nowMin() >= FREE, lock = live && !free ? LOCK : '';
     const arrows = free ? `<span class="td-mv"><button data-td="up" data-id="${q.n.id}" aria-label="Move ${nt} earlier">▲</button><button data-td="down" data-id="${q.n.id}" aria-label="Move ${nt} later">▼</button></span>` : '';
@@ -151,26 +163,71 @@ function lane() {
   }
   place(true);
 }
+let anchors = [], base0 = 0;
 function targets() {
   const live = view === today(), m = live ? nowF() : null, base = view > today() ? Math.min(...R.Qs.map(q => q.e), 24 * 60) : m;
+  base0 = base; anchors = [];
   const L = [...cards.values()].filter(c => !c.leaving).sort((a, b) => a.q.e - b.q.e || a.q.s0 - b.q.s0);
   let prev = -1e9;
   for (const c of L) {
     const q = c.q;
-    let y = q.st === 'jaws' ? NOW_Y - 16 - Math.min(1, (m - q.e) / Math.max(1, q.by - q.e)) * 34 : NOW_Y + (q.e - base) * PPM + GAP / 2;
+    let y = q.st === 'jaws' ? NOW_Y - 16 - Math.min(1, (m - q.e) / Math.max(1, q.by - q.e)) * 34 : NOW_Y + (q.e - base) * PPM - HALF; // its bottom edge is the minute it reaches his jaws
     y = Math.max(y, prev + GAP); prev = y; c.ty = y;
+    if (q.st !== 'jaws') anchors.push([q.e, y + HALF]);
   }
   return L;
 }
 let crank = 0;
 function place(snap) {
-  for (const c of targets()) {
+  const L = targets();
+  // scrolling ahead: drag or wheel the lane; it drifts back to now after a while
+  const lastY = L.length ? L[L.length - 1].ty : NOW_Y, max = Math.max(0, lastY + 60 - (LH - 150));
+  if (!scroll.drag && Date.now() - scroll.at > 15000) scroll.to = 0;
+  scroll.to = Math.min(max, Math.max(0, scroll.to));
+  scroll.y += (scroll.to - scroll.y) * (snap || scroll.drag ? 1 : 0.18);
+  const off = crank - scroll.y;
+  for (const c of L) {
     if (c.y == null || snap && Math.abs(c.y - c.ty) > 300) c.y = c.ty;
     c.y += (c.ty - c.y) * (snap ? 1 : 0.12);
     const sh = c.q.st === 'jaws' && !reduce ? (Math.random() - 0.5) * 3 : 0;
-    c.el.style.transform = `translate(${sh}px,${(c.y - 25 + crank).toFixed(1)}px)`;
+    c.el.style.transform = `translate(${sh}px,${(c.y - HALF + off).toFixed(1)}px)`;
+  }
+  el.nowLine.style.transform = `translateY(${(-scroll.y).toFixed(1)}px)`;
+  el.back.hidden = scroll.to < 20;
+  ruler(off);
+}
+/** Where minute t of the day sits on the lane: steady time, stretched wherever quests are packed closer than a card apart. */
+function laneY(t) {
+  const A = [[base0, NOW_Y], ...anchors.filter(a => a[0] > base0)];
+  for (let i = A.length - 1; i >= 0; i--) if (t >= A[i][0]) {
+    const a = A[i], b = A[i + 1]; if (!b) return a[1] + (t - a[0]) * PPM;
+    return a[1] + (b[1] - a[1]) * (t - a[0]) / Math.max(1, b[0] - a[0]);
+  }
+  return NOW_Y + (t - base0) * PPM;
+}
+/** The time behind the quests: a line every half hour, the hours named, noon and 5pm marked as round ends, bedtime last. */
+const ticks = new Map();
+function ruler(off) {
+  const live = view === today() && !R.closed, show = (live || view > today()) && !R.off;
+  const want = new Set();
+  if (show) {
+    const bed = dragon.times().bed;
+    for (let t = Math.ceil((base0 + 1) / 30) * 30; t <= bed; t += 30) want.add(t);
+    want.add(bed);
+  }
+  for (const [t, e] of ticks) if (!want.has(t)) { e.remove(); ticks.delete(t); }
+  const bed = dragon.times().bed;
+  for (const t of want) {
+    let e = ticks.get(t);
+    if (!e) { e = document.createElement('div'); const hr = t % 60 === 0, end = t === 720 || t === 1020;
+      e.className = `td-tk${hr ? ' hr' : ''}${end ? ' end' : ''}${t === bed ? ' bed' : ''}`;
+      e.innerHTML = t === bed ? '<span>Bed</span>' : end ? `<span>${t === 720 ? 'Noon' : '5pm'}</span>` : hr ? `<span>${fmtT(t).replace(':00', '')}</span>` : '';
+      if (end || t === bed) e.title = t === bed ? `Bedtime ${fmtT(t)}: the day closes` : 'Round ends';
+      el.ruler.appendChild(e); ticks.set(t, e); }
+    e.style.transform = `translateY(${(laneY(t) + off).toFixed(1)}px)`;
   }
 }
+const scroll = { y: 0, to: 0, at: 0, drag: null };
 function foot() {
   const live = view === today();
   const eaten = live || view < today() ? R.Qs.filter(q => q.st === 'eaten') : [];
@@ -383,7 +440,7 @@ function realmView() {
 function lairView() {
   const tamed = S.goals.filter(g => g.status === 'tamed'), R2 = S.rank;
   return `${tabs('lair')}<h2>Your Lair</h2>
-    <div class="td-den">${tamed.length ? tamed.map((g, i) => `<button class="td-tm" data-td="goal" data-id="${g.id}" style="--i:${i}">${portrait(g, true)}<small>${esc(g.name.split(/[\s,]/)[0])}</small></button>`).join('') : '<p>No dragons tamed yet. Finish a big goal and his dragon moves in here.</p>'}<i class="td-pile"></i></div>
+    <div class="td-den">${tamed.length ? tamed.map((g, i) => `<button class="td-tamed" data-td="goal" data-id="${g.id}" style="--i:${i}">${portrait(g, true)}<small>${esc(g.name.split(/[\s,]/)[0])}</small></button>`).join('') : '<p>No dragons tamed yet. Finish a big goal and his dragon moves in here.</p>'}<i class="td-pile"></i></div>
     <h3>${R2.n} <small>Hunter rank${R2.next ? ` · ${R2.to} to ${R2.next.n}` : ' · the highest'}</small></h3>
     <span class="td-bar"><i style="width:${Math.round(R2.p * 100)}%"></i></span>
     <p class="td-dm">Every quest saved, dragon tamed and day in your best run raises it.</p>
@@ -400,7 +457,7 @@ function saved(q) {
   sfx[q.st === 'late' ? 'chase' : 'coin']();
   if (c) {
     c.leaving = true; c.el.classList.add('saved');
-    const y = c.y; c.el.innerHTML = `<span class="td-gold"><i></i>+${q.you}</span>`;
+    const y = c.y - scroll.y; c.el.innerHTML = `<span class="td-gold"><i></i>+${q.you}</span>`;
     coins(300, y, 330, 22, Math.min(12, 3 + q.you / 3 | 0));
     setTimeout(() => { c.el.remove(); cards.delete(q.n.id); }, 900);
   }
