@@ -55,7 +55,7 @@ const pileAt = slot => PILES[slot % PILES.length];
 const GATE = [0, 0, 19]; // world: the keep faces +z, so from the corner the gate is to the front left
 
 /* ---------- materials: light in three hard steps, and stone and wood get a little colour per face ---------- */
-let grad, VC;
+let grad, VC, GROUND, under;
 const mats = new Map();
 export const M = (hex, o = {}) => { const k = hex + JSON.stringify(o); if (!mats.has(k)) mats.set(k, new THREE.MeshToonMaterial({ color: hex, gradientMap: grad, ...o })); return mats.get(k); };
 let seed = 1;
@@ -115,7 +115,7 @@ function init() {
   R.setPixelRatio(1); R.setSize(PW, SH, false); R.shadowMap.enabled = true; R.shadowMap.type = THREE.BasicShadowMap;
   grad = new THREE.DataTexture(new Uint8Array([70, 70, 70, 255, 150, 150, 150, 255, 255, 255, 255, 255]), 3, 1, THREE.RGBAFormat);
   grad.minFilter = grad.magFilter = THREE.NearestFilter; grad.needsUpdate = true;
-  VC = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: grad });
+  VC = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: grad }); GROUND = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: grad, side: THREE.DoubleSide });
   WIN = M(0xffd070, { emissive: 0x402000 });
   scene = new THREE.Scene(); scene.background = new THREE.Color(0x2a4a20);
   sun = new THREE.DirectionalLight(0xffffff, 1); sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024);
@@ -182,7 +182,9 @@ function setLand(land) {
     for (let k = 0; k < 9; k++) out[f * 3 + k] = [c.r, c.g, c.b][k % 3];
   }
   g.setAttribute('color', new THREE.BufferAttribute(out, 3));
-  ground = add(g, VC, 0, 0, 0, scene, false);
+  if (!under) { under = add(new THREE.PlaneGeometry(4000, 4000).rotateX(-Math.PI / 2), new THREE.MeshToonMaterial({ gradientMap: grad }), 0, -40, 0, scene, false); under.receiveShadow = false; }
+  under.material.color.copy(base).multiplyScalar(.8); // far below, lit like the land, so whatever the near cut opens up reads as more ground
+  ground = add(g, GROUND, 0, 0, 0, scene, false); // both sides, so where the near cut slices a hill its inside shows as earth, not sky
 }
 
 /* trees fill the open meadow, clear of the keep, the roads, the river, the crag, the buildings and the gold */
