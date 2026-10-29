@@ -1,16 +1,17 @@
 // An old TV for Quest's pictures: the scene is drawn small, in pixels, then shown through this screen,
 // with scanlines, a glow around lights and fire, a color grille and a slight curve to the glass.
 // Michael tuned it himself: scanlines 80, glow 60, curve 20, color grille 80.
-export const TV = { scan: .8, glow: .6, curve: .2, grille: .8, aber: .6, vig: .52, flick: .5 };
+export const TV = { scan: .8, glow: .6, curve: .2, grille: .8, aber: .6, vig: .52, flick: .5, post: 0 }; // post: colour levels per channel (0 = all)
 
 const VS = 'attribute vec2 p;varying vec2 uv;void main(){uv=p*.5+.5;uv.y=1.-uv.y;gl_Position=vec4(p,0.,1.);}';
-const FS = `precision mediump float;varying vec2 uv;uniform sampler2D tex;uniform vec2 src;uniform float curve,scan,glow,grille,aber,flick,vig,time;
+const FS = `precision mediump float;varying vec2 uv;uniform sampler2D tex;uniform vec2 src;uniform float curve,scan,glow,grille,aber,flick,vig,time,post;
 vec3 at(vec2 q){return texture2D(tex,(floor(q*src)+.5)/src).rgb;}
+vec3 lv(vec3 c){return post>0.?floor(c*post+.5)/post:c;}
 vec3 soft(vec2 q){vec2 f=fract(q*src)-.5;vec2 b=(floor(q*src)+.5)/src;return mix(texture2D(tex,b).rgb,texture2D(tex,b+vec2(sign(f.x)/src.x,0.)).rgb,abs(f.x)*.35*scan);}
 void main(){
   vec2 p=uv*2.-1.;vec2 o=abs(p.yx)/vec2(5.5,4.5);p+=p*o*o*curve*2.2;vec2 q=p*.5+.5;
   if(q.x<0.||q.y<0.||q.x>1.||q.y>1.){gl_FragColor=vec4(0.,0.,0.,1.);return;}
-  vec3 col;float a=aber/src.x;col.r=soft(q+vec2(a,0.)).r;col.g=soft(q).g;col.b=soft(q-vec2(a,0.)).b;
+  vec3 col;float a=aber/src.x;col.r=lv(soft(q+vec2(a,0.))).r;col.g=lv(soft(q)).g;col.b=lv(soft(q-vec2(a,0.))).b;
   vec3 bl=vec3(0.);for(int i=-2;i<=2;i++)for(int j=-2;j<=2;j++){vec3 s=at(q+vec2(float(i),float(j))*1.6/src);float l=max(s.r,max(s.g,s.b));bl+=s*smoothstep(.62,1.,l)*clamp(.35+(s.r-s.b)*1.6,0.,1.);}
   col+=bl/25.*glow*2.4;
   col*=mix(1.,.62+.38*sin(fract(q.y*src.y)*3.14159),scan);
