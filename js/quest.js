@@ -773,8 +773,9 @@ if (typeof addEventListener !== 'undefined') {
   addEventListener('keydown', e => { if (e.key === 'Escape' && size === 'full' && sizing && document.contains(sizing.el)) sizing.setSize('strip'); });
   addEventListener('resize', () => { if (size === 'full' && sizing && document.contains(sizing.el)) sizing.fit(); });
 }
-/** Touch the picture to look around: drag to pan, pinch to zoom, twist with two fingers to turn (on a computer: drag,
-    scroll to zoom, and shift-drag or right-drag to turn). Double-tap puts it back. */
+/** Touch the picture to look around, like a 3D app: drag with one finger to orbit (around and up or down), drag with two
+    to pan, pinch to zoom (on a computer: drag to orbit, shift-drag or right-drag to pan, scroll to zoom). Double-tap puts it back. */
+const ORBIT = 3.2; // how far a drag across the whole picture turns it, in radians
 function controls(el, R) {
   const pts = new Map(), sz = el.parentNode.querySelector('.q-size');
   const fit = () => { const sc = el.parentNode; sc.classList.toggle('full', size === 'full'); el.style.aspectRatio = `${SW} / ${heightOf()}`; if (sz) sz.dataset.v = size; };
@@ -790,9 +791,9 @@ function controls(el, R) {
   el.onpointermove = e => {
     const p = pts.get(e.pointerId); if (!p) return;
     const dx = e.clientX - p.x, dy = e.clientY - p.y, w = el.clientWidth; p.x = e.clientX; p.y = e.clientY; moved += Math.abs(dx) + Math.abs(dy);
-    if (pts.size >= 2) { const q = pair(); if (prev) nudge(q.x - prev.x, q.y - prev.y, w, q.d / Math.max(1, prev.d), prev.ang - q.ang); prev = q; }
-    else if (p.turn) nudge(0, 0, w, 1, -dx / w * 3);
-    else nudge(dx, dy, w);
+    if (pts.size >= 2) { const q = pair(); if (prev) nudge(q.x - prev.x, q.y - prev.y, w, q.d / Math.max(1, prev.d)); prev = q; }
+    else if (p.turn) nudge(dx, dy, w);
+    else nudge(0, 0, w, 1, -dx / w * ORBIT, dy / w * ORBIT);
     show();
   };
   el.onpointerup = el.onpointercancel = e => {

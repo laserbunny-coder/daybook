@@ -114,20 +114,22 @@ function build3d() {
   K = { view, scene, cam, aimed: '', land, cols, lm, lmFaces, deco, fogG, borders, marks, flags, drg, wings, rain, ray, wx, wz, groundAt, last: '' };
 }
 /* The person's own view of the map: drag to pan, pinch to zoom, twist to turn, double-tap to put it back */
-const A = .61, EL = 42 * Math.PI / 180, FW = 212, mv = { x: 0, z: 0, zoom: 1, rot: 0 };
+const A = .61, EL = 42 * Math.PI / 180, FW = 212, mv = { x: 0, z: 0, zoom: 1, rot: 0, tilt: 0 };
+const elev = () => Math.min(1.45, Math.max(.3, EL + mv.tilt));
 // on a tall phone screen the island is turned to run up the screen, and drawn bigger
 const base = () => SH > SW * 1.4 ? { rot: ROT, zoom: ZOOM } : { rot: 0, zoom: 1 };
 const ROT = .7, ZOOM = 1.45;
 function aim() {
-  const b = base(), k = [mv.x, mv.z, mv.zoom, mv.rot, SH].join(); if (k === K.aimed) return; K.aimed = k;
-  const cam = K.cam, a = A + mv.rot + b.rot, r = 300, fh = FW * SH / SW, lx = 4 + mv.x, lz = -6 + mv.z;
+  const b = base(), k = [mv.x, mv.z, mv.zoom, mv.rot, mv.tilt, SH].join(); if (k === K.aimed) return; K.aimed = k;
+  const cam = K.cam, e = elev(), a = A + mv.rot + b.rot, r = 300, fh = FW * SH / SW, lx = 4 + mv.x, lz = -6 + mv.z;
   Object.assign(cam, { left: -FW / 2, right: FW / 2, top: fh / 2, bottom: -fh / 2, zoom: mv.zoom * b.zoom });
-  cam.position.set(lx + Math.sin(a) * r * Math.cos(EL), r * Math.sin(EL), lz + Math.cos(a) * r * Math.cos(EL)); cam.lookAt(lx, 0, lz); cam.updateProjectionMatrix();
+  cam.position.set(lx + Math.sin(a) * r * Math.cos(e), r * Math.sin(e), lz + Math.cos(a) * r * Math.cos(e)); cam.lookAt(lx, 0, lz); cam.updateProjectionMatrix();
 }
-function nudge(dx, dy, w, zoom = 1, turn = 0) {
-  const b = base(), a = A + mv.rot + b.rot, s = FW / (mv.zoom * b.zoom) / Math.max(1, w);
-  mv.x -= (Math.cos(a) * dx + Math.sin(a) * dy / Math.sin(EL)) * s;
-  mv.z -= (-Math.sin(a) * dx + Math.cos(a) * dy / Math.sin(EL)) * s;
+function nudge(dx, dy, w, zoom = 1, turn = 0, tilt = 0) {
+  const b = base(), e = elev(), a = A + mv.rot + b.rot, s = FW / (mv.zoom * b.zoom) / Math.max(1, w);
+  mv.x -= (Math.cos(a) * dx + Math.sin(a) * dy / Math.sin(e)) * s;
+  mv.z -= (-Math.sin(a) * dx + Math.cos(a) * dy / Math.sin(e)) * s;
+  mv.tilt = Math.min(1.45 - EL, Math.max(.3 - EL, mv.tilt + tilt));
   const d = Math.hypot(mv.x, mv.z); if (d > 110) { mv.x *= 110 / d; mv.z *= 110 / d; }
   mv.zoom = Math.min(4, Math.max(.6, mv.zoom * zoom)); mv.rot += turn;
 }
@@ -202,8 +204,8 @@ function draw() {
   if (!K) k3.whenReady(() => { if (!K && window.THREE) { build3d(); if (!el.hidden) draw(); } });
   clearInterval(anim); if (!matchMedia('(prefers-reduced-motion: reduce)').matches) anim = setInterval(() => { if (el.hidden || !el.querySelector('#kg-map')) { clearInterval(anim); return; } tick += 1; show(); }, 80);
 }
-/** Touch on the map: a tap picks a region, a drag pans, a pinch zooms, a twist turns; a double-tap puts the view back.
-    On a computer: drag, scroll to zoom, shift-drag or right-drag to turn. */
+/** Touch on the map: a tap picks a region, a one-finger drag orbits, a two-finger drag pans, a pinch zooms; a double-tap
+    puts the view back. On a computer: drag to orbit, shift-drag or right-drag to pan, scroll to zoom. */
 function touch(cv, show) {
   const pts = new Map(); let last = 0, moved = 0, prev = null;
   const pair = () => { const [a, b] = [...pts.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(b.x - a.x, b.y - a.y), ang: Math.atan2(b.y - a.y, b.x - a.x) }; };
@@ -211,15 +213,15 @@ function touch(cv, show) {
   cv.onpointermove = e => {
     const p = pts.get(e.pointerId); if (!p) return;
     const dx = e.clientX - p.x, dy = e.clientY - p.y, w = cv.clientWidth; p.x = e.clientX; p.y = e.clientY; moved += Math.abs(dx) + Math.abs(dy);
-    if (pts.size >= 2) { const q = pair(); if (prev) nudge(q.x - prev.x, q.y - prev.y, w, q.d / Math.max(1, prev.d), prev.ang - q.ang); prev = q; moved += 10; }
-    else if (p.turn) nudge(0, 0, w, 1, -dx / w * 3);
-    else nudge(dx, dy, w);
+    if (pts.size >= 2) { const q = pair(); if (prev) nudge(q.x - prev.x, q.y - prev.y, w, q.d / Math.max(1, prev.d)); prev = q; moved += 10; }
+    else if (p.turn) nudge(dx, dy, w);
+    else nudge(0, 0, w, 1, -dx / w * 3.2, dy / w * 3.2);
     show();
   };
   cv.onpointerup = cv.onpointercancel = e => {
     const one = pts.size === 1; pts.delete(e.pointerId); prev = pts.size === 2 ? pair() : null;
     if (e.type !== 'pointerup' || !one || moved >= 6) return;
-    if (performance.now() - last < 320) { Object.assign(mv, { x: 0, z: 0, zoom: 1, rot: 0 }); last = 0; show(); return; }
+    if (performance.now() - last < 320) { Object.assign(mv, { x: 0, z: 0, zoom: 1, rot: 0, tilt: 0 }); last = 0; show(); return; }
     last = performance.now();
     const r = regionAtTap(cv, e); if (r && r.id !== 'vale' && r.id !== sel) { sel = r.id; askRetreat = false; draw(); }
   };
