@@ -578,6 +578,10 @@ function reportCard(B) {
 /* ---------- the picture: the village (or a campaign camp) and the dragon, in 3D from a corner, drawn tiny (keep3d.js, crt.js) ---------- */
 const CAMP = [[0, 'Campfire'], [40, 'Tent'], [100, 'Hut'], [180, 'Well'], [280, 'Watchtower']]; // a campaign's camp grows on the gold kept there
 const src = typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: SW, height: SH }) : null;
+// The picture's size: a strip over the list, taller, or the whole screen. The button in its corner steps through them.
+const SIZES = ['strip', 'tall', 'full'], SIZE = 'daybook-keep-size';
+let size = SIZES.includes(lsGet(SIZE, 'strip')) ? lsGet(SIZE, 'strip') : 'strip';
+const heightOf = () => size === 'tall' ? 208 : size === 'full' && typeof innerWidth !== 'undefined' ? Math.max(SH, Math.min(560, Math.round(SW * innerHeight / Math.max(1, innerWidth) / 2) * 2)) : SH;
 /** What the picture shows right now. */
 export function sceneOf(R) {
   const C = R.camp?.begun ? R.camp : null, m = new Date().getHours() * 60 + new Date().getMinutes();
@@ -627,7 +631,8 @@ function happenings(R) {
   seen = now;
 }
 export function draw(R, tick = 0) {
-  const scr = screen('quest', SW, SH); paint(src, sceneOf(R), tick); scr.show(src);
+  const h = heightOf(); if (src.height !== h) src.height = h;
+  const scr = screen('quest', SW, h); paint(src, sceneOf(R), tick); scr.show(src);
   const el = document.getElementById('q-canvas'); if (el?.querySelector('canvas') && scr.cv.parentNode !== el) mount(scr, el, el.dataset.label); // a new screen, after the phone dropped the old one
   return scr;
 }
@@ -733,7 +738,7 @@ export function html(d, R, opts = {}) {
   const wk = week(R, d).map(w => `<div class="qw-d${w.d === d ? ' on' : ''}"><i class="${w.res === 'W' ? 'w' : w.res === 'L' ? 'l' : w.res === 'rest' ? 'r' : w.res === 'live' ? 't' : ''}">${w.res === 'W' || w.res === 'L' ? w.res : w.res === 'rest' ? '–' : w.res === 'live' ? '•' : ''}</i>${DAYN[pd(w.d).getDay()]}</div>`).join('');
   const wins = week(R, d).filter(w => w.res === 'W').length, losses = week(R, d).filter(w => w.res === 'L').length;
   return `<div class="qv">${d === T ? intro() : ''}
-    <div class="q-scene"><button class="q-reset" hidden title="Back to the usual view" aria-label="Reset the view"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 8a5 5 0 1 0 1.6-3.7"/><path d="M3 2.5v2.8h2.8"/></svg></button><div id="q-canvas" class="q-tv" data-label="${esc(C?.begun ? `Your camp in ${C.reg.name}` : `Your village${n ? ': ' + raised(R.vault).join(', ') : ''}`)}, and the dragon on its crag"></div>
+    <div class="q-scene"><button class="q-size" title="Change the picture's size" aria-label="Change the picture's size"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5H2.5V6M10 2.5h3.5V6M6 13.5H2.5V10M10 13.5h3.5V10"/></svg></button><button class="q-reset" hidden title="Back to the usual view" aria-label="Reset the view"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 8a5 5 0 1 0 1.6-3.7"/><path d="M3 2.5v2.8h2.8"/></svg></button><div id="q-canvas" class="q-tv" data-label="${esc(C?.begun ? `Your camp in ${C.reg.name}` : `Your village${n ? ': ' + raised(R.vault).join(', ') : ''}`)}, and the dragon on its crag"></div>
       <div class="q-tags"><span>${esc(C?.begun ? C.reg.name : rankName(R.vault))}${R.streak ? ` · ${R.streak} day streak` : ''}</span><span class="dr">${esc(C?.begun ? C.reg.dragon : D.name)}</span></div></div>
     ${d === T && !r.before ? (C?.begun ? buildBar(CAMP, C.gold, 'camp') : buildBar(BUILDINGS, R.vault, 'vale')) : ''}
     ${d === T ? pickCard(R) : ''}
@@ -763,11 +768,20 @@ export function html(d, R, opts = {}) {
     </div>
   </div>`;
 }
-let anim = 0, tick = 0;
+let anim = 0, tick = 0, sizing = null;
+if (typeof addEventListener !== 'undefined') {
+  addEventListener('keydown', e => { if (e.key === 'Escape' && size === 'full' && sizing && document.contains(sizing.el)) sizing.setSize('strip'); });
+  addEventListener('resize', () => { if (size === 'full' && sizing && document.contains(sizing.el)) sizing.fit(); });
+}
 /** Touch the picture to look around: drag to pan, pinch to zoom, twist with two fingers to turn (on a computer: drag,
     scroll to zoom, and shift-drag or right-drag to turn). Double-tap, or the button in the corner, puts it back. */
 function controls(el, R) {
-  const btn = el.parentNode.querySelector('.q-reset'), pts = new Map();
+  const btn = el.parentNode.querySelector('.q-reset'), pts = new Map(), sz = el.parentNode.querySelector('.q-size');
+  const fit = () => { const sc = el.parentNode; sc.classList.toggle('full', size === 'full'); el.style.aspectRatio = `${SW} / ${heightOf()}`; if (sz) sz.dataset.v = size; };
+  fit();
+  const setSize = v => { size = v; lsSet(SIZE, v === 'full' ? 'tall' : v); fit(); draw(R, tick); }; // the whole screen isn't kept for next time
+  if (sz) sz.onclick = () => setSize(SIZES[(SIZES.indexOf(size) + 1) % SIZES.length]);
+  sizing = { setSize, fit: () => { fit(); draw(R, tick); }, el };
   let last = 0, moved = 0, prev = null;
   const show = () => { if (btn) btn.hidden = !viewMoved(); draw(R, tick); };
   const reset = () => { resetView(); show(); };
