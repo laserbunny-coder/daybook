@@ -709,6 +709,21 @@ function intro() {
 const listOf = a => a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
 const STATE_TXT = { kept: 'Safe in the keep', late: 'Chased down: half back', taken: 'Taken', open: '' };
 const moveTxt = q => q.pushed != null ? (q.pushed >= 0 ? `Pushed back to ${fmtT(q.pushed)}` : 'Its time taken off') + (q.full ? ' after its time: the dragon keeps it, finish it to win it back' : ', a tenth to the dragon') : q.free ? 'Moved for free: the Hydra Scale paid' : `${q.to ? 'Moved to ' + (q.to === today() ? 'today' : DAYN[pd(q.to).getDay()] + ' ' + pd(q.to).getDate()) : 'Taken off the plan'}, swiped`;
+/** The dragon's two meters: his size (the gold he took in the last 7 days, looks only) and how hard he hunts (your win streak). */
+function dragonCard(R) {
+  const D = DRAGONS[R.lvl], nd = DRAGONS[R.lvl + 1], H = R.hunt, hi = HUNTS.indexOf(H), nh = HUNTS[hi + 1];
+  const meter = (v, a, b, cls) => `<div class="qd-m ${cls}"><i style="width:${b == null ? 100 : Math.min(100, (v - a) / (b - a) * 100).toFixed(1)}%"></i></div>`;
+  const wins = n => `${n} win${n === 1 ? '' : 's'}`;
+  return `<div class="q-drag">
+    <div class="qd-h"><i class="q-face" aria-hidden="true"></i><b>The dragon</b><span>${esc(D.name)}, ${esc(H.name)}</span></div>
+    <div class="qd-row"><div class="qd-l"><small>Size</small><b class="dr">${esc(D.name)}</b><em>${R.last7} gold taken in 7 days</em></div>
+      ${meter(R.last7, D.at, nd?.at, 'size')}
+      <p>${nd ? `<b class="dr">${nd.at - R.last7} more gold</b> and he grows into a ${esc(nd.name.toLowerCase())}.` : 'As big as he gets.'} He shrinks as bad days pass out of the week. Size is only for show.</p></div>
+    <div class="qd-row"><div class="qd-l"><small>Hunt</small><b>${esc(H.name[0].toUpperCase() + H.name.slice(1))}</b><em>${R.streak ? `${wins(R.streak)} in a row` : 'No streak yet'}</em></div>
+      ${meter(R.streak, H.at, nh?.at, 'hunt')}
+      <p>He dives <b>${H.grace} min</b> after a quest's time ends${H.boost > 1 ? `, and your kept gold builds <b class="you">×${H.boost}</b>` : ''}. ${nh ? `<b>${wins(nh.at - R.streak)} more</b> and he starts ${esc(nh.name)}: ${nh.grace} min, gold ×${nh.boost}.` : 'He can\'t hunt any harder.'} A lost day puts him back to sleep.</p></div>
+  </div>`;
+}
 export function html(d, R, opts = {}) {
   const r = dayView(d, R), T = today(), D = DRAGONS[R.lvl], H = R.hunt, C = d === today() ? R.camp : null, B = d === today() ? report(R) : null;
   const sec = r.ahead ? 0 : r.secured, fld = r.ahead ? r.total : r.field, all = Math.max(1, r.total + r.bonus), linePct = WIN * r.total / all * 100;
@@ -766,13 +781,13 @@ export function html(d, R, opts = {}) {
     ${opts.noHabits && d >= T ? `<div class="q-setup"><b>Set up your routine</b><p>Tell Claude about your ideal day and it drafts your daily habits. Every habit becomes a quest the dragon watches.</p><button class="q-btn" data-act="q-routine">Set up with Claude</button></div>` : ''}
     <div class="q-list">${rows || `<div class="q-empty">No quests on this day. Plan a task or a habit for it, and the dragon will start watching.</div>`}${opts.adder || ''}</div>
     ${hoardBox}
+    ${dragonCard(R)}
     <div class="q-foot">
       <div class="q-week">${wk}</div>
       <p>This week: <b class="you">the keep held ${wins}</b>, <b class="dr">the dragon won ${losses}</b>${B?.closed ? ` · <button class="q-link" data-act="q-report" data-w="${B.ws}">Read The Dragon's Due</button>` : ''}</p>
       <p class="q-help"><button class="q-link" data-act="q-help">How it works</button> · <button class="q-link" data-act="q-sound" aria-pressed="${sfx.on()}">Sound ${sfx.on() ? 'on' : 'off'}</button></p>
       <p class="q-vault">Vault <b>${R.vault.toLocaleString()} gold</b>${next ? ` · next, ${next[1] ? esc(a_n(next[1])) : 'your choice'} at ${next[0].toLocaleString()}` : ' · the castle is complete'}</p>
       ${opts.remind ? `<div class="q-tool"><p>${esc(opts.remind.txt)}</p>${opts.remind.act ? `<button class="q-btn${opts.remind.act === 'off' ? ' quiet' : ''}" data-act="q-remind" data-v="${opts.remind.act}">${esc(opts.remind.btn)}</button>` : ''}</div>` : ''}
-      <p class="q-dragon">${!R.streak ? 'No streak yet, so the dragon is dozing' : H.boost > 1 ? `You've held the keep ${R.streak} day${R.streak > 1 ? 's' : ''} in a row, and a rich town draws a hungrier dragon: it's ${H.name}` : `You've held the keep ${R.streak} day${R.streak > 1 ? 's' : ''} in a row. The dragon is still dozing`}. It circles for ${H.grace} minutes after a quest's time ends, then dives${H.boost > 1 ? `, and your kept gold builds ×${H.boost}` : ''}. ${HUNTS.find(x => x.at > R.streak) ? `At ${HUNTS.find(x => x.at > R.streak).at} wins it starts ${HUNTS.find(x => x.at > R.streak).name}. ` : ''}It's a ${esc(D.name.toLowerCase())}, fat on the ${R.last7} gold it took this week.</p>
     </div>
   </div>`;
 }
