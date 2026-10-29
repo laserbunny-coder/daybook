@@ -456,25 +456,27 @@ function resize(h) {
   POST = inkPass(rt); quad.material = POST;
 }
 /* ---------- the person's own view: pan, zoom and turn the camera with their fingers ---------- */
-export const view = { x: 0, z: 0, zoom: 1, rot: 0 };
+export const view = { x: 0, z: 0, zoom: 1, rot: 0, tilt: 0 };
+const elev = () => Math.min(1.45, Math.max(.3, EL + view.tilt)); // the camera's height as an angle, kept between a low look and straight down
 const VK = 105 / 224 / .8;
 let aimed = '';
 function aim() {
-  const k = [view.x, view.z, view.zoom, view.rot].join(); if (k === aimed) return; aimed = k;
-  const a = A + view.rot, [lx, lz] = at(6, 2), x = lx + view.x, z = lz + view.z, r = 200;
-  cam.position.set(x + Math.sin(a) * r * Math.cos(EL), 4 + r * Math.sin(EL), z + Math.cos(a) * r * Math.cos(EL)); cam.lookAt(x, 4, z);
+  const k = [view.x, view.z, view.zoom, view.rot, view.tilt].join(); if (k === aimed) return; aimed = k;
+  const a = A + view.rot, e = elev(), [lx, lz] = at(6, 2), x = lx + view.x, z = lz + view.z, r = 200;
+  cam.position.set(x + Math.sin(a) * r * Math.cos(e), 4 + r * Math.sin(e), z + Math.cos(a) * r * Math.cos(e)); cam.lookAt(x, 4, z);
   cam.zoom = view.zoom * FIT; cam.updateProjectionMatrix();
 }
-/** Move the view by a drag of dx, dy screen pixels on a picture w pixels wide, zoom by a factor, turn by an angle. */
-export function nudge(dx, dy, w, zoom = 1, turn = 0) {
-  const a = A + view.rot, s = SW * VK / (view.zoom * FIT) / Math.max(1, w);
-  view.x -= (Math.cos(a) * dx + Math.sin(a) * dy / Math.sin(EL)) * s;
-  view.z -= (-Math.sin(a) * dx + Math.cos(a) * dy / Math.sin(EL)) * s;
+/** Move the view by a drag of dx, dy screen pixels on a picture w pixels wide, zoom by a factor, turn around and tilt by angles. */
+export function nudge(dx, dy, w, zoom = 1, turn = 0, tilt = 0) {
+  const a = A + view.rot, e = elev(), s = SW * VK / (view.zoom * FIT) / Math.max(1, w);
+  view.x -= (Math.cos(a) * dx + Math.sin(a) * dy / Math.sin(e)) * s;
+  view.z -= (-Math.sin(a) * dx + Math.cos(a) * dy / Math.sin(e)) * s;
+  view.tilt = Math.min(1.45 - EL, Math.max(.3 - EL, view.tilt + tilt));
   const d = Math.hypot(view.x, view.z); if (d > 70) { view.x *= 70 / d; view.z *= 70 / d; }
   view.zoom = Math.min(3.5, Math.max(.6, view.zoom * zoom)); view.rot += turn;
 }
-export const resetView = () => Object.assign(view, { x: 0, z: 0, zoom: 1, rot: 0 });
-export const viewMoved = () => Math.abs(view.x) + Math.abs(view.z) > .5 || Math.abs(view.zoom - 1) > .02 || Math.abs(view.rot) > .02;
+export const resetView = () => Object.assign(view, { x: 0, z: 0, zoom: 1, rot: 0, tilt: 0 });
+export const viewMoved = () => Math.abs(view.x) + Math.abs(view.z) > .5 || Math.abs(view.zoom - 1) > .02 || Math.abs(view.rot) > .02 || Math.abs(view.tilt) > .02;
 let sig = {}, lastMs = 0, lastT = 0;
 export function paint(cv, Sc, t) {
   load();
