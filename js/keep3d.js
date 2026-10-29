@@ -103,11 +103,11 @@ function init() {
   qcam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), POST); qs = new THREE.Scene(); qs.add(quad);
 
   // ground, river, roads and the crag never change
-  groundGeo = new THREE.PlaneGeometry(260, 260, 52, 52); groundGeo.rotateX(-Math.PI / 2);
+  groundGeo = new THREE.PlaneGeometry(640, 640, 96, 96); // wide enough that zooming out or turning never reaches its edge groundGeo.rotateX(-Math.PI / 2);
   { const p = groundGeo.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, Math.sin(p.getX(i) * .15) * Math.cos(p.getZ(i) * .12) * .3); groundGeo.computeVertexNormals(); }
   setLand('vale');
   const strip = (a, b, w, mat, y = .08) => { const [ax, az] = at(...a), [bx, bz] = at(...b), m = add(box(w, .12, Math.hypot(bx - ax, bz - az)), mat, (ax + bx) / 2, y, (az + bz) / 2, scene, false); m.rotation.y = Math.atan2(bx - ax, bz - az); return m; };
-  strip([-47, -80], [-47, 80], 9, M(0x6a5a40), .05); strip([-47, -80], [-47, 80], 7, M(C.water), .14); // the river and its banks
+  strip([-47, -320], [-47, 320], 9, M(0x6a5a40), .05); strip([-47, -320], [-47, 320], 7, M(C.water), .14); // the river and its banks
   { const m = add(box(6, .14, 60), M(C.dirt), 0, .08, 49, scene, false); } // the road south from the gate
   strip(at2s(0, 30), [-62, at2s(0, 30)[1]], 5, M(C.dirt)); // and west to the bridge
   { const [x, z] = at(-47, at2s(0, 30)[1]), b = new THREE.Group(); b.position.set(x, 0, z); b.rotation.y = -A; scene.add(b);
@@ -156,16 +156,38 @@ function free(sx, sz, pad) {
   if (PILES.some(([x, z]) => Math.hypot(sx - x, sz - z) < 5 + pad)) return false;
   return true;
 }
-function trees() {
-  const placed = [];
-  for (let i = 0; i < 400 && placed.length < 34; i++) {
-    const sx = -66 + rnd(i + 70) * 136, sz = -50 + rnd(i + 170) * 100;
-    if (!free(sx, sz, 2) || placed.some(([x, z]) => Math.hypot(x - sx, z - sz) < 7)) continue;
-    placed.push([sx, sz]); const [x, z] = at(sx, sz), t = new THREE.Group(); t.position.set(x, 0, z); t.scale.setScalar(.8 + rnd(i) * .4); scene.add(t);
-    add(new THREE.CylinderGeometry(.45, .7, 3, 6), M(C.wood), 0, 1.5, 0, t);
-    if (i % 3 === 0) { for (let j = 0; j < 3; j++) addJ(new THREE.ConeGeometry(3.2 - j * .7, 4.4 - j * .4, 6), C.pine, 0, 4 + j * 1.7, 0, t, .07); continue; }
-    [[0, 5, 0, 3], [-1.6, 4.4, 1, 2.2], [1.5, 6.2, -.6, 2.1]].forEach(([bx, by, bz, r], j) => addJ(new THREE.IcosahedronGeometry(r, 0), j % 2 ? C.leaf2 : C.leaf, bx, by, bz, t, .08));
+// woods beyond the meadow: thicker where this gentle noise is high, so they gather into groves rather than an even scatter
+const wood = (sx, sz) => Math.sin(sx * .045 + 1.3) * Math.cos(sz * .05 - .7) + Math.sin((sx + sz) * .021) * .6;
+/** Many small static things as one mesh, so the phone draws them all at once. */
+function merge(groups) {
+  const parts = [];
+  for (const g of groups) {
+    g.updateMatrixWorld(true);
+    g.traverse(o => { if (!o.isMesh) return; let geo = o.geometry.attributes.color ? (o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone()) : jit(o.geometry.clone(), o.material.color.getHex(), .04); geo.applyMatrix4(o.matrixWorld); parts.push(geo); });
   }
+  const n = parts.reduce((a, p) => a + p.attributes.position.count, 0), out = new THREE.BufferGeometry();
+  for (const k of ['position', 'normal', 'color']) { const arr = new Float32Array(n * 3); let o = 0; for (const p of parts) { arr.set(p.attributes[k].array, o); o += p.attributes[k].array.length; } out.setAttribute(k, new THREE.BufferAttribute(arr, 3)); }
+  return out;
+}
+function trees() {
+  const forest = [], placed = [], near = (sx, sz, d) => placed.some(([x, z]) => Math.hypot(x - sx, z - sz) < d);
+  const tree = (sx, sz, i) => {
+    placed.push([sx, sz]); const [x, z] = at(sx, sz), t = new THREE.Group(); t.position.set(x, 0, z); t.scale.setScalar(.8 + rnd(i) * .4); t.rotation.y = rnd(i + 9) * 6.28; forest.push(t);
+    add(new THREE.CylinderGeometry(.45, .7, 3, 6), M(C.wood), 0, 1.5, 0, t);
+    if (i % 3 === 0) { for (let j = 0; j < 3; j++) addJ(new THREE.ConeGeometry(3.2 - j * .7, 4.4 - j * .4, 6), C.pine, 0, 4 + j * 1.7, 0, t, .07); return; }
+    [[0, 5, 0, 3], [-1.6, 4.4, 1, 2.2], [1.5, 6.2, -.6, 2.1]].forEach(([bx, by, bz, r], j) => addJ(new THREE.IcosahedronGeometry(r, 0), j % 2 ? C.leaf2 : C.leaf, bx, by, bz, t, .08));
+  };
+  // the meadow around the village: a light scatter
+  for (let i = 0; i < 400 && placed.length < 34; i++) { const sx = -66 + rnd(i + 70) * 136, sz = -50 + rnd(i + 170) * 100; if (free(sx, sz, 2) && !near(sx, sz, 7)) tree(sx, sz, i); }
+  // and the woods all around it, out past where the camera can go
+  for (let i = 0; i < 2600 && placed.length < 190; i++) {
+    const sx = -240 + rnd(i + 900) * 480, sz = -190 + rnd(i + 3100) * 380, out = Math.max(Math.abs(sx) / 70, Math.abs(sz) / 54);
+    if (out < 1 || Math.abs(sx + 47) < 9 || wood(sx, sz) < .15 - Math.min(.5, (out - 1) * .25) || near(sx, sz, 6.5)) continue;
+    tree(sx, sz, i + 500);
+  }
+  // a few boulders among the grass
+  for (let i = 0; i < 18; i++) { const sx = -150 + rnd(i + 77) * 300, sz = -120 + rnd(i + 99) * 240; if (!free(sx, sz, 3) || near(sx, sz, 5) || Math.abs(sx + 47) < 8) continue; const [x, z] = at(sx, sz), b = new THREE.Group(); addJ(new THREE.DodecahedronGeometry(1.2 + rnd(i) * 1.4, 0), i % 2 ? C.rock : 0x8a8074, x, .6, z, b, .1); forest.push(b); }
+  add(merge(forest), VC, 0, 0, 0, scene);
 }
 
 /* ---------- the keep: 0 campfire, 1 wooden fort, 2 stone keep, 3 with its great hall, 4 walls and towers, 5 banners, 6 castle ---------- */
