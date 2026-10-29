@@ -1734,12 +1734,28 @@ button.q-say.poked .q-face{animation:q-poke .5s}
 .td-den{position:relative;min-height:120px;padding:14px 10px 30px;border-radius:12px;background:linear-gradient(#2a1a14,#1a0e0a);display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;justify-content:center;overflow:hidden}
 .td-den p{color:#d9c9ae;font-size:13.5px;text-align:center;position:relative;z-index:1}
 .td-pile{position:absolute;left:-10%;right:-10%;bottom:-30px;height:60px;border-radius:50%;background:radial-gradient(ellipse at 50% 30%,#ffdc7a,#c98a2a 50%,#4a2a10)}
-.td-tm{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;border:0;background:none;color:#f3e4c4;font:inherit;cursor:pointer;animation:td-doze 4s ease-in-out infinite;animation-delay:calc(var(--i) * -.7s)}
-.td-tm small{font:700 11px 'Alegreya SC',serif}
+.td-tamed{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;border:0;background:none;color:#f3e4c4;font:inherit;cursor:pointer;animation:td-doze 4s ease-in-out infinite;animation-delay:calc(var(--i) * -.7s)}
+.td-tamed small{font:700 11px 'Alegreya SC',serif}
 @keyframes td-doze{50%{transform:translateY(-3px) rotate(-2deg)}}
 .td-tro{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .td-tro li{display:flex;flex-direction:column;padding:6px 8px;border-radius:10px;background:rgba(255,255,255,.4)}
 .td-tro b{font:700 18px 'Alegreya SC',serif;color:#7a4a00}.td-tro small{font:400 11px 'Alegreya Sans',sans-serif;letter-spacing:0;color:#6a4422}
-@media (prefers-reduced-motion:reduce){.td-tm{animation:none}}
+@media (prefers-reduced-motion:reduce){.td-tamed{animation:none}}
 .td-dc .td-tro li{animation:none}
 .td-dc>.td-bar{display:block;flex:none;min-height:8px}
+
+/* Task Dragon, the time behind the quests: half-hour lines, named hours, round ends and bedtime; compact cards; scroll ahead */
+.td-stage{touch-action:none}.td-dawn{touch-action:pan-y}
+.td-q{height:42px;padding:0 7px 0 6px}
+.td-q .td-ck{width:20px;height:20px}
+.td-n b{font-size:13.5px;line-height:1.1}
+.td-r1{line-height:1.1}
+.td-ruler{position:absolute;inset:0;pointer-events:none}
+.td-tk{position:absolute;left:150px;right:4px;top:0;height:0;border-top:1px dashed rgba(243,228,196,.08)}
+.td-tk.hr{border-top:1px solid rgba(243,228,196,.16)}
+.td-tk span{position:absolute;left:2px;top:-8px;font:600 10.5px 'Alegreya Sans',sans-serif;color:rgba(243,228,196,.6);font-variant-numeric:tabular-nums;letter-spacing:.02em;white-space:nowrap;text-shadow:0 1px 2px #000}
+.td-tk.end{border-top:1px solid rgba(242,193,78,.45)}.td-tk.end span{color:#f2c14e;left:2px;top:-15px;font-family:'Alegreya SC',serif;font-size:10.5px}
+.td-tk.bed{border-top:2px solid rgba(156,196,255,.5)}.td-tk.bed span{color:#9cc4ff;top:-15px;font-family:'Alegreya SC',serif}
+.td-back2{position:absolute;left:14px;top:136px;z-index:6;padding:4px 11px;border-radius:999px;border:1px solid rgba(255,90,60,.6);background:rgba(30,18,14,.85);color:#ffb39c;font:600 12px 'Alegreya Sans',sans-serif;cursor:pointer}
+.td-say{width:146px}
+.td-tk{left:150px}.td-tk span,.td-tk.end span,.td-tk.bed span{left:14px;top:-7px;font-size:10.5px}
