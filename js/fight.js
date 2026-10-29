@@ -2,9 +2,12 @@
 // right, scrolling up into his jaws: steady, with a little crank every quarter hour. The red NOW line sits at his mouth.
 // Quests past it shake in his jaws until CHOMP. Finishing one flips its card and sends its coins to your purse.
 // The screen is one element kept across renders, so the dragon keeps breathing while the rest of the app redraws.
+// Your hand of power cards sits at the bottom: tap one, then the quest (or two) it works on. Quests 2+ hours out
+// move freely with their arrows; closer than that they're locked, and only a card can move them.
 // The dragon is painted in code for now; the painted-parts rig for real artwork plugs in where draw() is.
 import * as dragon from './dragon.js';
 import * as sfx from './sfx.js';
+import * as store from './store.js';
 import { colorOf } from './tree.js';
 import { esc, fmtT, lsGet, lsSet, today, nowMin, add, pd, DAYL, MON } from './util.js';
 
@@ -34,20 +37,28 @@ function build() {
   root = document.createElement('div'); root.className = 'td';
   root.innerHTML = `<div class="td-stage"><canvas class="td-cv" aria-hidden="true"></canvas>
     <button class="td-poke" data-td="poke" aria-label="Poke ${NAME}"></button>
-    <div class="td-hud"><div class="td-rnd"></div><div class="td-purse" title="Your gold"><i></i><b></b></div></div>
+    <div class="td-hud"><div class="td-rnd"></div><div class="td-hr"><div class="td-purse" title="Your gold"><i></i><b></b></div><div class="td-rounds"></div></div></div>
     <div class="td-lane" aria-label="Your quests, in order"></div>
     <div class="td-now"><span></span></div>
     <button class="td-say" data-td="poke"><small>${NAME.toUpperCase()}</small><span></span></button>
     <div class="td-banner" hidden></div>
-    <div class="td-foot"><div class="td-belly"></div><div class="td-rounds"></div></div>
+    <div class="td-foot"><div class="td-belly"></div><div class="td-aim" hidden></div><div class="td-hand"></div></div>
     <div class="td-verdict" hidden></div>
     <div class="td-flash"></div></div>`;
   const $ = s => root.querySelector(s);
-  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), rounds: $('.td-rounds'), verdict: $('.td-verdict'), flash: $('.td-flash') };
+  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), rounds: $('.td-rounds'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash') };
   cv = $('.td-cv'); ctx = cv.getContext('2d');
+  // while a card is picked, tapping a quest plays it there instead of opening or finishing it
+  root.addEventListener('click', e => {
+    if (!aim) return; const q = e.target.closest('.td-q'); if (!q || !q.dataset.id) return;
+    e.preventDefault(); e.stopPropagation(); target(q.dataset.id);
+  }, true);
   root.addEventListener('click', e => {
     const b = e.target.closest('[data-td]'); if (!b) return;
     if (b.dataset.td === 'poke') { poke(); }
+    else if (b.dataset.td === 'card') pickCard(b.dataset.c);
+    else if (b.dataset.td === 'aim-x') { aim = null; hand(); }
+    else if (b.dataset.td === 'up' || b.dataset.td === 'down') nudge(b.dataset.id, b.dataset.td === 'up' ? -1 : 1);
     else if (b.dataset.td === 'verdict-x') { lsSet(SEEN, { ...lsGet(SEEN, {}), [view]: 1 }); refresh(); }
     else if (b.dataset.td === 'verdict') { const v = lsGet(SEEN, {}); delete v[view]; lsSet(SEEN, v); refresh(); }
   });
@@ -90,8 +101,10 @@ function hud() {
   el.purse.textContent = S.gold;
   if (view > today()) el.rnd.innerHTML = `<b>${view === add(today(), 1) ? 'Tomorrow' : DAYL[pd(view).getDay()]}</b><span>${R.Qs.length} quests · ${R.total} gold on the table</span>`;
   else if (!live || R.closed) el.rnd.innerHTML = `<b>${live ? 'Today' : DAYL[pd(view).getDay()] + ' ' + MON[pd(view).getMonth()] + ' ' + pd(view).getDate()}</b><span>${R.you} kept · ${R.him} eaten</span>`;
-  else el.rnd.innerHTML = `<b>${r.name} round</b><span>${r.total ? `${r.kept} of ${r.total} kept · need ${r.need}` : 'Nothing due this round'}</span>`;
+  else { const sw = R.swoops.find(x => !x.past);
+    el.rnd.innerHTML = `<b>${r.name} round</b><span>${r.total ? `${r.kept} of ${r.total} kept · need ${r.need}` : 'Nothing due this round'}</span>${sw ? `<span class="td-sw">Swoops at ${fmtT(sw.t)} on the richest in his jaws</span>` : ''}`; }
   el.nowLine.hidden = !live || R.closed;
+  el.rounds.innerHTML = R.R.map(x => `<i class="td-pip ${x.res}${x.live && live && !R.closed ? ' live' : ''}" title="${x.name}: ${x.res === 'none' ? 'no contest' : `${x.kept} of ${x.total}`}"></i>`).join('');
 }
 /** The quests still in play, positioned by when they reach his jaws, never closer than one card apart. */
 function lane() {
@@ -105,10 +118,13 @@ function lane() {
     c.q = q;
     const habit = !!q.n.rs, nt = esc(q.n.t || 'Untitled');
     const when = q.st === 'jaws' ? `<em>In his jaws</em>` : q.soft ? `by ${fmtT(q.e)}` : fmtT(q.s0);
-    const tag = q.left ? '<i class="td-tag">Leftover · half</i>' : habit && q.run ? `<i class="td-tag">↻ ${q.run} day${q.run === 1 ? '' : 's'}</i>` : '';
-    const h = `<button class="td-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Finish ${nt}"></button><button class="td-n" data-act="open" data-id="${q.n.id}"><span class="td-r1"><span class="td-tm">${when}</span>${tag}</span><b>${habit ? '↻ ' : ''}${nt}</b></button><span class="td-g"><i></i>${q.g}</span>`;
+    const tag = q.mark ? '<i class="td-tag mk">His mark · ×2</i>' : q.shield ? '<i class="td-tag sh">Shielded</i>' : q.bet ? '<i class="td-tag bt">Bet</i>' : q.left ? '<i class="td-tag">Leftover · half</i>' : habit && q.run ? `<i class="td-tag">↻ ${q.run} day${q.run === 1 ? '' : 's'}</i>` : '';
+    const free = live && q.e - nowMin() >= FREE, lock = live && !free ? LOCK : '';
+    const arrows = free ? `<span class="td-mv"><button data-td="up" data-id="${q.n.id}" aria-label="Move ${nt} earlier">▲</button><button data-td="down" data-id="${q.n.id}" aria-label="Move ${nt} later">▼</button></span>` : '';
+    const h = `<button class="td-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Finish ${nt}"></button><button class="td-n" data-act="open" data-id="${q.n.id}"><span class="td-r1"><span class="td-tm">${lock}${when}</span>${tag}</span><b>${habit ? '↻ ' : ''}${nt}</b></button><span class="td-g"><i></i>${q.g}</span>${arrows}`;
     if (c.h !== h) { c.el.innerHTML = h; c.h = h; }
-    c.el.className = `td-q${q.st === 'jaws' ? ' jaws' : ''}${habit ? ' habit' : ''}${q.foil?.n ? ' foil-' + q.foil.n : ''}${q.left ? ' left' : ''}`;
+    c.el.dataset.id = q.n.id;
+    c.el.className = `td-q${aim ? ' aimable' : ''}${q.mark ? ' marked' : ''}${q.shield ? ' shielded' : ''}${q.st === 'jaws' ? ' jaws' : ''}${habit ? ' habit' : ''}${q.foil?.n ? ' foil-' + q.foil.n : ''}${q.left ? ' left' : ''}`;
     c.el.style.setProperty('--c', colorOf(q.n) || 'transparent');
   }
   place(true);
@@ -137,7 +153,47 @@ function foot() {
   const live = view === today();
   const eaten = live || view < today() ? R.Qs.filter(q => q.st === 'eaten') : [];
   el.belly.innerHTML = eaten.length ? `<span class="td-bl">In his belly</span>${eaten.map(q => `<span class="td-bone"><button class="td-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Finish ${esc(q.n.t)} to win half back"></button><button class="td-n" data-act="open" data-id="${q.n.id}">${esc(q.n.t || 'Untitled')}</button><em>½ ${Math.ceil(q.g / 2)}</em></span>`).join('')}` : '';
-  el.rounds.innerHTML = R.R.map(x => `<span class="td-rd ${x.res}${x.live && live && !R.closed ? ' live' : ''}"><b>${x.name}</b><small>${x.res === 'none' ? '—' : `${x.kept}/${x.total}`}</small></span>`).join('');
+  hand();
+}
+/* ---------- your hand ---------- */
+const FREE = 120;
+const LOCK = '<svg class="td-lock" viewBox="0 0 10 12" aria-label="Locked: only a card moves it"><path d="M2.5 5V3.5a2.5 2.5 0 0 1 5 0V5" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="1" y="5" width="8" height="6.5" rx="1.2" fill="currentColor"/></svg>';
+let aim = null; // { c, ids: [] } while a card waits for its quest(s)
+const AIM_TXT = { shield: 'Tap the quest to shield', swap: 'Tap the first quest to swap', back: 'Tap the quest to send back', split: 'Tap the big quest to split' };
+function hand() {
+  const live = view === today() && !R.closed;
+  if (!live) { el.hand.innerHTML = ''; el.aim.hidden = true; return; }
+  const n = R.hand.length;
+  el.hand.innerHTML = R.hand.map((c, i) => { const off = i - (n - 1) / 2, sel = aim?.c === c.c;
+    return `<button class="td-card${c.used ? ' used' : ''}${sel ? ' sel' : ''}" data-td="card" data-c="${c.c}" style="--off:${off}" aria-pressed="${sel}"${c.used ? ' disabled' : ''}><b>${c.n}</b><span>${c.t}</span></button>`; }).join('');
+  el.aim.hidden = !aim;
+  if (aim) el.aim.innerHTML = `<span>${aim.c === 'swap' && aim.ids.length ? 'Now tap the quest to trade with' : AIM_TXT[aim.c]}</span><button data-td="aim-x">Cancel</button>`;
+  for (const c of cards.values()) c.el.classList.toggle('aimable', !!aim);
+}
+function pickCard(c) {
+  const card = R.hand.find(h => h.c === c); if (!card || card.used) return;
+  if (aim?.c === c) { aim = null; hand(); return; }
+  if (!card.aim) { if (dragon.play(c, [], { deal: R.Qs })) played(card); return; }
+  aim = { c, ids: [] }; hand();
+}
+function target(id) {
+  const card = R.hand.find(h => h.c === aim.c); if (!card) { aim = null; return; }
+  if (!aim.ids.includes(id)) aim.ids.push(id);
+  if (aim.ids.length < card.aim) { hand(); return; }
+  const ok = dragon.play(aim.c, aim.ids, { deal: R.Qs }); aim = null;
+  if (ok) played(card); else { hand(); show('That card won\'t work there.'); }
+}
+function played(card) {
+  happened.push(`played ${card.n}`); sfx.coin(); flinch = .8;
+  el.banner.hidden = false; el.banner.className = 'td-banner card'; el.banner.innerHTML = `<b>${card.n}</b><span>${card.t}</span>`;
+  clearTimeout(roundOver.t); roundOver.t = setTimeout(() => { el.banner.hidden = true; }, 2600);
+  refresh(); line(true);
+}
+/** The free move: a quest 2+ hours out trades places with its neighbour, if that one is free to move too. */
+function nudge(id, dir) {
+  const L = targets(), i = L.findIndex(c => c.q.n.id === id), j = i + dir; if (i < 0 || j < 0 || j >= L.length) return;
+  const a = L[i].q, b = L[j].q; if (b.e - nowMin() < FREE) { show('That one is too close to move for free. Use Swap.'); return; }
+  store.updateMany([[a.n.id, { s: b.s, ds: dragon.orderOf(b.n) }], [b.n.id, { s: a.s, ds: dragon.orderOf(a.n) }]]);
 }
 const VERDICT = {
   starves: ['He starves', 'Every round, every coin. He curls up on an empty hoard, whimpering.'],
@@ -173,7 +229,8 @@ function saved(q) {
   line(true);
 }
 function chomped(q) {
-  const c = cards.get(q.n.id); snapT = 1; happened.push(`ate: ${q.n.t}`);
+  const c = cards.get(q.n.id); snapT = 1; happened.push(`${q.swooped ? 'swooped on' : 'ate'}: ${q.n.t}`);
+  if (q.swooped) { el.banner.hidden = false; el.banner.className = 'td-banner lost'; el.banner.innerHTML = `<b>SWOOP</b><span>He took ${esc(q.n.t)} early</span>`; clearTimeout(roundOver.t); roundOver.t = setTimeout(() => { el.banner.hidden = true; }, 3500); }
   sfx.roar();
   if (c) { c.leaving = true; c.el.classList.add('chomp'); setTimeout(() => { c.el.remove(); cards.delete(q.n.id); }, 600); }
   coins(280, NOW_Y - 20, 230, 200, 6);
