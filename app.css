@@ -1706,3 +1706,40 @@ button.q-say.poked .q-face{animation:q-poke .5s}
 .td-back{border:0;background:none;padding:0;color:#8a5f33;font:inherit;cursor:pointer}
 .td-hatch{flex-wrap:wrap}.td-hatch button{flex:1 1 45%}
 .td-q.boss{border-color:#7a1a10;box-shadow:0 4px 0 #5a1010,0 0 16px rgba(255,60,20,.5)}
+
+/* Task Dragon, the long game: tabs, War Table, Realm Map, Lair */
+.td-tabs{display:flex;gap:4px;padding:3px;border-radius:999px;background:rgba(58,36,20,.12);align-self:stretch}
+.td-tabs button{flex:1;padding:6px 4px;border:0;border-radius:999px;background:none;color:#6a4422;font:600 12.5px 'Alegreya Sans',sans-serif;cursor:pointer;white-space:nowrap}
+.td-tabs button[aria-pressed=true]{background:#3a2414;color:#f3e4c4}
+.td-bar.over i{background:linear-gradient(90deg,#a8220c,#ff3a1a)}
+.td-wk{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px}
+.td-wd{display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:7px 8px;border-radius:10px;border:0;background:rgba(255,255,255,.4);box-shadow:inset 0 0 0 1px rgba(138,95,51,.35);color:#3a2414;font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
+.td-wd.td-here{box-shadow:inset 0 0 0 2px #8a2414}
+.td-wd b{font:700 14px 'Alegreya SC',serif}.td-wd small{font:400 11px 'Alegreya Sans',sans-serif;letter-spacing:0;color:#7a5530}
+.td-wd em{font-style:normal;color:#2a5a20}
+.td-dm2{color:#6a4422;font-size:11.5px}
+.td-boss{font-style:normal;font-weight:700;color:#a8220c}
+.td-pts{display:flex;gap:2px;min-height:4px}.td-pts .td-pt{width:18px;height:18px;box-shadow:inset 0 0 0 1.5px #3a2414}
+.td-map{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;padding:8px;border-radius:12px;background:radial-gradient(circle at 30% 30%,rgba(120,150,80,.35),transparent 60%),radial-gradient(circle at 80% 70%,rgba(80,110,140,.3),transparent 55%),rgba(138,95,51,.15);box-shadow:inset 0 0 0 1.5px rgba(58,36,20,.4)}
+.td-mo{min-height:70px;padding:5px;border-radius:8px;background:rgba(255,248,230,.55);display:flex;flex-direction:column;gap:3px}
+.td-mo.empty{background:rgba(255,248,230,.28)}
+.td-mo.td-here{box-shadow:inset 0 0 0 2px #8a2414}
+.td-mo>small{font:700 11px 'Alegreya SC',serif;letter-spacing:.06em}
+.td-mo>div{display:flex;flex-wrap:wrap;gap:3px;align-items:center;flex:1}
+.td-tree{width:16px;height:16px;margin:auto;opacity:.45;background:radial-gradient(circle at 50% 35%,#4a6a30 0 6px,transparent 7px),linear-gradient(#5a3a1a,#5a3a1a) 50% 100%/2px 6px no-repeat}
+.td-rl{display:flex;flex-direction:column;align-items:center;gap:1px;border:0;background:none;padding:0;color:#3a2414;font:inherit;cursor:pointer;max-width:100%}
+.td-rl .td-pt{width:28px;height:28px}.td-rl small{font:600 10px 'Alegreya Sans',sans-serif;letter-spacing:0;max-width:56px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.td-rl.tamed .td-pt{box-shadow:inset 0 0 0 2px #f2c14e,0 0 8px rgba(242,193,78,.8)}
+.td-rw{display:flex;flex-wrap:wrap;gap:10px}
+.td-den{position:relative;min-height:120px;padding:14px 10px 30px;border-radius:12px;background:linear-gradient(#2a1a14,#1a0e0a);display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;justify-content:center;overflow:hidden}
+.td-den p{color:#d9c9ae;font-size:13.5px;text-align:center;position:relative;z-index:1}
+.td-pile{position:absolute;left:-10%;right:-10%;bottom:-30px;height:60px;border-radius:50%;background:radial-gradient(ellipse at 50% 30%,#ffdc7a,#c98a2a 50%,#4a2a10)}
+.td-tm{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;border:0;background:none;color:#f3e4c4;font:inherit;cursor:pointer;animation:td-doze 4s ease-in-out infinite;animation-delay:calc(var(--i) * -.7s)}
+.td-tm small{font:700 11px 'Alegreya SC',serif}
+@keyframes td-doze{50%{transform:translateY(-3px) rotate(-2deg)}}
+.td-tro{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.td-tro li{display:flex;flex-direction:column;padding:6px 8px;border-radius:10px;background:rgba(255,255,255,.4)}
+.td-tro b{font:700 18px 'Alegreya SC',serif;color:#7a4a00}.td-tro small{font:400 11px 'Alegreya Sans',sans-serif;letter-spacing:0;color:#6a4422}
+@media (prefers-reduced-motion:reduce){.td-tm{animation:none}}
+.td-dc .td-tro li{animation:none}
+.td-dc>.td-bar{display:block;flex:none;min-height:8px}

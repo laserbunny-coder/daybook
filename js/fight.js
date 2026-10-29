@@ -13,11 +13,11 @@ import { esc, fmtT, lsGet, lsSet, today, nowMin, add, pd, DAYL, MON } from './ut
 
 const NOW_Y = 250, PPM = 1.1, GAP = 56, BW = 390;
 const NAME = 'Gristlemaw';
-let client = null, onUpdate = () => {};
+let client = null, onUpdate = () => {}, freeH = () => 10;
 let root = null, cv = null, ctx = null, el = {}, view = null, S = null, R = null, LH = 760, k = 1, raf = 0, last = 0, seen = null, pose = null;
 const cards = new Map(); // quest id -> { el, y }
 const reduce = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-export function init(o) { client = o.client ?? client; onUpdate = o.update ?? onUpdate; }
+export function init(o) { client = o.client ?? client; onUpdate = o.update ?? onUpdate; freeH = o.free ?? freeH; }
 
 /** The Fight for day d. opts.adder: the + (or the new-task form) for that day. */
 export function html(d, opts = {}) {
@@ -58,6 +58,7 @@ function build() {
     e.preventDefault(); e.stopPropagation(); target(q.dataset.id);
   }, true);
   root.addEventListener('click', e => {
+    if (e.target.closest('[data-act="goday"],[data-act="ask"]')) { lairOpen = null; lair(); }
     const b = e.target.closest('[data-td]'); if (!b) return;
     if (b.dataset.td === 'poke') { poke(); }
     else if (b.dataset.td === 'card') pickCard(b.dataset.c);
@@ -73,6 +74,7 @@ function build() {
     else if (b.dataset.td === 'off') dragon.dayOff(today(), b.dataset.k || null);
     else if (b.dataset.td === 'lair') { lairOpen = lairOpen ? null : 'list'; lair(); }
     else if (b.dataset.td === 'lair-list') { lairOpen = 'list'; lair(); }
+    else if (b.dataset.td === 'tab') { lairOpen = b.dataset.v; lair(); }
     else if (b.dataset.td === 'lair-x') { lairOpen = null; lair(); }
     else if (b.dataset.td === 'goal') { lairOpen = b.dataset.id; lair(); }
     else if (b.dataset.td === 'hatch') { dragon.hatch(b.dataset.id); lairOpen = b.dataset.id; nameIt(b.dataset.id); }
@@ -320,9 +322,12 @@ function lair() {
   root.parentElement?.classList.toggle('td-dawning', !!lairOpen || !el.dawn.hidden);
   if (!lairOpen) { el.lair.hidden = true; el.lair.innerHTML = ''; return; }
   const T = today(), again = !el.lair.hidden; el.lair.hidden = false;
-  const g = lairOpen !== 'list' && S.goals.find(x => x.id === lairOpen);
+  const g = !TABS[lairOpen] && S.goals.find(x => x.id === lairOpen);
   let h;
-  if (g) {
+  if (lairOpen === 'week') h = weekView();
+  else if (lairOpen === 'realm') h = realmView();
+  else if (lairOpen === 'lair') h = lairView();
+  else if (g) {
     const bar = `<span class="td-bar"><i style="width:${Math.round(g.wild * 100)}%"></i></span>`;
     const left = g.due && g.status !== 'tamed' ? Math.max(0, Math.round((pd(g.due) - pd(T)) / 864e5)) : null;
     h = `<small><button class="td-back" data-td="lair-list">‹ Dragons</button></small>
@@ -334,11 +339,58 @@ function lair() {
       <div class="td-acts">${g.status !== 'tamed' ? `<button class="td-btn" data-td="push" data-id="${g.id}">Push due a week</button>` : ''}<button class="td-btn td-gh2" data-td="rename" data-id="${g.id}">Rename</button>${client ? `<button class="td-btn td-gh2" data-td="name-ai" data-id="${g.id}">Ask Claude to name him</button>` : ''}<button class="td-btn td-gh2" data-td="release" data-id="${g.id}">Let him go</button></div>`;
   } else {
     const tops = store.all().filter(n => n.p == null && !dragon.isGoal(n.id) && n.k !== 'area' && !isDone(n) && store.all().some(c => c.p === n.id));
-    h = `<small>Your big goals</small><h2>Dragons</h2>
+    h = `${tabs('list')}<h2>Dragons</h2>
       ${S.goals.length ? `<div class="td-gl">${S.goals.map(g => `<button class="td-gi ${g.status}" data-td="goal" data-id="${g.id}">${portrait(g)}<span><b>${esc(g.name)}</b><small>${esc(g.p.t || '')} · ${STATUS[g.status]}${g.status === 'hunting' ? ` · ${Math.round(g.wild * 100)}% wild` : ''}</small></span></button>`).join('')}</div>` : '<p>No goal dragons yet. Pick a big project and he hatches.</p>'}
       ${tops.length ? `<h3>Hatch a goal dragon <small>from a project</small></h3><div class="td-offs td-hatch">${tops.slice(0, 8).map(n => `<button data-td="hatch" data-id="${n.id}">${esc(n.t || 'Untitled')}</button>`).join('')}</div>` : ''}`;
   }
   el.lair.innerHTML = `<div class="td-vc td-dc${again ? ' still' : ''}">${h}<button class="td-btn go" data-td="lair-x">Back to the fight</button></div>`;
+}
+
+const TABS = { list: 'Dragons', week: 'War Table', realm: 'Realm', lair: 'Lair' };
+const tabs = at => `<nav class="td-tabs">${Object.entries(TABS).map(([k, n]) => `<button data-td="tab" data-v="${k}" aria-pressed="${k === at}">${n}</button>`).join('')}</nav>`;
+const hrs = m => `${Math.round(m / 6) / 10}h`;
+/** The War Table: the week ahead, each day's quests and gold, planned hours against your free hours (provisions). */
+function weekView() {
+  const T = today(), days = [...Array(7)].map((_, i) => add(T, i)).map(d => ({ d, r: dragon.dayView(d, S) }));
+  const planned = days.reduce((a, x) => a + x.r.Qs.reduce((b, q) => b + q.m, 0), 0), free = freeH() * 60, over = planned > free;
+  const gl = new Map(S.goals.map(g => [g.id, g]));
+  return `${tabs('week')}<h2>War Table</h2><p>The week ahead. Free hours are your provisions: plan more than you have and he feasts.</p>
+    <div class="td-wl"><b>Provisions</b><span class="td-bar${over ? ' over' : ''}"><i style="width:${Math.min(100, Math.round(planned / Math.max(1, free) * 100))}%"></i></span><small>${hrs(planned)} of ${hrs(free)}</small></div>
+    <div class="td-wk">${days.map(({ d, r }) => { const ids = [...new Set(r.Qs.map(q => q.goal).filter(Boolean))].map(id => gl.get(id)).filter(Boolean);
+      const off = r.off ? `<em>${OFF[r.off].replace('.', '')}</em>` : '';
+      return `<button class="td-wd${d === T ? ' td-here' : ''}" data-act="goday" data-d="${d}"><b>${d === T ? 'Today' : DAYL[pd(d).getDay()].slice(0, 3)}</b><small>${MON[pd(d).getMonth()]} ${pd(d).getDate()}</small>
+        <span>${off || `${r.Qs.length} quest${r.Qs.length === 1 ? '' : 's'} · ${r.total}g`}</span><span class="td-dm2">${hrs(r.Qs.reduce((a, q) => a + q.m, 0))}${r.Qs.some(q => q.boss) ? ' · <i class="td-boss">Boss</i>' : ''}</span>
+        <span class="td-pts">${ids.map(g => portrait(g)).join('')}</span></button>`; }).join('')}</div>
+    ${S.goals.filter(g => g.status === 'hunting').length ? `<h3>On the hunt</h3><ul class="td-facts">${S.goals.filter(g => g.status === 'hunting').map(g => { const n = days.reduce((a, x) => a + x.r.Qs.filter(q => q.goal === g.id).length, 0);
+      return `<li>${esc(g.name)}: ${n ? `${n} quest${n === 1 ? '' : 's'} this week` : '<b>no quests this week</b>, he grows bolder'}</li>`; }).join('')}</ul>` : ''}
+    <div class="td-acts"><button class="td-btn" data-act="ask" data-q="Plan my week">Ask Claude to draft the week</button></div>`;
+}
+/** The Realm Map: your year, a lair for each goal dragon in the month he's due. */
+function realmView() {
+  const T = today(), t = pd(T), months = [...Array(12)].map((_, i) => new Date(t.getFullYear(), t.getMonth() + i, 1));
+  const key = d => d.slice(0, 7), mk = m => `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}`;
+  const by = new Map(); for (const g of S.goals) if (g.due && g.status !== 'escaped') { const k = key(g.due); by.set(k, [...(by.get(k) || []), g]); }
+  const wild = S.goals.filter(g => g.status === 'escaped'), lost = S.goals.filter(g => !g.due && g.status !== 'tamed');
+  const lair = g => `<button class="td-rl ${g.status}" data-td="goal" data-id="${g.id}" title="${esc(g.name)}">${portrait(g)}<small>${esc(g.name.split(/[\s,]/)[0])}</small></button>`;
+  return `${tabs('realm')}<h2>The Realm</h2><p>Your year. Each goal dragon makes his lair in the month he's due.</p>
+    <div class="td-map">${months.map((m, i) => { const L = by.get(mk(m)) || [];
+      return `<div class="td-mo${i === 0 ? ' td-here' : ''}${L.length ? '' : ' empty'}" style="--i:${i}"><small>${MON[m.getMonth()]}${m.getMonth() === 0 || i === 0 ? ` ${m.getFullYear()}` : ''}</small><div>${L.map(lair).join('') || '<i class="td-tree"></i>'}</div></div>`; }).join('')}</div>
+    ${wild.length ? `<h3>Wild lands <small>escaped; push his due date to hunt him again</small></h3><div class="td-rw">${wild.map(lair).join('')}</div>` : ''}
+    ${lost.length ? `<h3>Uncharted <small>no due date yet</small></h3><div class="td-rw">${lost.map(lair).join('')}</div>` : ''}
+    <div class="td-acts"><button class="td-btn td-gh2" data-td="tab" data-v="list">Hatch a new goal dragon</button></div>`;
+}
+/** The Lair: tamed dragons lounging on your hoard, your Hunter rank and trophies. */
+function lairView() {
+  const tamed = S.goals.filter(g => g.status === 'tamed'), R2 = S.rank;
+  return `${tabs('lair')}<h2>Your Lair</h2>
+    <div class="td-den">${tamed.length ? tamed.map((g, i) => `<button class="td-tm" data-td="goal" data-id="${g.id}" style="--i:${i}">${portrait(g, true)}<small>${esc(g.name.split(/[\s,]/)[0])}</small></button>`).join('') : '<p>No dragons tamed yet. Finish a big goal and his dragon moves in here.</p>'}<i class="td-pile"></i></div>
+    <h3>${R2.n} <small>Hunter rank${R2.next ? ` · ${R2.to} to ${R2.next.n}` : ' · the highest'}</small></h3>
+    <span class="td-bar"><i style="width:${Math.round(R2.p * 100)}%"></i></span>
+    <p class="td-dm">Every quest saved, dragon tamed and day in your best run raises it.</p>
+    <h3>Trophies</h3><ul class="td-tro">
+      <li><b>${S.gold}</b><small>gold in your purse</small></li><li><b>${S.kept}</b><small>gold kept all time</small></li>
+      <li><b>${S.shards}</b><small>quests saved</small></li><li><b>${S.best}</b><small>best run of days</small></li>
+      <li><b>${S.tally.starves}</b><small>days he starved</small></li><li><b>${tamed.length}</b><small>dragons tamed</small></li></ul>`;
 }
 
 /* ---------- moments ---------- */
