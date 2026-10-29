@@ -111,8 +111,8 @@ function init() {
   qcam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), POST); qs = new THREE.Scene(); qs.add(quad);
 
   // ground, river, roads and the crag never change
-  groundGeo = new THREE.PlaneGeometry(640, 640, 96, 96); groundGeo.rotateX(-Math.PI / 2); // wide enough that zooming out or turning never reaches its edge
-  { const p = groundGeo.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, Math.sin(p.getX(i) * .15) * Math.cos(p.getZ(i) * .12) * .3); groundGeo.computeVertexNormals(); }
+  groundGeo = new THREE.PlaneGeometry(640, 640, 128, 128); groundGeo.rotateX(-Math.PI / 2); // wide enough that zooming out or turning never reaches its edge
+  { const p = groundGeo.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, ht(p.getX(i), p.getZ(i))); groundGeo = groundGeo.toNonIndexed(); groundGeo.computeVertexNormals(); }
   setLand('vale');
   const strip = (a, b, w, mat, y = .08) => { const [ax, az] = at(...a), [bx, bz] = at(...b), m = add(box(w, .12, Math.hypot(bx - ax, bz - az)), mat, (ax + bx) / 2, y, (az + bz) / 2, scene, false); m.rotation.y = Math.atan2(bx - ax, bz - az); return m; };
   strip([-47, -320], [-47, 320], 9, M(0x6a5a40), .05); strip([-47, -320], [-47, 320], 7, M(C.water), .14); // the river and its banks
@@ -149,7 +149,20 @@ function at2s(wx, wz) { return [wx * RX + wz * RZ, wx * FX + wz * FZ]; } // worl
 function setLand(land) {
   if (land === landNow) return; landNow = land;
   if (ground) scene.remove(ground);
-  seed = 7; ground = add(jit(groundGeo.clone(), LAND[land] || LAND.vale, .05), VC, 0, 0, 0, scene, false);
+  // one colour per face: the land's own green in light and dark patches, bare earth here and there, rock on the steep hillsides
+  const g = groundGeo.clone(), p = g.attributes.position, nm = g.attributes.normal, out = new Float32Array(p.count * 3);
+  const base = new THREE.Color(LAND[land] || LAND.vale), rock = new THREE.Color(0x7d7468), earth = new THREE.Color(0x7a6040), c = new THREE.Color();
+  for (let f = 0; f < p.count; f += 3) {
+    const x = (p.getX(f) + p.getX(f + 1) + p.getX(f + 2)) / 3, z = (p.getZ(f) + p.getZ(f + 1) + p.getZ(f + 2)) / 3, y = (p.getY(f) + p.getY(f + 1) + p.getY(f + 2)) / 3;
+    const steep = 1 - nm.getY(f), patch = vn(x, z, 23), fine = vn(x + 50, z, 7);
+    c.copy(base).multiplyScalar(.82 + patch * .32 + (fine - .5) * .1 + Math.min(.12, y * .006)); // lighter up high, in soft patches
+    if (fine > .78 && patch < .45 && y < 3) c.lerp(earth, .45);
+    if (steep > .26) c.lerp(rock, Math.min(.85, (steep - .26) * 4));
+    c.multiplyScalar(1 + (rnd(f) - .5) * .06);
+    for (let k = 0; k < 9; k++) out[f * 3 + k] = [c.r, c.g, c.b][k % 3];
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(out, 3));
+  ground = add(g, VC, 0, 0, 0, scene, false);
 }
 
 /* trees fill the open meadow, clear of the keep, the roads, the river, the crag, the buildings and the gold */
@@ -163,6 +176,19 @@ function free(sx, sz, pad) {
   if (Object.values(SPOT).some(([x, z]) => Math.hypot(sx - x, sz - z) < 9 + pad)) return false;
   if (PILES.some(([x, z]) => Math.hypot(sx - x, sz - z) < 5 + pad)) return false;
   return true;
+}
+// smooth value noise, for hills and colour patches
+function vn(x, z, k) { x /= k; z /= k; const i = Math.floor(x), j = Math.floor(z), u = x - i, v = z - j, f = t => t * t * (3 - 2 * t), h = (a, b) => rnd(a * 157 + b * 311 + 7);
+  const a = h(i, j), b = h(i + 1, j), c = h(i, j + 1), d = h(i + 1, j + 1); return a + (b - a) * f(u) + (c - a) * f(v) + (a - b - c + d) * f(u) * f(v); }
+/** The ground's height at world x, z: nearly flat where the village stands, rising into rolling hills and ridges beyond
+    it, with the river keeping its valley. */
+function ht(x, z) {
+  const sx = x * RX + z * RZ, sz = x * FX + z * FZ, out = Math.max(Math.abs(sx) / 74, Math.abs(sz) / 58);
+  const rise = Math.max(0, Math.min(1, (out - .95) * 1.6)), valley = Math.min(1, Math.max(0, (Math.abs(sx + 47) - 7) / 26));
+  const bump = Math.sin(x * .15) * Math.cos(z * .12) * .3 + rise * (vn(x, z, 18) - .5) * 1.6;
+  const hills = vn(x, z, 46) * 22 + vn(x + 300, z, 19) * 9 + Math.max(0, vn(x, z + 200, 31) - .55) * 40; // rolling hills, and a few sharp ridges
+  const y = bump + rise * rise * hills * valley;
+  return Math.abs(sx + 47) < 6 ? Math.min(y, 0) : y; // the river always shows
 }
 // woods beyond the meadow: thicker where this gentle noise is high, so they gather into groves rather than an even scatter
 const wood = (sx, sz) => Math.sin(sx * .045 + 1.3) * Math.cos(sz * .05 - .7) + Math.sin((sx + sz) * .021) * .6;
@@ -180,9 +206,10 @@ function merge(groups) {
 function trees() {
   const forest = [], placed = [], near = (sx, sz, d) => placed.some(([x, z]) => Math.hypot(x - sx, z - sz) < d);
   const tree = (sx, sz, i) => {
-    placed.push([sx, sz]); const [x, z] = at(sx, sz), t = new THREE.Group(); t.position.set(x, 0, z); t.scale.setScalar(.8 + rnd(i) * .4); t.rotation.y = rnd(i + 9) * 6.28; forest.push(t);
+    placed.push([sx, sz]); const [x, z] = at(sx, sz), t = new THREE.Group(), r = rnd(i), big = Math.max(Math.abs(sx) / 70, Math.abs(sz) / 54) > 1.3 ? .35 : 0;
+    t.position.set(x, ht(x, z) - .3, z); t.scale.set(1, 1, 1).multiplyScalar(.6 + r * .7 + big * rnd(i + 3)); t.scale.y *= .85 + rnd(i + 5) * .5; t.rotation.y = rnd(i + 9) * 6.28; forest.push(t); // young saplings to old giants
     add(new THREE.CylinderGeometry(.45, .7, 3, 6), M(C.wood), 0, 1.5, 0, t);
-    if (i % 3 === 0) { for (let j = 0; j < 3; j++) addJ(new THREE.ConeGeometry(3.2 - j * .7, 4.4 - j * .4, 6), C.pine, 0, 4 + j * 1.7, 0, t, .07); return; }
+    if (i % 3 === 0 || ht(x, z) > 9) { for (let j = 0; j < 3; j++) addJ(new THREE.ConeGeometry(3.2 - j * .7, 4.4 - j * .4, 6), C.pine, 0, 4 + j * 1.7, 0, t, .07); return; }
     [[0, 5, 0, 3], [-1.6, 4.4, 1, 2.2], [1.5, 6.2, -.6, 2.1]].forEach(([bx, by, bz, r], j) => addJ(new THREE.IcosahedronGeometry(r, 0), j % 2 ? C.leaf2 : C.leaf, bx, by, bz, t, .08));
   };
   // the meadow around the village: a light scatter
@@ -193,8 +220,15 @@ function trees() {
     if (out < 1 || Math.abs(sx + 47) < 9 || wood(sx, sz) < .15 - Math.min(.5, (out - 1) * .25) || near(sx, sz, 6.5)) continue;
     tree(sx, sz, i + 500);
   }
-  // a few boulders among the grass
-  for (let i = 0; i < 18; i++) { const sx = -150 + rnd(i + 77) * 300, sz = -120 + rnd(i + 99) * 240; if (!free(sx, sz, 3) || near(sx, sz, 5) || Math.abs(sx + 47) < 8) continue; const [x, z] = at(sx, sz), b = new THREE.Group(); addJ(new THREE.DodecahedronGeometry(1.2 + rnd(i) * 1.4, 0), i % 2 ? C.rock : 0x8a8074, x, .6, z, b, .1); forest.push(b); }
+  // a few boulders among the grass, and rocky outcrops up on the hills: a big stone with smaller ones leaning on it
+  for (let i = 0; i < 18; i++) { const sx = -150 + rnd(i + 77) * 300, sz = -120 + rnd(i + 99) * 240; if (!free(sx, sz, 3) || near(sx, sz, 5) || Math.abs(sx + 47) < 8) continue; const [x, z] = at(sx, sz), b = new THREE.Group(); addJ(new THREE.DodecahedronGeometry(1.2 + rnd(i) * 1.4, 0), i % 2 ? C.rock : 0x8a8074, x, ht(x, z) + .6, z, b, .1); forest.push(b); }
+  for (let i = 0, n = 0; i < 600 && n < 26; i++) {
+    const sx = -230 + rnd(i + 4400) * 460, sz = -180 + rnd(i + 5400) * 360, [x, z] = at(sx, sz), y = ht(x, z);
+    if (y < 5 || near(sx, sz, 8)) continue; n++; placed.push([sx, sz]);
+    const b = new THREE.Group(); b.position.set(x, y, z); b.rotation.y = rnd(i) * 6.28; forest.push(b);
+    const s = 2.4 + rnd(i + 1) * 3.2; addJ(new THREE.DodecahedronGeometry(s, 0), C.rock, 0, s * .45, 0, b, .12).scale.set(1, .7 + rnd(i + 2) * .6, 1);
+    for (let j = 0; j < 3; j++) { const a = j * 2.1 + rnd(i + j) * 1.4, r2 = s * (.35 + rnd(i + j + 7) * .3); addJ(new THREE.DodecahedronGeometry(r2, 0), j % 2 ? 0x8a8074 : C.rock, Math.cos(a) * s * .9, r2 * .4, Math.sin(a) * s * .9, b, .12); }
+  }
   add(merge(forest), VC, 0, 0, 0, scene);
 }
 
