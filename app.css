@@ -1508,3 +1508,17 @@ button.q-say.poked .q-face{animation:q-poke .5s}
 .q-rope.holds u{background:var(--gold);opacity:1}
 .q-head.lost{color:var(--drg)}
 .q-sides b{font-size:26px}
+/* The dragon's hoard: what he took leaves your list and sits under it, in his colour */
+.q-hoard{display:flex;flex-direction:column;gap:6px;margin-top:14px;padding:10px;border-radius:12px;border:1.5px solid color-mix(in srgb,var(--drg) 60%,transparent);background:linear-gradient(180deg,color-mix(in srgb,var(--drg) 16%,var(--card)),color-mix(in srgb,var(--drg) 7%,var(--card)))}
+.qh-h{display:flex;align-items:center;gap:10px;padding:2px 4px 6px}
+.qh-h>div{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.qh-h b{font:400 12px/1.1 var(--f-pixel);letter-spacing:.04em;text-transform:uppercase;color:var(--drg)}
+.qh-h small{font-size:11.5px;color:var(--muted)}
+.qh-tot{display:flex;align-items:baseline;gap:4px;font:400 20px/1 var(--f-pixel);color:var(--drg)}
+.qh-tot small{font-size:10px;color:var(--drg);opacity:.8}
+.qh-r{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 10px;border-radius:9px;background:color-mix(in srgb,var(--drg) 10%,var(--card));border:1px solid color-mix(in srgb,var(--drg) 30%,transparent)}
+.qh-r .qx-ck{border-color:var(--drg);border-style:dashed}
+.qh-r.swiped .qx-ck{opacity:.5}
+.qh-r .qx-n b{color:var(--fg)}
+.qh-g{font:400 12px/1 var(--f-pixel);padding:6px 8px;border-radius:4px;background:var(--drg);color:#fff;white-space:nowrap}
+.qh-g::before{content:"";display:inline-block;width:6px;height:6px;margin-right:5px;border-radius:50%;background:var(--gold);vertical-align:1px}
