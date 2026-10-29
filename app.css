@@ -1551,7 +1551,7 @@ button.q-say.poked .q-face{animation:q-poke .5s}
 .td-rnd span{font-size:12.5px;color:#d9c9ae;font-variant-numeric:tabular-nums}
 .td-purse{display:flex;align-items:center;gap:6px;font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;color:#ffd978}
 .td-purse i,.td-g i,.td-gold i,.td-chest i{display:inline-block;width:13px;height:13px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff3b0,#f2c14e 45%,#a8701e)}
-.td-lane{position:absolute;left:0;top:0;right:0;bottom:150px;z-index:4;pointer-events:none;-webkit-mask-image:linear-gradient(to bottom,transparent 140px,#000 190px,#000 calc(100% - 40px),transparent);mask-image:linear-gradient(to bottom,transparent 140px,#000 190px,#000 calc(100% - 40px),transparent)}
+.td-lane{position:absolute;left:0;top:0;right:0;bottom:140px;z-index:4;pointer-events:none;-webkit-mask-image:linear-gradient(to bottom,transparent 140px,#000 190px,#000 calc(100% - 40px),transparent);mask-image:linear-gradient(to bottom,transparent 140px,#000 190px,#000 calc(100% - 40px),transparent)}
 .td-now{position:absolute;left:150px;right:6px;top:250px;border-top:2px dashed #ff5a3c;z-index:4;pointer-events:none}
 .td-now span{position:absolute;left:0;top:-17px;font-family:'Alegreya SC',serif;font-size:11px;letter-spacing:.08em;color:#ff7a5c}
 .td-now span::before{content:"NOW"}
@@ -1586,7 +1586,7 @@ button.q-say.poked .q-face{animation:q-poke .5s}
 .td-bone .td-ck{width:18px;height:18px;border-color:#c07050;background:none}
 .td-bone .td-n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
 .td-bone em{flex:none;font-style:normal;color:#ffd978;font-size:11.5px}
-.td-rounds{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.td-rounds{display:flex;gap:5px;justify-content:flex-end}
 .td-rd{display:flex;flex-direction:column;align-items:center;padding:6px 4px;border-radius:10px;background:rgba(40,20,26,.75);border:1px solid #4a2a30;line-height:1.15}
 .td-rd b{font-family:'Alegreya SC',serif;font-size:13px}
 .td-rd small{font-size:12px;color:#cdbca0;font-variant-numeric:tabular-nums}
@@ -1595,7 +1595,7 @@ button.q-say.poked .q-face{animation:q-poke .5s}
 .td-rd.lost{background:rgba(70,16,14,.8);border-color:#8a2a20}.td-rd.lost small{color:#ff9a7a}
 .td-rd.none{opacity:.55}
 .td-add{position:absolute;right:12px;bottom:calc(100% - 100%);z-index:6}
-.td-host .td-add{position:absolute;left:50%;transform:translateX(-50%);bottom:auto;top:58px;width:min(360px,92%)}
+.td-host .td-add{position:absolute;left:50%;transform:translateX(-50%);bottom:auto;top:78px;width:min(360px,92%)}
 .td-host .td-add .ladd{margin-left:auto;display:flex;width:auto;padding:4px 12px;border-radius:999px;background:rgba(243,228,196,.14);color:#f3e4c4;border:1px solid rgba(243,228,196,.3);font-size:13px}
 .td-banner{position:absolute;left:50%;top:140px;transform:translateX(-50%);z-index:7;padding:10px 18px;border-radius:12px;background:#f3e4c4;color:#3a2414;display:flex;flex-direction:column;align-items:center;box-shadow:0 10px 30px rgba(0,0,0,.6);animation:td-pop .4s ease}
 .td-banner b{font-family:'Alegreya SC',serif;font-size:18px}.td-banner.lost{background:#5a1a16;color:#ffd8c8}
@@ -1619,3 +1619,27 @@ button.q-say.poked .q-face{animation:q-poke .5s}
 .td-coin{position:absolute;width:12px;height:12px;border-radius:50%;z-index:9;pointer-events:none;background:radial-gradient(circle at 35% 30%,#fff3b0,#f2c14e 45%,#a8701e);box-shadow:0 0 8px rgba(255,200,90,.7)}
 .td-flash{position:absolute;inset:0;z-index:7;pointer-events:none;opacity:0;background:radial-gradient(circle at 230px 210px,rgba(255,160,60,.55),transparent 60%)}
 @media (prefers-reduced-motion:reduce){.td-q.saved,.td-q.chomp,.td-vc,.td-vc li,.td-banner{animation-duration:.01s}}
+
+/* Task Dragon, cards: the hand, his swoops and mark, the free arrows and the lock */
+.td-hud{height:64px;align-items:flex-start;padding-top:8px}
+.td-hr{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.td-sw{font-size:11.5px;color:#ff9a7a}
+.td-pip{width:22px;height:6px;border-radius:3px;background:rgba(243,228,196,.25)}
+.td-pip.won{background:#f2c14e}.td-pip.lost{background:#c0442a}.td-pip.none{background:rgba(243,228,196,.1)}.td-pip.live{outline:1.5px solid #f2c14e;outline-offset:1px}
+.td-hand{position:relative;height:90px}
+.td-card{position:absolute;bottom:0;left:calc(50% - 54px + var(--off) * 114px);width:108px;height:86px;box-sizing:border-box;padding:6px 8px;display:flex;flex-direction:column;gap:4px;text-align:left;cursor:pointer;color:#3a2414;background:linear-gradient(175deg,#efe0bf,#cdb183);border:0;border-radius:8px;box-shadow:0 10px 20px rgba(0,0,0,.6),inset 0 0 0 3px #f8efda,inset 0 0 0 4px #8a5f33;transform:translateY(calc(var(--off) * var(--off) * 5px)) rotate(calc(var(--off) * 4deg));transition:transform .25s,opacity .3s,filter .3s;font:inherit}
+.td-card b{font-family:'Alegreya SC',serif;font-size:13.5px;color:#8a2414}
+.td-card span{font-size:10.5px;line-height:1.15}
+.td-card.sel{transform:translateY(-18px) rotate(0);box-shadow:0 0 0 2px #f2c14e,0 14px 28px rgba(0,0,0,.7),inset 0 0 0 3px #f8efda}
+.td-card.used{opacity:.3;filter:grayscale(1);cursor:default}
+.td-aim{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border-radius:10px;background:rgba(156,196,255,.18);border:1px solid rgba(156,196,255,.5);font-size:13px;color:#dbe8ff}
+.td-aim button{border:0;background:none;color:#9cc4ff;font:600 13px 'Alegreya Sans',sans-serif;cursor:pointer}
+.td-q.aimable{outline:2px dashed #9cc4ff;outline-offset:2px;cursor:crosshair}
+.td-q.marked{border-color:#b4301c;box-shadow:0 4px 0 #8a2414,0 0 12px rgba(255,80,40,.4)}
+.td-q.shielded{border-color:#6a8cc8}
+.td-tag.mk{color:#a8220c;opacity:1;font-weight:700}.td-tag.sh{color:#2a4a8a;opacity:1;font-weight:700}.td-tag.bt{color:#7a4a00;opacity:1;font-weight:700}
+.td-mv{display:flex;flex-direction:column;margin-left:2px}
+.td-mv button{border:0;background:none;padding:0 2px;font-size:9px;line-height:12px;color:#8a5f33;cursor:pointer}
+.td-mv button:hover{color:#3a2414}
+.td-lock{width:8px;height:10px;margin-right:3px;vertical-align:-1px;color:#8a5f33}
+.td-banner.card{background:#dfe8ff;color:#1a2a4a}
