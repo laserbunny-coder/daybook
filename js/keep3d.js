@@ -94,8 +94,7 @@ function init() {
   amb = new THREE.HemisphereLight(0xbcd8ff, 0x405020, .45); scene.add(amb);
   // the camera: high on a corner, looking a little right of the keep so the crag fits
   const k = 105 / 224 / .8; cam = new THREE.OrthographicCamera(-SW / 2 * k, SW / 2 * k, SH / 2 * k, -SH / 2 * k, 1, 600);
-  const [lx, lz] = at(6, 2), look = new THREE.Vector3(lx, 4, lz), r = 200;
-  cam.position.set(lx + FX * r * Math.cos(EL), 4 + r * Math.sin(EL), lz + FZ * r * Math.cos(EL)); cam.lookAt(look);
+  aim();
   // render small, then ink the edges where depth jumps
   rt = new THREE.WebGLRenderTarget(SW, SH, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
   rt.depthTexture = new THREE.DepthTexture(SW, SH); rt.depthTexture.type = THREE.UnsignedIntType;
@@ -418,12 +417,33 @@ const onScreen = (x, y, z) => { const v = new THREE.Vector3(x, y, z).project(cam
 
 /** Draw the scene: { mode: sleep|perch|circle, piles [{slot, g, mark, hot}], gate (broken), fx [{kind, age, slot, n, g}],
     land, phase, buildings, ruins, held (regions), lvl, hoard, camp, campInk } */
+/* ---------- the person's own view: pan, zoom and turn the camera with their fingers ---------- */
+export const view = { x: 0, z: 0, zoom: 1, rot: 0 };
+const VK = 105 / 224 / .8;
+let aimed = '';
+function aim() {
+  const k = [view.x, view.z, view.zoom, view.rot].join(); if (k === aimed) return; aimed = k;
+  const a = A + view.rot, [lx, lz] = at(6, 2), x = lx + view.x, z = lz + view.z, r = 200;
+  cam.position.set(x + Math.sin(a) * r * Math.cos(EL), 4 + r * Math.sin(EL), z + Math.cos(a) * r * Math.cos(EL)); cam.lookAt(x, 4, z);
+  cam.zoom = view.zoom; cam.updateProjectionMatrix();
+}
+/** Move the view by a drag of dx, dy screen pixels on a picture w pixels wide, zoom by a factor, turn by an angle. */
+export function nudge(dx, dy, w, zoom = 1, turn = 0) {
+  const a = A + view.rot, s = SW * VK / view.zoom / Math.max(1, w);
+  view.x -= (Math.cos(a) * dx + Math.sin(a) * dy / Math.sin(EL)) * s;
+  view.z -= (-Math.sin(a) * dx + Math.cos(a) * dy / Math.sin(EL)) * s;
+  const d = Math.hypot(view.x, view.z); if (d > 70) { view.x *= 70 / d; view.z *= 70 / d; }
+  view.zoom = Math.min(3.5, Math.max(.6, view.zoom * zoom)); view.rot += turn;
+}
+export const resetView = () => Object.assign(view, { x: 0, z: 0, zoom: 1, rot: 0 });
+export const viewMoved = () => Math.abs(view.x) + Math.abs(view.z) > .5 || Math.abs(view.zoom - 1) > .02 || Math.abs(view.rot) > .02;
 let sig = {}, lastMs = 0, lastT = 0;
 export function paint(cv, Sc, t) {
   load();
   const c = cv.getContext('2d');
   if (!ready) { c.fillStyle = '#16200f'; c.fillRect(0, 0, SW, SH); return; }
   const now = performance.now(), dt = lastMs ? Math.min(.2, (now - lastMs) / 1000) : 1; lastMs = now;
+  aim();
   const s = t * .18, first = !sig.keep;
   const b = Sc.buildings || [], fx = Sc.fx || [], stage = Sc.camp ? 0 : stageOf(b);
   const rk = !Sc.camp && fx.find(e => (e.kind === 'held' || e.kind === 'breach') && e.age >= 0 && e.age < RECKON);

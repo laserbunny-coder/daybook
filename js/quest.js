@@ -12,7 +12,7 @@ import { hasKids, isDone } from './tree.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { add, DAYN, MON, esc, fmtT, lsGet, lsSet, pd, today, weekStart, daysBetween } from './util.js';
 import { CAMPAIGN_DAYS, MARCH_AT, REGIONS, regionOf, titleFor } from './regions.js';
-import { paint, phaseOf, SW, SH, SWOOP, whenReady } from './keep3d.js';
+import { paint, phaseOf, SW, SH, SWOOP, whenReady, nudge, resetView, viewMoved } from './keep3d.js';
 import * as sfx from './sfx.js';
 import { screen, mount } from './crt.js';
 
@@ -733,7 +733,7 @@ export function html(d, R, opts = {}) {
   const wk = week(R, d).map(w => `<div class="qw-d${w.d === d ? ' on' : ''}"><i class="${w.res === 'W' ? 'w' : w.res === 'L' ? 'l' : w.res === 'rest' ? 'r' : w.res === 'live' ? 't' : ''}">${w.res === 'W' || w.res === 'L' ? w.res : w.res === 'rest' ? '–' : w.res === 'live' ? '•' : ''}</i>${DAYN[pd(w.d).getDay()]}</div>`).join('');
   const wins = week(R, d).filter(w => w.res === 'W').length, losses = week(R, d).filter(w => w.res === 'L').length;
   return `<div class="qv">${d === T ? intro() : ''}
-    <div class="q-scene"><div id="q-canvas" class="q-tv" data-label="${esc(C?.begun ? `Your camp in ${C.reg.name}` : `Your village${n ? ': ' + raised(R.vault).join(', ') : ''}`)}, and the dragon on its crag"></div>
+    <div class="q-scene"><button class="q-reset" hidden title="Back to the usual view" aria-label="Reset the view"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 8a5 5 0 1 0 1.6-3.7"/><path d="M3 2.5v2.8h2.8"/></svg></button><div id="q-canvas" class="q-tv" data-label="${esc(C?.begun ? `Your camp in ${C.reg.name}` : `Your village${n ? ': ' + raised(R.vault).join(', ') : ''}`)}, and the dragon on its crag"></div>
       <div class="q-tags"><span>${esc(C?.begun ? C.reg.name : rankName(R.vault))}${R.streak ? ` · ${R.streak} day streak` : ''}</span><span class="dr">${esc(C?.begun ? C.reg.dragon : D.name)}</span></div></div>
     ${d === T && !r.before ? (C?.begun ? buildBar(CAMP, C.gold, 'camp') : buildBar(BUILDINGS, R.vault, 'vale')) : ''}
     ${d === T ? pickCard(R) : ''}
@@ -764,12 +764,38 @@ export function html(d, R, opts = {}) {
   </div>`;
 }
 let anim = 0, tick = 0;
+/** Touch the picture to look around: drag to pan, pinch to zoom, twist with two fingers to turn (on a computer: drag,
+    scroll to zoom, and shift-drag or right-drag to turn). Double-tap, or the button in the corner, puts it back. */
+function controls(el, R) {
+  const btn = el.parentNode.querySelector('.q-reset'), pts = new Map();
+  let last = 0, moved = 0, prev = null;
+  const show = () => { if (btn) btn.hidden = !viewMoved(); draw(R, tick); };
+  const reset = () => { resetView(); show(); };
+  if (btn) { btn.hidden = !viewMoved(); btn.onclick = reset; }
+  const pair = () => { const [a, b] = [...pts.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(b.x - a.x, b.y - a.y), ang: Math.atan2(b.y - a.y, b.x - a.x) }; };
+  el.onpointerdown = e => { el.setPointerCapture?.(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY, turn: e.shiftKey || e.button === 2 }); moved = 0; prev = pts.size === 2 ? pair() : null; };
+  el.onpointermove = e => {
+    const p = pts.get(e.pointerId); if (!p) return;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y, w = el.clientWidth; p.x = e.clientX; p.y = e.clientY; moved += Math.abs(dx) + Math.abs(dy);
+    if (pts.size >= 2) { const q = pair(); if (prev) nudge(q.x - prev.x, q.y - prev.y, w, q.d / Math.max(1, prev.d), prev.ang - q.ang); prev = q; }
+    else if (p.turn) nudge(0, 0, w, 1, -dx / w * 3);
+    else nudge(dx, dy, w);
+    show();
+  };
+  el.onpointerup = el.onpointercancel = e => {
+    pts.delete(e.pointerId); prev = pts.size === 2 ? pair() : null;
+    if (e.type === 'pointerup' && moved < 6) { if (performance.now() - last < 320) { reset(); last = 0; } else last = performance.now(); }
+  };
+  el.onwheel = e => { e.preventDefault(); nudge(0, 0, el.clientWidth, Math.exp(-e.deltaY / 400)); show(); };
+  el.oncontextmenu = e => e.preventDefault();
+}
 /** Starts the picture moving (a slow flap and flicker), and stops when it's gone from the page. */
 export function mounted(R) {
   clearInterval(anim);
   const el = document.getElementById('q-canvas'); if (!el) return;
   happenings(R);
   mount(draw(R, tick), el, el.dataset.label);
+  controls(el, R);
   whenReady(() => { if (document.getElementById('q-canvas')) draw(R, tick); }); // the 3D library loads once, then the picture fills in
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   anim = setInterval(() => { if (!document.getElementById('q-canvas')) { clearInterval(anim); return; } tick += 1 / 3; draw(R, tick); }, 60); // a tick is still 180ms; drawn three times a tick so flight is smooth
