@@ -21,7 +21,7 @@ export const WIN = 0.7;
 let client = null, me = null, onUpdate = () => {};
 let D = { start: null, startMin: null, open: {}, wake: 8 * 60, bed: 22 * 60 + 30, carry: null, ...lsGet(KEY, {}) };
 D.open = D.open || {}; D.played = D.played || {}; D.deck = D.deck || null;
-D.charms = D.charms || []; D.eq = D.eq || []; D.spent = D.spent || []; D.packs = D.packs || []; D.off = D.off || {}; D.dawn = D.dawn || {}; D.goals = D.goals || {};
+D.charms = D.charms || []; D.eq = D.eq || []; D.spent = D.spent || []; D.packs = D.packs || []; D.off = D.off || {}; D.dawn = D.dawn || {}; D.goals = D.goals || {}; D.hits = D.hits || {};
 const save = () => lsSet(KEY, D);
 const sync = () => { if (client && me) client.auth.updateUser({ data: { dragon: D } }).then(({ data }) => { if (data?.user) me = data.user; }).catch(() => {}); };
 
@@ -42,6 +42,8 @@ export function begin(u, carry = 0) {
     for (const c of theirs.charms || []) if (!D.charms.includes(c)) D.charms.push(c);
     if ((theirs.eqT || 0) > (D.eqT || 0)) { D.eq = theirs.eq || []; D.eqT = theirs.eqT; }
     Object.assign(D.off, theirs.off || {}); Object.assign(D.dawn, theirs.dawn || {});
+    for (const [d, M] of Object.entries(theirs.hits || {})) { const mine = D.hits[d] = D.hits[d] || {}; // strikes and flicks from any device
+      for (const [id, h] of Object.entries(M)) mine[id] = { s: Math.max(mine[id]?.s || 0, h.s || 0), f: Math.max(mine[id]?.f || 0, h.f || 0) }; }
     for (const [id, g] of Object.entries(theirs.goals || {})) if (!D.goals[id] || (g.u || 0) > (D.goals[id].u || 0)) D.goals[id] = g; // goal dragons: the newest change wins
   }
   const T = today(); let changed = false;
@@ -52,6 +54,7 @@ export function begin(u, carry = 0) {
   for (const k of Object.keys(D.open)) if (daysBetween(k, T) > 40) delete D.open[k];
   for (const k of Object.keys(D.played)) if (daysBetween(k, T) > 40) delete D.played[k];
   for (const k of Object.keys(D.dawn)) if (daysBetween(k, T) > 10) delete D.dawn[k];
+  for (const k of Object.keys(D.hits)) if (daysBetween(k, T) > 40) delete D.hits[k];
   save(); if (changed || JSON.stringify(theirs) !== JSON.stringify(D)) sync();
 }
 export const started = () => D.start;
@@ -152,6 +155,19 @@ export function play(c, ids = [], ctx = {}) {
 /** Takes back today's last card (its plan change is undone by the caller). */
 export function unplay() { const L = D.played[today()]; if (!L?.length) return; L.pop(); save(); sync(); onUpdate(); }
 
+/* ---------- the quick hit after a check-off ---------- */
+/** Strike: tap while his eye flashes for a critical hit. Flick: swipe the coins cleanly into your purse.
+    Each pays once per quest, only on gold you actually won back. */
+export const STRIKE = g => Math.max(2, Math.ceil(g * 0.25)), FLICK = g => Math.max(1, Math.ceil(g * 0.1));
+/** Combo: quests kept on time within half an hour of the last one climb +10% a step, up to +50%.
+    Ticked in the same minute doesn't count, so a pile of check-offs at bedtime earns nothing extra. */
+export const COMBO = { gap: 30, step: 0.1, max: 0.5 };
+export const hits = id => D.hits[today()]?.[id] || {};
+export function hit(id, kind) {
+  const T = today(), M = D.hits[T] = D.hits[T] || {}, h = M[id] = M[id] || { s: 0, f: 0 };
+  if (h[kind]) return; h[kind] = 1; save(); sync(); onUpdate();
+}
+
 /** The three rounds. Evening ends at bedtime. */
 export const rounds = () => [{ id: 'morning', name: 'Morning', end: 12 * 60 }, { id: 'afternoon', name: 'Afternoon', end: 17 * 60 }, { id: 'evening', name: 'Evening', end: D.bed }];
 const roundOf = e => e <= 12 * 60 ? 0 : e <= 17 * 60 ? 1 : 2;
@@ -244,6 +260,18 @@ export function dayOf(d, grace, now, o = {}) {
   const byDone = Qs.filter(q => q.st === 'kept' && q.dm != null).sort((a, b) => a.dm - b.dm);
   if (eq.has('early')) for (const q of byDone) if (q.dm < 9 * 60) { const b = Math.ceil(q.g / 2); q.you += b; q.charm = 'Early Bird'; }
   if (eq.has('batch')) for (let i = 1; i < byDone.length; i++) { const a = byDone[i - 1], b = byDone[i]; if (a.n.ar && a.n.ar === b.n.ar && !a.batched) { b.you += b.g; b.batched = true; b.charm = 'Batch'; } }
+  // combo: kept on time, each within half an hour of the one before
+  let chain = 0, prevT = null;
+  for (const q of byDone) {
+    if (prevT != null && q.dm - prevT < 1) continue; // ticked the same minute: no step, no break
+    chain = prevT != null && q.dm - prevT <= COMBO.gap ? chain + 1 : 1; prevT = q.dm; q.combo = chain;
+    if (chain > 1 && !D.off[d]) { q.comboB = Math.ceil(q.g * Math.min(COMBO.max, COMBO.step * (chain - 1))); q.you += q.comboB; }
+  }
+  const combo = byDone.length ? { n: chain, until: prevT + COMBO.gap } : null;
+  // the quick hits: a strike and a clean flick, once each
+  const H = D.hits[d] || {};
+  for (const q of Qs) { const h = H[q.n.id]; if (!h || D.off[d] || (q.st !== 'kept' && q.st !== 'late')) continue;
+    if (h.s) { q.strike = STRIKE(q.g); q.you += q.strike; } if (h.f) { q.flick = FLICK(q.g); q.you += q.flick; } }
   let raid = 0;
   if (eq.has('ember')) { let n = 0; for (const q of Qs.slice().sort((a, b) => a.by - b.by)) { if (q.st === 'kept') { if (++n % 3 === 0) raid += 10; } else if (q.st !== 'open' && q.st !== 'jaws') n = 0; } }
   // a bet: all three saved in time pays double, one missed and he takes the lot
@@ -263,7 +291,7 @@ export function dayOf(d, grace, now, o = {}) {
   if (eq.has('calm')) for (const x of R) if (x.over && x.total && !Qs.some(q => q.e <= x.end && x.end < q.by && (q.dm == null || q.dm > x.end))) x.calm = Math.round(x.kept * 0.2);
   const bonus = raid + R.reduce((a, x) => a + (x.calm || 0), 0);
   const v = D.off[d] ? 'off' : verdict;
-  return { d, Qs, R, total, you: you + bonus, him, bonus, raid, wins, played: played.length, rest: rest || !!D.off[d], off: D.off[d] || null, closed, verdict: v, swoops: sw, mark: mk, hand: handOn(d, !!o.comeback), curses, chest: closed ? CHEST[v] || 0 : 0 };
+  return { d, Qs, R, total, you: you + bonus, him, bonus, raid, wins, played: played.length, rest: rest || !!D.off[d], off: D.off[d] || null, closed, verdict: v, swoops: sw, mark: mk, combo, hand: handOn(d, !!o.comeback), curses, chest: closed ? CHEST[v] || 0 : 0 };
 }
 /** The whole fight so far: every day since you began, today live, your gold, his belly and your run. */
 /** The chest at bedtime: bigger the better the verdict. */

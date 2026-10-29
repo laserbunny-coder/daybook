@@ -1,6 +1,6 @@
 // The Fight: Task Dragon's home screen (rules in dragon.js). The close-up dragon on the left, your day in order on the
 // right, scrolling up into his jaws: steady, with a little crank every quarter hour. The red NOW line sits at his mouth.
-// Quests past it shake in his jaws until CHOMP. Finishing one flips its card and sends its coins to your purse.
+// Quests past it shake in his jaws until CHOMP. Finishing one flips its card, then a quick hit: strike when his eye flashes, flick the coins into your purse.
 // The screen is one element kept across renders, so the dragon keeps breathing while the rest of the app redraws.
 // Your hand of power cards sits at the bottom: tap one, then the quest (or two) it works on. The Fight never moves
 // your plan by itself: only Swap, Send back and Split do, and each says what it will change and waits for a yes.
@@ -49,9 +49,10 @@ function build() {
     <div class="td-dawn" hidden></div>
     <button class="td-drg" data-td="lair">Dragons</button><button class="td-help" data-td="help" aria-label="How the Fight works">?</button>
     <div class="td-dawn td-lair" hidden></div>
+    <div class="td-hit" hidden></div><div class="td-combo" hidden></div>
     <div class="td-flash"></div></div>`;
   const $ = s => root.querySelector(s);
-  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), rounds: $('.td-rounds'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small'), ruler: $('.td-ruler'), back: $('.td-back2') };
+  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), rounds: $('.td-rounds'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small'), ruler: $('.td-ruler'), back: $('.td-back2'), hit: $('.td-hit'), combo: $('.td-combo') };
   cv = $('.td-cv'); ctx = cv.getContext('2d');
   // while a card is picked, tapping a quest plays it there instead of opening or finishing it
   root.addEventListener('click', e => {
@@ -87,9 +88,10 @@ function build() {
     else if (b.dataset.td === 'push') { const g = S.goals.find(x => x.id === b.dataset.id); if (g) store.update(g.id, { due: add(g.due && g.due > today() ? g.due : today(), 7) }); }
     else if (b.dataset.td === 'release') { if (confirm('Let him go? The project stays; it just stops being a big goal.')) { dragon.release(b.dataset.id); lairOpen = 'list'; } }
   });
+  hitEvents();
   addEventListener('resize', () => { if (root?.isConnected) fit(); });
   // drag (or wheel) the lane to look further ahead; a drag never counts as a tap on a quest
-  const inLane = e => { if (e.target.closest('.td-foot,.td-dawn,.td-verdict,.td-hud,.td-pill,.td-drg,.td-help,.td-banner,.td-say,.td-poke,.td-back2,.td-add')) return false; const r = el.stage.getBoundingClientRect(); return (e.clientX - r.left) / k > 140; };
+  const inLane = e => { if (e.target.closest('.td-hit,.td-foot,.td-dawn,.td-verdict,.td-hud,.td-pill,.td-drg,.td-help,.td-banner,.td-say,.td-poke,.td-back2,.td-add')) return false; const r = el.stage.getBoundingClientRect(); return (e.clientX - r.left) / k > 140; };
   el.stage.addEventListener('pointerdown', e => { if (!inLane(e) || aim) return; scroll.drag = { y0: e.clientY, s0: scroll.to, id: e.pointerId, moved: false }; });
   el.stage.addEventListener('pointermove', e => { const d = scroll.drag; if (!d || d.id !== e.pointerId) return; const dy = (d.y0 - e.clientY) / k;
     if (!d.moved && Math.abs(dy) > 6) { d.moved = true; el.stage.setPointerCapture?.(e.pointerId); }
@@ -129,7 +131,7 @@ function refresh(force) {
     R.R.forEach((x, i) => { if (seen.r[i] === 'open' && (x.res === 'won' || x.res === 'lost')) roundOver(x); });
   }
   seen = { q: st, r: R.R.map(x => x.res) };
-  goalMoments(); duty(); hud(); lane(); foot(); verdict(); dawn(); lair(); say();
+  goalMoments(); duty(); hud(); comboMeter(); lane(); foot(); verdict(); dawn(); lair(); say();
 }
 function hud() {
   const live = view === today(), r = R.R.find(x => x.live) || R.R[R.R.length - 1];
@@ -231,7 +233,7 @@ const scroll = { y: 0, to: 0, at: 0, drag: null };
 function foot() {
   const live = view === today();
   const eaten = live || view < today() ? R.Qs.filter(q => q.st === 'eaten') : [];
-  el.belly.innerHTML = eaten.length ? `<span class="td-bl">In his belly</span>${eaten.map(q => `<span class="td-bone"><button class="td-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Finish ${esc(q.n.t)} to win half back"></button><button class="td-n" data-act="open" data-id="${q.n.id}">${esc(q.n.t || 'Untitled')}</button><em>½ ${Math.ceil(q.g / 2)}</em></span>`).join('')}` : '';
+  el.belly.innerHTML = eaten.length ? `<span class="td-bl" title="Finish one and he coughs up half">In his gut · finish to make him cough up half</span>${eaten.map(q => `<span class="td-bone"><button class="td-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Finish ${esc(q.n.t)} to make him cough up half"></button><button class="td-n" data-act="open" data-id="${q.n.id}">${esc(q.n.t || 'Untitled')}</button><em>½ ${Math.ceil(q.g / 2)}</em></span>`).join('')}` : '';
   hand();
 }
 /* ---------- your hand ---------- */
@@ -421,8 +423,12 @@ function helpView() {
   return `<small>How the Fight works</small><h2>Your day against ${NAME}</h2>
     <h3>What you do here</h3><ul class="td-facts">
       <li><b>Tap the circle</b> when a quest is done. <b>Tap its name</b> to open it.</li>
-      <li>Quests ride up the time line toward his jaws. When a quest's time ends it sits in his jaws for a little while, then he eats its gold. Finish it late and you win half back.</li>
+      <li>Quests ride up the time line toward his jaws. When a quest's time ends it sits in his jaws for a little while, then he eats its gold. Finish it late and he coughs up half.</li>
       <li>Drag the list up to look ahead. It drifts back to now on its own.</li></ul>
+    <h3>Bonus gold when you finish one</h3><ul class="td-facts">
+      <li><b>Strike:</b> right after you check a quest off, his eye flashes once. Tap while it flashes for a critical hit, +25% of its gold.</li>
+      <li><b>Flick:</b> then swipe the pile of coins up toward your purse. A quick, clean flick adds +10%.</li>
+      <li><b>Combo:</b> keep quests on time within half an hour of each other and each one adds +10% more, up to +50%. Ticking several in the same minute doesn't count.</li></ul>
     <h3>What changes your plan</h3><ul class="td-facts">
       <li>Nothing here moves your plan unless you play <b>Swap</b>, <b>Send back</b> or <b>Split</b>. Each one says exactly what will move and waits for <b>Play it</b>. You can undo right after.</li>
       <li>Every other card and charm is <b>game only</b>: it changes the gold, never your plan.</li>
@@ -481,15 +487,83 @@ function lairView() {
 /* ---------- moments ---------- */
 let snapT = 0, flinch = 0, happened = [];
 function saved(q) {
-  const c = cards.get(q.n.id); flinch = 1; happened.push(`${q.st === 'late' ? 'chased down half of' : 'kept'}: ${q.n.t}`);
-  sfx[q.st === 'late' ? 'chase' : 'coin']();
+  const c = cards.get(q.n.id), late = q.st === 'late'; flinch = 1;
+  happened.push(`${late ? 'coughed up half of (they finished it after you ate it)' : 'kept'}: ${q.n.t}${q.combo > 1 ? ` (combo x${q.combo})` : ''}`);
+  // the quick hit plays only for a check-off made just now, one at a time
+  const done = (q.n.tl || []).filter(x => x.end).pop(), fresh = done && Date.now() - new Date(done.end) < 90e3;
+  const play = fresh && !moment && !reduce && view === today();
+  let x = 300, y = NOW_Y;
+  if (late) { cough = 1; sfx.thud(); x = HX + 150; y = HY + 24; } else sfx.coin();
   if (c) {
     c.leaving = true; c.el.classList.add('saved');
-    const y = c.y - scroll.y; c.el.innerHTML = `<span class="td-gold"><i></i>+${q.you}</span>`;
-    coins(300, y, 330, 22, Math.min(12, 3 + q.you / 3 | 0));
+    y = late ? y : c.y - scroll.y; c.el.innerHTML = `<span class="td-gold"><i></i>+${q.you}</span>`;
     setTimeout(() => { c.el.remove(); cards.delete(q.n.id); }, 900);
   }
+  if (q.combo > 1) pop(`Combo ×${q.combo}`, `+${q.comboB}`);
+  if (play) startHit(q, late ? x : 300, y);
+  else if (c || late) coins(x, y, 330, 22, Math.min(12, 3 + q.you / 3 | 0));
   line(true);
+}
+/* ---------- the quick hit: strike when his eye flashes, then flick the coins into your purse ---------- */
+let moment = null, cough = 0;
+function startHit(q, x, y) {
+  const now = performance.now(), h = dragon.hits(q.n.id);
+  moment = { id: q.n.id, g: q.g, x, y, phase: h.s || q.st === 'late' ? 'flick' : 'strike', t0: now, glow: now + 700 + Math.random() * 1100, len: 520, late: q.st === 'late', flicked: !!h.f };
+  el.hit.hidden = false;
+  if (moment.phase === 'strike') el.hit.innerHTML = `<p class="td-hp">Strike when his eye flashes</p>`;
+  else toFlick();
+}
+function toFlick() {
+  const m = moment; if (!m) return;
+  if (m.flicked) { coins(m.x, m.y, 330, 22, 6); return endHit(); }
+  m.phase = 'flick'; m.t0 = performance.now();
+  el.hit.innerHTML = `<div class="td-pile" style="left:${m.x - 34}px;top:${m.y - 26}px">${'<i></i>'.repeat(7)}</div><p class="td-hp">${m.late ? 'He coughed it up! ' : ''}Flick the gold into your purse ↗</p>`;
+}
+function endHit() { moment = null; el.hit.hidden = true; el.hit.innerHTML = ''; }
+function pop(a, b) {
+  const e = document.createElement('div'); e.className = 'td-popx'; e.innerHTML = `<b>${a}</b><span>${b}</span>`; el.stage.appendChild(e);
+  setTimeout(() => e.remove(), 1600);
+}
+function hitEvents() {
+  const at = e => { const r = el.stage.getBoundingClientRect(); return [(e.clientX - r.left) / k, (e.clientY - r.top) / k]; };
+  el.hit.addEventListener('pointerdown', e => {
+    const m = moment; if (!m) return; e.preventDefault(); e.stopPropagation();
+    const now = performance.now();
+    if (m.phase === 'strike') {
+      if (now >= m.glow && now <= m.glow + m.len) { dragon.hit(m.id, 's'); flinch = 1.4; snapT = 0; sfx.roar(); el.flash.animate([{ opacity: .5 }, { opacity: 0 }], { duration: 300 }); pop('Critical hit!', `+${dragon.STRIKE(m.g)}`); }
+      else pop(now < m.glow ? 'Too soon' : 'Too late', 'no bonus');
+      m.phase = 'wait'; setTimeout(toFlick, 650); return;
+    }
+    if (m.phase === 'flick') {
+      const [px, py] = at(e);
+      if (Math.hypot(px - m.x, py - m.y) > 60) { coins(m.x, m.y, 330, 22, 6); return endHit(); } // tapped away: the coins go in anyway
+      m.drag = { x: px, y: py, t: now, id: e.pointerId }; el.hit.setPointerCapture?.(e.pointerId);
+    }
+  });
+  el.hit.addEventListener('pointermove', e => { const m = moment, d = m?.drag; if (!d || d.id !== e.pointerId) return;
+    const [px, py] = at(e), pile = el.hit.querySelector('.td-pile'); if (pile) pile.style.translate = `${px - d.x}px ${py - d.y}px`;
+    d.lx = px; d.ly = py; d.lt = performance.now(); });
+  el.hit.addEventListener('pointerup', e => { const m = moment, d = m?.drag; if (!d || d.id !== e.pointerId) return;
+    const [px, py] = at(e), dt = Math.max(1, performance.now() - d.t), dx = px - d.x, dy = py - d.y, v = Math.hypot(dx, dy) / dt;
+    // clean: quick, and aimed at the purse (top right)
+    const want = Math.atan2(22 - m.y, 330 - m.x), got = Math.atan2(dy, dx), off = Math.abs(((got - want + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+    const clean = Math.hypot(dx, dy) > 40 && v > 0.35 && off < 0.7;
+    coins(m.x + dx, m.y + dy, 330, 22, clean ? 12 : 6);
+    if (clean) { dragon.hit(m.id, 'f'); sfx.coin(true); pop('Clean flick!', `+${dragon.FLICK(m.g)}`); } else if (Math.hypot(dx, dy) > 20) pop('Sloppy', 'no bonus');
+    endHit(); });
+}
+function hitTick(now) {
+  const m = moment; if (!m) return 0;
+  if (m.phase === 'strike' && now > m.glow + m.len + 400) { m.phase = 'wait'; toFlick(); }
+  if (m.phase === 'flick' && !m.drag && now - m.t0 > 4500) { coins(m.x, m.y, 330, 22, 6); endHit(); }
+  return m.phase === 'strike' && now >= m.glow && now <= m.glow + m.len ? 1 : 0;
+}
+/** The combo meter: how many in a row, and how long until the chain breaks. */
+function comboMeter() {
+  const c = R.combo, live = view === today() && !R.closed, left = c && live ? c.until - nowF() : 0;
+  if (!c || c.n < 2 || left <= 0) { el.combo.hidden = true; return; }
+  el.combo.hidden = false;
+  el.combo.innerHTML = `<b>Combo ×${c.n}</b><span>next one +${Math.round(Math.min(dragon.COMBO.max, dragon.COMBO.step * c.n) * 100)}% · ${Math.ceil(left)}m</span><i style="--p:${(left / dragon.COMBO.gap).toFixed(3)}"></i>`;
 }
 function chomped(q) {
   const c = cards.get(q.n.id); snapT = 1; happened.push(`${q.swooped ? 'swooped on' : 'ate'}: ${q.n.t}`);
@@ -659,7 +733,9 @@ function draw(p, time, dt) {
   part(P.hornA, ['#efe2c4', '#7a6a50', 'rgba(170,190,255,.35)', 'rgba(255,140,60,.25)'], []);
   const [ex, ey] = P.eye, gl = .35 + p.eye * .65;
   g = ctx.createRadialGradient(ex, ey, 2, ex, ey, 46); g.addColorStop(0, `rgba(255,200,80,${.65 * gl})`); g.addColorStop(1, 'rgba(255,120,30,0)');
-  ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = g; ctx.fillRect(ex - 46, ey - 46, 92, 92); ctx.globalCompositeOperation = 'source-over';
+  ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = g; ctx.fillRect(ex - 46, ey - 46, 92, 92);
+  if (p.flare) { g = ctx.createRadialGradient(ex, ey, 0, ex, ey, 90); g.addColorStop(0, 'rgba(255,255,220,.95)'); g.addColorStop(.25, 'rgba(255,220,120,.6)'); g.addColorStop(1, 'rgba(255,160,40,0)'); ctx.fillStyle = g; ctx.fillRect(ex - 90, ey - 90, 180, 180); }
+  ctx.globalCompositeOperation = 'source-over';
   ctx.save(); ctx.translate(ex, ey); ctx.rotate(.18);
   ctx.beginPath(); ctx.ellipse(0, 0, 15, 7 * (1 - p.blink) + .5, 0, 0, Math.PI * 2);
   g = ctx.createRadialGradient(-3, -2, 1, 0, 0, 15); g.addColorStop(0, '#fff6b0'); g.addColorStop(.5, '#ffb52a'); g.addColorStop(1, '#b4400e'); ctx.fillStyle = g; ctx.fill();
@@ -703,13 +779,14 @@ function loop(ts) {
   const qtr = Math.floor(m / 15);
   if (live && lastQuarter != null && qtr !== lastQuarter && !reduce) { crank = 5; sfx.tick?.(); }
   lastQuarter = qtr; crank *= .85;
-  snapT = Math.max(0, snapT - dt * 3); flinch = Math.max(0, flinch - dt * 2);
+  snapT = Math.max(0, snapT - dt * 3); flinch = Math.max(0, flinch - dt * 2); cough = Math.max(0, cough - dt * .8);
+  const glow = hitTick(ts);
   blinkT -= dt; if (blinkT < 0) { blink = 1; blinkT = 2.5 + Math.random() * 3; } blink = Math.max(0, blink - dt * 6);
   const time = ts / 1000, v = !live && view <= today() ? R.verdict : null;
   const open = .06 + danger * .36 + Math.sin(time * 1.4) * .025;
   pose = {
-    jaw: snapT > .6 ? 0 : v === 'stuffed' ? .22 : v === 'starves' ? 0 : open * (1 - snapT * .8), heat: v ? (v === 'stuffed' ? .4 : 0) : danger,
-    eye: v === 'starves' ? 0 : danger, look: danger, lean: v === 'driven' ? -24 : danger * 8 - flinch * 14, bob: Math.sin(time * .9) * 3 + (v === 'starves' ? 26 : 0),
+    jaw: cough > 0 ? Math.max(open, Math.sin((1 - cough) * Math.PI) * .55) : snapT > .6 ? 0 : v === 'stuffed' ? .22 : v === 'starves' ? 0 : open * (1 - snapT * .8), heat: v ? (v === 'stuffed' ? .4 : 0) : danger,
+    eye: glow ? 1 : v === 'starves' ? 0 : danger, flare: glow, look: danger, lean: v === 'driven' ? -24 : danger * 8 - flinch * 14 + Math.sin(cough * Math.PI) * 16, bob: Math.sin(time * .9) * 3 + (v === 'starves' ? 26 : 0),
     tilt: danger * .05 - (snapT > .6 ? .06 : 0) + (v === 'starves' ? .16 : 0) - flinch * .05, flicker: .8 + .12 * Math.sin(time * 9.3) + .08 * Math.sin(time * 23.7 + 1),
     blink: v === 'starves' ? .8 : blink > .5 ? 1 : blink * 2
   };
