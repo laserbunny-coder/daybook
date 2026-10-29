@@ -1,7 +1,7 @@
 // An old TV for Quest's pictures: the scene is drawn small, in pixels, then shown through this screen,
 // with scanlines, a glow around lights and fire, a color grille and a slight curve to the glass.
-// Michael tuned it himself: scanlines 80, glow 60, curve 20, color grille 80.
-export const TV = { scan: .8, glow: .6, curve: .2, grille: .8, aber: .6, vig: .52, flick: .5, post: 0 }; // post: colour levels per channel (0 = all)
+// Michael tuned it himself in the look lab (2026-10-29): no scanlines, curve or grille, a touch of glow, deep dark corners and some flicker.
+export const TV = { scan: 0, glow: .15, curve: 0, grille: 0, aber: 0, vig: 1, flick: .65, post: 0 }; // post: colour levels per channel (0 = all)
 
 const VS = 'attribute vec2 p;varying vec2 uv;void main(){uv=p*.5+.5;uv.y=1.-uv.y;gl_Position=vec4(p,0.,1.);}';
 const FS = `precision mediump float;varying vec2 uv;uniform sampler2D tex;uniform vec2 src;uniform float curve,scan,glow,grille,aber,flick,vig,time,post;

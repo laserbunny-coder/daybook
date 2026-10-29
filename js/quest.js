@@ -577,7 +577,8 @@ function reportCard(B) {
 
 /* ---------- the picture: the village (or a campaign camp) and the dragon, in 3D from a corner, drawn tiny (keep3d.js, crt.js) ---------- */
 const CAMP = [[0, 'Campfire'], [40, 'Tent'], [100, 'Hut'], [180, 'Well'], [280, 'Watchtower']]; // a campaign's camp grows on the gold kept there
-const src = typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: SW, height: SH }) : null;
+const PX = 448 / SW; // the picture is drawn this many times finer than its base size: Michael's pick in the look lab (2026-10-29)
+const src = typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: SW * PX, height: SH * PX }) : null;
 // The picture's size: a strip over the list, taller, or the whole screen. The button in its corner steps through them.
 const SIZES = ['strip', 'tall', 'full'], SIZE = 'daybook-keep-size';
 let size = SIZES.includes(lsGet(SIZE, 'strip')) ? lsGet(SIZE, 'strip') : 'strip';
@@ -631,8 +632,8 @@ function happenings(R) {
   seen = now;
 }
 export function draw(R, tick = 0) {
-  const h = heightOf(); if (src.height !== h) src.height = h;
-  const scr = screen('quest', SW, h); paint(src, sceneOf(R), tick); scr.show(src);
+  const h = Math.round(heightOf() * PX / 2) * 2; if (src.height !== h) src.height = h;
+  const scr = screen('quest', SW * PX, h); paint(src, sceneOf(R), tick); scr.show(src);
   const el = document.getElementById('q-canvas'); if (el?.querySelector('canvas') && scr.cv.parentNode !== el) mount(scr, el, el.dataset.label); // a new screen, after the phone dropped the old one
   return scr;
 }

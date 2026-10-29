@@ -7,7 +7,7 @@ export const SWOOP = 34, RECKON = 44; // how long a dive and the midnight reckon
 export const phaseOf = m => m < 6 * 60 || m >= 21 * 60 ? 'night' : m < 8 * 60 ? 'dawn' : m < 18 * 60 ? 'day' : 'dusk';
 
 /** Knobs for trying looks (lab.html): villager size, ink strength (0 = none), and how many steps of light. */
-export const LOOK = { folk: 1, ink: 1, steps: 3 };
+export const LOOK = { folk: .7, ink: 2.5, steps: 6 }; // Michael's pick in the look lab
 let PW = SW; // the picture's width in pixels: the canvas it is painted into decides it, and the land always spans the same view
 let H = SH, FIT = 1; // the picture's height right now (the person can make it taller), and the zoom that keeps the land filling a tall one
 let THREE = null, ready = false, loading = false, failed = false, glLost = false;
@@ -520,9 +520,11 @@ function moodStep(name, s, dt, jump) {
 
 /* ---------- labels: the gold on each pile, and the sleeping dragon's z's, drawn in pixels over the picture ---------- */
 const FONT = { '0': '111101101101111', '1': '010110010010111', '2': '111001111100111', '3': '111001111001111', '4': '101101111001001', '5': '111100111001111', '6': '111100111101111', '7': '111001001001001', '8': '111101111101111', '9': '111101111001111', z: '111001010100111' };
-function text(c, s, x, y, col, bg) {
-  const w = s.length * 4 - 1; if (bg) { c.fillStyle = bg; c.fillRect(x - 2, y - 2, w + 4, 9); }
-  c.fillStyle = col; [...s].forEach((ch, i) => { const g = FONT[ch]; if (g) for (let k = 0; k < 15; k++) if (g[k] === '1') c.fillRect(x + i * 4 + k % 3, y + (k / 3 | 0), 1, 1); });
+/** Tiny pixel text, centred on x (left edge when centre is false); drawn in bigger pixels when the picture is finer, so it stays readable. */
+function text(c, s, x, y, col, bg, centre = false) {
+  const u = Math.max(1, Math.round(PW / SW)), w = (s.length * 4 - 1) * u; if (centre) x -= w / 2 | 0;
+  if (bg) { c.fillStyle = bg; c.fillRect(x - 2 * u, y - 2 * u, w + 4 * u, 9 * u); }
+  c.fillStyle = col; [...s].forEach((ch, i) => { const g = FONT[ch]; if (g) for (let k = 0; k < 15; k++) if (g[k] === '1') c.fillRect(x + (i * 4 + k % 3) * u, y + (k / 3 | 0) * u, u, u); });
 }
 const onScreen = (x, y, z) => { const v = new THREE.Vector3(x, y, z).project(cam); return [Math.round((v.x + 1) / 2 * PW), Math.round((1 - v.y) / 2 * H)]; };
 
@@ -649,6 +651,6 @@ export function paint(cv, Sc, t) {
   c.imageSmoothingEnabled = false; c.drawImage(out, 0, 0);
   // the breach: a flash and a burst at the gate
   if (rk?.kind === 'breach' && rk.age > RECKON * .45 && rk.age < RECKON * .45 + 10) { const [gx, gy] = onScreen(GATE[0], 3, GATE[2]), r = 3 + (rk.age - RECKON * .45) * 2.4; c.fillStyle = 'rgba(255,200,90,.85)'; c.beginPath(); c.arc(gx, gy, r, 0, Math.PI * 2); c.fill(); c.fillStyle = 'rgba(255,250,220,.9)'; c.beginPath(); c.arc(gx, gy, r * .5, 0, Math.PI * 2); c.fill(); }
-  for (const q of Sc.piles || []) { const [x, z] = at(...pileAt(q.slot)), [px, py] = onScreen(x, 0, z), str = String(q.g); text(c, str, px - (str.length * 4 - 1) / 2 | 0, py + 3, '#fff0a0', 'rgba(10,8,20,.72)'); }
-  if (pose.sleep) { const [px, py] = onScreen(nx, NEST_Y + 6, nz); for (let i = 0; i < 3; i++) { const k = (s * .7 + i * 1.3) % 4; if (k < 3) text(c, 'z', px + 6 + Math.round(k * 3), py - 4 - Math.round(k * 5), '#d8d0f0'); } }
+  for (const q of Sc.piles || []) { const [x, z] = at(...pileAt(q.slot)), [px, py] = onScreen(x, 0, z), str = String(q.g); text(c, str, px, py + 3 * Math.round(PW / SW), '#fff0a0', 'rgba(10,8,20,.72)', true); }
+  if (pose.sleep) { const [px, py] = onScreen(nx, NEST_Y + 6, nz); for (let i = 0; i < 3; i++) { const k = (s * .7 + i * 1.3) % 4; if (k < 3) { const u = Math.round(PW / SW); text(c, 'z', px + (6 + Math.round(k * 3)) * u, py - (4 + Math.round(k * 5)) * u, '#d8d0f0'); } } }
 }
