@@ -12,7 +12,7 @@ import { hasKids, isDone } from './tree.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { add, DAYN, MON, esc, fmtT, lsGet, lsSet, pd, today, weekStart, daysBetween } from './util.js';
 import { CAMPAIGN_DAYS, MARCH_AT, REGIONS, regionOf, titleFor } from './regions.js';
-import { paint, phaseOf, SW, SH, SWOOP, whenReady, nudge, resetView, viewMoved } from './keep3d.js';
+import { paint, phaseOf, SW, SH, SWOOP, whenReady, nudge, resetView } from './keep3d.js';
 import * as sfx from './sfx.js';
 import { screen, mount } from './crt.js';
 
@@ -738,7 +738,7 @@ export function html(d, R, opts = {}) {
   const wk = week(R, d).map(w => `<div class="qw-d${w.d === d ? ' on' : ''}"><i class="${w.res === 'W' ? 'w' : w.res === 'L' ? 'l' : w.res === 'rest' ? 'r' : w.res === 'live' ? 't' : ''}">${w.res === 'W' || w.res === 'L' ? w.res : w.res === 'rest' ? '–' : w.res === 'live' ? '•' : ''}</i>${DAYN[pd(w.d).getDay()]}</div>`).join('');
   const wins = week(R, d).filter(w => w.res === 'W').length, losses = week(R, d).filter(w => w.res === 'L').length;
   return `<div class="qv">${d === T ? intro() : ''}
-    <div class="q-scene"><button class="q-size" title="Change the picture's size" aria-label="Change the picture's size"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5H2.5V6M10 2.5h3.5V6M6 13.5H2.5V10M10 13.5h3.5V10"/></svg></button><button class="q-reset" hidden title="Back to the usual view" aria-label="Reset the view"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 8a5 5 0 1 0 1.6-3.7"/><path d="M3 2.5v2.8h2.8"/></svg></button><div id="q-canvas" class="q-tv" data-label="${esc(C?.begun ? `Your camp in ${C.reg.name}` : `Your village${n ? ': ' + raised(R.vault).join(', ') : ''}`)}, and the dragon on its crag"></div>
+    <div class="q-scene"><button class="q-size" title="Change the picture's size" aria-label="Change the picture's size"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5H2.5V6M10 2.5h3.5V6M6 13.5H2.5V10M10 13.5h3.5V10"/></svg></button><div id="q-canvas" class="q-tv" data-label="${esc(C?.begun ? `Your camp in ${C.reg.name}` : `Your village${n ? ': ' + raised(R.vault).join(', ') : ''}`)}, and the dragon on its crag"></div>
       <div class="q-tags"><span>${esc(C?.begun ? C.reg.name : rankName(R.vault))}${R.streak ? ` · ${R.streak} day streak` : ''}</span><span class="dr">${esc(C?.begun ? C.reg.dragon : D.name)}</span></div></div>
     ${d === T && !r.before ? (C?.begun ? buildBar(CAMP, C.gold, 'camp') : buildBar(BUILDINGS, R.vault, 'vale')) : ''}
     ${d === T ? pickCard(R) : ''}
@@ -774,18 +774,17 @@ if (typeof addEventListener !== 'undefined') {
   addEventListener('resize', () => { if (size === 'full' && sizing && document.contains(sizing.el)) sizing.fit(); });
 }
 /** Touch the picture to look around: drag to pan, pinch to zoom, twist with two fingers to turn (on a computer: drag,
-    scroll to zoom, and shift-drag or right-drag to turn). Double-tap, or the button in the corner, puts it back. */
+    scroll to zoom, and shift-drag or right-drag to turn). Double-tap puts it back. */
 function controls(el, R) {
-  const btn = el.parentNode.querySelector('.q-reset'), pts = new Map(), sz = el.parentNode.querySelector('.q-size');
+  const pts = new Map(), sz = el.parentNode.querySelector('.q-size');
   const fit = () => { const sc = el.parentNode; sc.classList.toggle('full', size === 'full'); el.style.aspectRatio = `${SW} / ${heightOf()}`; if (sz) sz.dataset.v = size; };
   fit();
   const setSize = v => { size = v; lsSet(SIZE, v === 'full' ? 'tall' : v); fit(); draw(R, tick); }; // the whole screen isn't kept for next time
   if (sz) sz.onclick = () => setSize(SIZES[(SIZES.indexOf(size) + 1) % SIZES.length]);
   sizing = { setSize, fit: () => { fit(); draw(R, tick); }, el };
   let last = 0, moved = 0, prev = null;
-  const show = () => { if (btn) btn.hidden = !viewMoved(); draw(R, tick); };
+  const show = () => draw(R, tick);
   const reset = () => { resetView(); show(); };
-  if (btn) { btn.hidden = !viewMoved(); btn.onclick = reset; }
   const pair = () => { const [a, b] = [...pts.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(b.x - a.x, b.y - a.y), ang: Math.atan2(b.y - a.y, b.x - a.x) }; };
   el.onpointerdown = e => { el.setPointerCapture?.(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY, turn: e.shiftKey || e.button === 2 }); moved = 0; prev = pts.size === 2 ? pair() : null; };
   el.onpointermove = e => {
