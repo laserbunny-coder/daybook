@@ -109,7 +109,7 @@ function init() {
   qcam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), POST); qs = new THREE.Scene(); qs.add(quad);
 
   // ground, river, roads and the crag never change
-  groundGeo = new THREE.PlaneGeometry(640, 640, 96, 96); // wide enough that zooming out or turning never reaches its edge groundGeo.rotateX(-Math.PI / 2);
+  groundGeo = new THREE.PlaneGeometry(640, 640, 96, 96); groundGeo.rotateX(-Math.PI / 2); // wide enough that zooming out or turning never reaches its edge
   { const p = groundGeo.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, Math.sin(p.getX(i) * .15) * Math.cos(p.getZ(i) * .12) * .3); groundGeo.computeVertexNormals(); }
   setLand('vale');
   const strip = (a, b, w, mat, y = .08) => { const [ax, az] = at(...a), [bx, bz] = at(...b), m = add(box(w, .12, Math.hypot(bx - ax, bz - az)), mat, (ax + bx) / 2, y, (az + bz) / 2, scene, false); m.rotation.y = Math.atan2(bx - ax, bz - az); return m; };
