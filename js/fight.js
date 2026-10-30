@@ -5,7 +5,8 @@
 // Your hand of power cards sits at the bottom: tap one, then the quest (or two) it works on. The Fight never moves
 // your plan by itself: only Swap, Send back and Split do, and each says what it will change and waits for a yes.
 // The dragon is Michael's two paintings (mouth closed, mouth open, art/), swayed and blended here; the one painted in code is the fallback.
-// He speaks the big moments out loud (a chomp, a round's end, a poke on his head); tap his words to hear them again.
+// He speaks the big moments out loud the instant they happen, from his stock lines (a chomp, a save, a round's end, a poke
+// on his head, dawn, bedtime); Claude's fresh lines follow as text. Tap his words to hear them.
 import * as dragon from './dragon.js';
 import * as sfx from './sfx.js';
 import * as cave from './cave.js';
@@ -32,7 +33,7 @@ export function mounted(d) {
   if (!root) build();
   host.prepend(root);
   if (view !== d) { view = d; seen = null; cards.forEach(c => c.el.remove()); cards.clear(); }
-  fit(); refresh(true);
+  fit(); voice.prepare(client); refresh(true);
   if (!raf) { last = performance.now(); raf = requestAnimationFrame(loop); }
 }
 
@@ -74,7 +75,7 @@ function build() {
     if (e.target === el.dawn && !el.dawn.hidden) { el.dawn.querySelector('[data-td="dawn-x"]')?.click(); return; }
     const b = e.target.closest('[data-td]'); if (!b) return;
     if (b.dataset.td === 'poke') { poke(); }
-    else if (b.dataset.td === 'replay') voice.speak(client, el.say.textContent);
+    else if (b.dataset.td === 'replay') hear();
     else if (b.dataset.td === 'card') { if (fan) { fan = false; pickCard(b.dataset.c); hand(); } else { fan = true; hand(); } }
     else if (b.dataset.td === 'fan-x') { fan = false; hand(); }
     else if (b.dataset.td === 'room') goRoom(b.dataset.v);
@@ -142,6 +143,7 @@ function refresh(force) {
       const was = seen.q.get(q.n.id);
       if (was && was !== q.st && (q.st === 'kept' || q.st === 'late')) saved(q);
       else if (was && (was === 'open' || was === 'jaws') && q.st === 'eaten') chomped(q);
+      else if (was === 'open' && q.st === 'jaws' && !voice.speaking()) talk('jaws');
     }
     R.R.forEach((x, i) => { if (seen.r[i] === 'open' && (x.res === 'won' || x.res === 'lost')) roundOver(x); });
   }
@@ -334,6 +336,7 @@ function verdict() {
   const [t, sub] = VERDICT[R.verdict];
   if (dismissed) { el.verdict.hidden = false; el.verdict.className = 'td-verdict mini'; el.verdict.innerHTML = `<button data-td="verdict"><b>${t}</b><span>${R.you} kept · ${R.him} eaten</span></button>`; return; }
   el.verdict.hidden = false; el.verdict.className = `td-verdict ${R.verdict}`;
+  if (live) once('verdict', ['starves', 'driven', 'stuffed'].includes(R.verdict) ? R.verdict : 'bedtime');
   el.verdict.innerHTML = `<div class="td-vc"><small>${live ? 'Bedtime verdict' : 'The verdict'}</small><h2>${t}</h2><p>${sub}</p>
     ${R.rest ? '' : `<ol>${R.R.map((x, i) => `<li class="${x.res}" style="--i:${i}"><b>${x.name}</b><span>${x.res === 'none' ? 'No contest' : `${x.res === 'won' ? 'Won' : 'Lost'} · ${x.kept} of ${x.total}`}</span></li>`).join('')}</ol>`}
     <div class="td-chest"><span><i></i>${R.you}</span><small>kept ${live ? 'today' : 'that day'}${R.him ? ` · he ate ${R.him}` : ''}</small></div>
@@ -360,6 +363,7 @@ function dawn() {
     ? `<p class="td-dm">${OFF[R.off]} He sleeps today.</p><button class="td-btn td-gh" data-td="off">Undo, let's fight</button>`
     : `<div class="td-offs">${dragon.restLeft(T) ? '<button data-td="off" data-k="rest">Rest day <small>one a week</small></button>' : '<button disabled>Rest day <small>used this week</small></button>'}<button data-td="off" data-k="sick">Sick</button><button data-td="off" data-k="holiday">Holiday</button></div>`;
   const again = !el.dawn.hidden; el.dawn.hidden = false;
+  if (auto) once('dawn', 'dawn');
   el.dawn.innerHTML = `<div class="td-vc td-dc${again ? ' still' : ''}"><small>Dawn · ${DAYL[pd(T).getDay()]} ${MON[pd(T).getMonth()]} ${pd(T).getDate()}</small>
     <h2>${R.off ? 'He sleeps' : 'He wakes hungry'}</h2><p class="td-q1">“${esc(pick(DAWN, T))}”</p>
     ${R.off ? '' : `<ul class="td-facts"><li><b>${R.Qs.length}</b> quest${R.Qs.length === 1 ? '' : 's'} · <b>${R.total}</b> gold on the table</li>
@@ -560,6 +564,7 @@ function saved(q) {
     setTimeout(() => { c.el.remove(); cards.delete(q.n.id); }, 900);
   }
   if (q.combo > 1) pop(`Combo ×${q.combo}`, `+${q.comboB}`);
+  if (fresh) talk(late ? 'late' : 'kept');
   if (play) startHit(q, late ? x : 300, y);
   else if (c || late) coins(x, y, 330, 22, Math.min(12, 3 + q.you / 3 | 0));
   line(true);
@@ -633,13 +638,13 @@ function chomped(q) {
   coins(280, NOW_Y - 20, 230, 200, 6);
   el.flash.animate([{ opacity: 0.85 }, { opacity: 0 }], { duration: 600 });
   if (!reduce) el.stage.animate([{ translate: '0 0' }, { translate: '-5px 3px' }, { translate: '4px -3px' }, { translate: '0 0' }], { duration: 260 });
-  aloud = true; line(true);
+  talk(q.swooped ? 'swoop' : 'chomp'); line(true);
 }
 function roundOver(x) {
   el.banner.hidden = false; el.banner.className = 'td-banner ' + x.res;
   el.banner.innerHTML = `<b>${x.name} ${x.res === 'won' ? 'won' : 'lost'}</b><span>${x.kept} of ${x.total} kept</span>`;
   (x.res === 'won' ? sfx.fanfare : sfx.thud)();
-  happened.push(`${x.name} round ${x.res === 'won' ? 'won by them' : 'won by you'}: ${x.kept} of ${x.total} kept`); aloud = true; line(true);
+  happened.push(`${x.name} round ${x.res === 'won' ? 'won by them' : 'won by you'}: ${x.kept} of ${x.total} kept`); talk(x.res === 'won' ? 'won' : 'lost'); line(true);
   clearTimeout(roundOver.t); roundOver.t = setTimeout(() => { el.banner.hidden = true; }, 5000);
 }
 function coins(x, y, tx, ty, n) {
@@ -668,23 +673,38 @@ function fallback() {
   return pick(['Take your time. Really. I\'m patient. And hungry.', 'Every minute you scroll, I get a coin.', `${next.n.t}? I'll eat it right out of your day.`, 'Your list is my menu, you know.', `${R.total - R.you - R.him} gold still out there. I only need you to look away.`, 'I\'ve been watching you. You\'re doing that thing where you don\'t do the thing.'], seed);
 }
 const LINES = 'daybook-td-lines';
-let said = { n: 0 }, asking = null, lastAsk = 0, aloud = false; // aloud: speak the next line (a big moment or a poke)
+let said = { n: 0 }, asking = null, lastAsk = 0, pending = null;
 function line(fresh = false) {
   const base = fallback(), T = today();
-  if (view !== T || R.closed) { show(base); if (aloud) { aloud = false; voice.speak(client, base); } return; }
+  if (view !== T || R.closed) { show(base); return; }
   const m = nowMin(), key = `${R.you}|${R.him}|${R.Qs.filter(q => q.st === 'open').length}|${R.Qs.filter(q => q.st === 'jaws').length}|${Math.floor(m / 20)}`;
   const L = lsGet(LINES, {}), have = L.d === T && L.L?.[key];
   if (client && !asking && (!have || fresh) && Date.now() - lastAsk > (fresh ? 8e3 : 60e3)) {
     lastAsk = Date.now();
-    const talk = fresh && aloud; aloud = false;
-    asking = ask(L.d === T ? L.recent || [] : []).then(t => { if (!t) { if (talk) voice.speak(client, el.say.textContent); return; } const s = lsGet(LINES, {}); if (s.d !== T) { s.d = T; s.L = {}; s.recent = []; } s.L[key] = t; s.recent = [...(s.recent || []), t].slice(-6); lsSet(LINES, s); show(t); if (talk) voice.speak(client, t); }).finally(() => { asking = null; });
+    asking = ask(L.d === T ? L.recent || [] : []).then(t => { if (!t) return; const s = lsGet(LINES, {}); if (s.d !== T) { s.d = T; s.L = {}; s.recent = []; } s.L[key] = t; s.recent = [...(s.recent || []), t].slice(-6); lsSet(LINES, s); show(t); }).finally(() => { asking = null; });
   }
   show(have || base);
-  if (aloud) { aloud = false; voice.speak(client, el.say.textContent); } // no new line coming: say this one
 }
-function show(t) { if (el.say.textContent !== t) { el.say.textContent = t; el.say.parentElement.animate([{ opacity: 0.2, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: 300 }); } }
+// dawn and the bedtime verdict: said once a day
+const ONCE = 'daybook-td-said';
+function once(k, m) { const o = lsGet(ONCE, {}); if (o[k] === today()) return; if (talk(m)) { o[k] = today(); lsSet(ONCE, o); } }
+/** A big moment: he says one of his stock lines right away, and it stays up while he talks. */
+function talk(m) { const t = voice.stock(m); if (t) show(t, true); return !!t; }
+/** Tap on his words: hear them. A stock line plays again at once; anything else is voiced (a few a day), or he answers with a poke line. */
+const VOICED = 'daybook-td-voiced';
+function hear() {
+  const t = el.say.textContent; if (voice.again(t)) return;
+  const n = lsGet(VOICED, {}), d = today(); if (n.d !== d) { n.d = d; n.n = 0; }
+  if (n.n < 20) { n.n++; lsSet(VOICED, n); voice.speak(client, t, 'flash'); } else talk('poke');
+}
+// a line that comes while he's talking waits until he's done
+function show(t, now = false) {
+  if (!now && voice.speaking()) { pending = t; return; }
+  pending = null;
+  if (el.say.textContent !== t) { el.say.textContent = t; el.say.parentElement.animate([{ opacity: 0.2, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: 300 }); }
+}
 function say() { line(false); }
-function poke() { said.n++; flinch = 0.6; aloud = true; line(true); }
+function poke() { said.n++; flinch = 0.6; talk('poke'); line(true); }
 const ANGLES = ['gloat about something specific that happened', 'make a precise threat naming a quest and the minute it reaches your jaws', 'mock-sympathetic', 'a backhanded compliment', 'brag about your hoard', 'propose a cheeky wager', 'grumble like a sore loser', 'a two-line rhyming couplet', 'pretend to be bored and not watching (you are watching)', 'scheme out loud about the next quest you will eat', 'count coins out loud', 'a dramatic proclamation'];
 async function ask(recent) {
   const m = nowMin(), r = R.R.find(x => x.live) || R.R[2];
@@ -884,6 +904,7 @@ function loop(ts) {
   if (!root?.isConnected || document.hidden) { voice.stop(); return; } // starts again on the next mount
   const dt = Math.min(.05, (ts - last) / 1000 || .016); last = ts;
   if (ts - lastRefresh > 5000) { lastRefresh = ts; refresh(); }
+  if (pending && !voice.speaking()) { const t = pending; pending = null; setTimeout(() => show(t), 900); }
   const live = view === today() && !R.closed, m = nowF();
   let danger = 0;
   if (live) for (const q of R.Qs) if (q.st === 'open' || q.st === 'jaws') danger = Math.max(danger, Math.min(1, Math.max(0, 1 - (q.e - m) / 110)));

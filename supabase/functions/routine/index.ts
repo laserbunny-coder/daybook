@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
   if (!text?.trim()) return json({ error: "Tell me about your day first." }, 400);
   try {
     const response = await client.beta.messages.create({
-      model: "claude-opus-5-5",
+      model: "claude-sonnet-5-5",
       max_tokens: 16000,
       system: SYSTEM,
       messages: [{ role: "user", content: `Areas: ${JSON.stringify(areas)}\nHabits they already have: ${JSON.stringify(existing)}\n\nTheir ideal day:\n${text}` }],
