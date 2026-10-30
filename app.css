@@ -1829,3 +1829,31 @@ button.q-say.poked .q-face{animation:q-poke .5s}
 .td-say span{-webkit-line-clamp:6}
 .td-today{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;white-space:nowrap;padding:8px 8px 8px 14px;border-radius:999px;border:1px solid rgba(242,193,78,.55);background:rgba(30,18,14,.88);color:#e8d4a8;font:500 13px 'Alegreya Sans',sans-serif;cursor:pointer}
 .td-today b{padding:5px 12px;border-radius:999px;background:#f2c14e;color:#2a160c;font:700 13px 'Alegreya Sans',sans-serif}
+
+/* Task Dragon as the whole app on a phone: the Daybook header, needs line and tab bar step aside; a bar of rooms
+   floats over the top of the cave (Lair · Fight · War Table · Map · Ledger) and a sideways swipe walks between them */
+.td-rooms,.td-date,.td-ny{display:none}
+body.td-shell #main>.mh,body.td-shell #main>.qh,body.td-shell #main>.ny-line,body.td-shell .tabs,body.td-shell .qgrab{display:none!important}
+body.td-shell .td-rooms{position:absolute;left:0;right:0;top:4px;z-index:13;display:flex;justify-content:center;gap:2px;padding:0 6px}
+.td-rooms button{position:relative;padding:6px 8px 9px;border:0;background:none;color:rgba(243,228,196,.55);font:700 12.5px 'Alegreya SC',serif;letter-spacing:.04em;cursor:pointer;white-space:nowrap;text-shadow:0 1px 3px #000}
+.td-rooms button::after{content:"";position:absolute;left:50%;bottom:2px;width:5px;height:3px;margin-left:-2.5px;border-radius:2px;background:rgba(243,228,196,.3);transition:width .2s,margin .2s,background .2s}
+.td-rooms button[aria-current=true]{color:#ffe08a}
+.td-rooms button[aria-current=true]::after{width:20px;margin-left:-10px;background:#f2c14e}
+body.td-shell .td-hud{top:30px;height:auto;background:none}
+body.td-shell .td-stage::before{content:"";position:absolute;left:0;right:0;top:0;height:120px;z-index:4;pointer-events:none;background:linear-gradient(rgba(10,6,12,.85) 25%,transparent)}
+body.td-shell .td-date{display:flex;align-items:center;gap:2px;margin:0 0 2px -6px;pointer-events:auto}
+.td-date button{padding:2px 6px;border:0;background:none;color:#f3e4c4;font:700 15px 'Alegreya SC',serif;cursor:pointer}
+.td-date button:not(.td-dt){color:#f2c14e;font-size:18px;line-height:1}
+body.td-shell .td-rnd b{font-size:12.5px;color:#e8d4a8}
+body.td-shell .td-drg{display:none}
+body.td-shell .td-pill{top:96px}
+body.td-shell .td-host .td-add{top:126px}
+body.td-shell .td-help{top:150px}
+body.td-shell .td-back2{top:186px}
+body.td-shell .td-ny{display:block;position:absolute;left:12px;top:116px;z-index:6}
+.td-ny .ny-line{margin:0;padding:4px 10px;border-radius:999px;background:rgba(30,18,14,.8);border:1px solid rgba(255,120,90,.45);font-size:12px;gap:5px}
+.td-ny .ny-line small,.td-ny .ny-line .ny-arr{display:none}
+body.td-shell .td-lair{top:40px;border-radius:0}
+body.td-shell .td-lair .td-btn.go[data-td="lair-x"]{display:none}
+.cave-back{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(92px + env(safe-area-inset-bottom,0px));z-index:40;padding:9px 16px;border-radius:999px;border:1px solid #c99a3a;background:#2a160e;color:#ffe08a;font:700 14px 'Alegreya SC',serif;box-shadow:0 8px 20px rgba(0,0,0,.45);cursor:pointer}
+body.td-shell .td-dawning .td-ny{display:none}

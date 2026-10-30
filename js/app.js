@@ -62,7 +62,7 @@ const ICON = {
 const UI_KEY = 'daybook-ui';
 const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), focus: false, pick: null, adding: null, new: null, drOpen: false, drAt: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, notesEdit: false, waitEdit: false, rpEdit: false, scope: 'one', mcp: null };
 S.anchor = today();
-const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min, rmZoom: S.rmZoom, free: S.free, stK: S.stK, stCard: S.stCard });
+const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min, rmZoom: S.rmZoom, free: S.free, stK: S.stK, stCard: S.stCard, cave: S.cave });
 let client = null, user = null, configured = false, shown = today(), supaUrl = '';
 
 /* Links on items, such as the Thymer page a task came from */
@@ -564,8 +564,11 @@ function renderStats(el) {
 stats.init({ S, saveUI, render: () => render() });
 // Time blocks scrolls both ways in one box, so one finger can go sideways and up/down in the same swipe, and the day names stay pinned on top
 const vScroller = mb => (mb?.classList.contains('timed') && mb.querySelector('.tw')) || mb;
+// On a phone the Dragon view is the whole app (rooms over the cave), so the Daybook header and tab bar step aside
+const caveShell = () => S.mode === 'dragon' && phone() && S.tab === 'plan';
 function renderMain() {
   const el = document.getElementById('main');
+  document.body.classList.toggle('td-shell', caveShell());
   document.body.classList.toggle('quiet', quietLook()); document.body.classList.toggle('q-strip', quiet() && !!S.qstrip);
   if (boardShown()) return renderBoard(el);
   if (roadShown()) return renderRoad(el);
@@ -594,7 +597,7 @@ function renderMain() {
   <div class="mbody${S.mode === 'timed' ? ' timed' : S.mode === 'dragon' ? ' td-body' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
     ${S.tip && S.mode !== 'dragon' ? `<div class="tip"><span>Tap a task to open it and add notes. Tap an empty time, or the + under a day, to add one. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
     ${S.mode === 'dragon' ? fightHTML(days[0]) : S.mode === 'quest' ? questHTML(days[0]) : S.mode === 'list' ? (S.view === 'week' ? weekList(days) : dayList(days[0])) : timed(days)}
-  </div>${drawerHTML()}${quiet() ? `<button class="qgrab" data-act="drawer" aria-label="Show projects to schedule"></button>` : ''}`;
+  </div>${S.cave && S.mode !== 'dragon' && phone() ? '<button class="cave-back" data-act="mode" data-v="dragon">‹ Back to the cave</button>' : ''}${drawerHTML()}${quiet() ? `<button class="qgrab" data-act="drawer" aria-label="Show projects to schedule"></button>` : ''}`;
   const dr = document.getElementById('dr-b'); if (dr) dr.scrollTop = drSc;
   const mb = document.getElementById('mbody');
   fitObs.disconnect(); mb.querySelectorAll('.block,.ev').forEach(b => fitObs.observe(b));
@@ -615,7 +618,7 @@ function renderMain() {
 /* Task Dragon (js/dragon.js, js/fight.js): the day as a battle against a close-up dragon. Its + adds a quest to that day. */
 function fightHTML(d) {
   const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a quest to ${esc(dayShort(d))}"><span aria-hidden="true">+</span> Add a quest</button>`;
-  return fight.html(d, { adder });
+  return fight.html(d, { adder, needs: needLine() });
 }
 const beginDragon = () => dragon.begin(user, quest.started() ? quest.realm().vault : 0); // the keep's gold comes along into the hoard
 /* Quest (js/quest.js): the day played against Claude as a dragon. Its + adds a task to that day, like the list's. */
@@ -1245,7 +1248,7 @@ function newArea() { const n = store.create({ k: 'area', t: '', c: store.nextAre
 // Switching List and Time blocks in Week view stays on the days you were looking at
 function setMode(m) {
   if (m === 'quest') { S.mode = m; S.view = 'day'; W = null; quest.begin(user); render(); return; }
-  if (m === 'dragon') { S.mode = m; S.view = 'day'; W = null; quest.begin(user); beginDragon(); render(); return; }
+  if (m === 'dragon') { S.mode = m; S.view = 'day'; S.tab = 'plan'; S.cave = false; W = null; quest.begin(user); beginDragon(); render(); return; }
   const first = S.view === 'week' && W ? visibleDays()[0] : null;
   S.mode = m; if (first) W.jump = first; else W = null; render();
 }
@@ -1345,7 +1348,7 @@ document.addEventListener('click', e => {
     case 'rm-fold': S.col['rm:' + id] = !S.col['rm:' + id]; saveUI(); render(); break;
     case 'rm-week': S.anchor = b.dataset.d; S.view = 'week'; W = null; leaveRoad(); render(); break;
     case 'view': leaveRoad(); S.view = b.dataset.v; if (S.view === 'week' && (S.mode === 'quest' || S.mode === 'dragon')) S.mode = 'list'; W = null; render(); break;
-    case 'mode': leaveRoad(); setMode(b.dataset.v); break;
+    case 'mode': leaveRoad(); if (b.dataset.cave) S.cave = true; setMode(b.dataset.v); break;
     case 'min': setQuiet(!S.min); break;
     case 'look': setLook(look() === 'paper' ? 'ink' : 'paper'); break;
     case 'qstrip': setStrip(!S.qstrip); break;
@@ -1707,7 +1710,7 @@ document.addEventListener('touchend', e => { if (e.touches.length < 2) Z = null;
 /* Day view: swipe sideways to go to the next or previous day. The day slides along under the finger and the
    day it's heading to peeks in from the side. A trackpad's two-finger sideways swipe does the same on a computer. */
 let DS = null, WS = null, swBusy = false; const swp = document.createElement('div'); swp.className = 'swp';
-const dayBody = t => { const mb = document.getElementById('mbody'); return mb?.classList.contains('day') && t instanceof Element && mb.contains(t) ? mb : null; };
+const dayBody = t => { if (document.body.classList.contains('td-shell')) return null; const mb = document.getElementById('mbody'); return mb?.classList.contains('day') && t instanceof Element && mb.contains(t) ? mb : null; };
 function swSet(dx, o) {
   const mb = document.getElementById('mbody'); if (!mb) return; const w = mb.clientWidth || 1;
   mb.classList.add('swiping'); mb.style.setProperty('--swx', dx + 'px'); mb.style.setProperty('--swo', o ?? 1 - Math.min(1, Math.abs(dx) / w) * .6);

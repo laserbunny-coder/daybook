@@ -22,7 +22,7 @@ export function init(o) { client = o.client ?? client; onUpdate = o.update ?? on
 
 /** The Fight for day d. opts.adder: the + (or the new-task form) for that day. */
 export function html(d, opts = {}) {
-  return `<div class="td-host" id="td-host" data-d="${d}"><div class="td-add">${opts.adder || ''}</div></div>`;
+  return `<div class="td-host" id="td-host" data-d="${d}"><div class="td-add">${opts.adder || ''}</div><div class="td-ny">${opts.needs || ''}</div></div>`;
 }
 export function mounted(d) {
   const host = document.getElementById('td-host'); if (!host) return;
@@ -38,7 +38,8 @@ function build() {
   root = document.createElement('div'); root.className = 'td';
   root.innerHTML = `<div class="td-stage"><canvas class="td-cv" aria-hidden="true"></canvas>
     <button class="td-poke" data-td="poke" aria-label="Poke ${NAME}"></button>
-    <div class="td-hud"><div class="td-rnd"></div><div class="td-hr"><div class="td-purse" title="Your gold"><i></i><b></b></div><div class="td-rounds"></div></div></div>
+    <nav class="td-rooms" aria-label="Rooms"></nav>
+    <div class="td-hud"><div class="td-hl"><div class="td-date"><button data-act="prev" aria-label="Previous day">‹</button><button class="td-dt" data-act="today"></button><button data-act="next" aria-label="Next day">›</button></div><div class="td-rnd"></div></div><div class="td-hr"><div class="td-purse" title="Your gold"><i></i><b></b></div><div class="td-rounds"></div></div></div>
     <div class="td-lane" aria-label="Your quests, in order"><div class="td-ruler" aria-hidden="true"></div></div>
     <button class="td-back2" data-td="now" hidden>Back to now</button>
     <div class="td-now"><span></span></div>
@@ -54,7 +55,8 @@ function build() {
     <div class="td-hit" hidden></div><div class="td-combo" hidden></div>
     <div class="td-flash"></div></div>`;
   const $ = s => root.querySelector(s);
-  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), rounds: $('.td-rounds'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small'), ruler: $('.td-ruler'), back: $('.td-back2'), hit: $('.td-hit'), combo: $('.td-combo'), fanbg: $('.td-fanbg') };
+  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), rounds: $('.td-rounds'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small'), ruler: $('.td-ruler'), back: $('.td-back2'), hit: $('.td-hit'), combo: $('.td-combo'), fanbg: $('.td-fanbg'), rooms: $('.td-rooms'), dt: $('.td-dt') };
+  swipeRooms();
   cv = $('.td-cv'); ctx = cv.getContext('2d');
   // while a card is picked, tapping a quest plays it there instead of opening or finishing it
   root.addEventListener('click', e => {
@@ -63,10 +65,12 @@ function build() {
   }, true);
   root.addEventListener('click', e => {
     if (e.target.closest('[data-act="goday"],[data-act="ask"]')) { lairOpen = null; lair(); }
+    if (e.target.closest('[data-cave]')) lairOpen = null; // off to the Ledger: come back to the Fight
     const b = e.target.closest('[data-td]'); if (!b) return;
     if (b.dataset.td === 'poke') { poke(); }
     else if (b.dataset.td === 'card') { if (fan) { fan = false; pickCard(b.dataset.c); hand(); } else { fan = true; hand(); } }
     else if (b.dataset.td === 'fan-x') { fan = false; hand(); }
+    else if (b.dataset.td === 'room') goRoom(b.dataset.v);
     else if (b.dataset.td === 'aim-x') { aim = null; hand(); }
     else if (b.dataset.td === 'aim-go') go();
     else if (b.dataset.td === 'undo-card') undoCard();
@@ -139,6 +143,7 @@ function refresh(force) {
 function hud() {
   const live = view === today(), r = R.R.find(x => x.live) || R.R[R.R.length - 1];
   el.purse.textContent = S.gold;
+  const vd = pd(view); el.dt.textContent = `${view === today() ? 'Today' : DAYL[vd.getDay()].slice(0, 3)}, ${MON[vd.getMonth()]} ${vd.getDate()}`;
   if (view > today()) el.rnd.innerHTML = `<b>${view === add(today(), 1) ? 'Tomorrow' : DAYL[pd(view).getDay()]}</b><span>${R.Qs.length} quests · ${R.total} gold on the table</span>`;
   else if (!live || R.closed) el.rnd.innerHTML = `<b>${live ? 'Today' : DAYL[pd(view).getDay()] + ' ' + MON[pd(view).getMonth()] + ' ' + pd(view).getDate()}</b><span>${R.you} kept · ${R.him} eaten</span>`;
   else if (R.off) el.rnd.innerHTML = `<b>Day off</b><span>${OFF[R.off]} He sleeps; nothing counts.</span>`;
@@ -399,8 +404,36 @@ async function nameIt(id, loud) {
 const STATUS = { hunting: 'Hunting', escaped: 'Escaped', tamed: 'Tamed' };
 const portrait = (g, big) => `<span class="td-pt${big ? ' big' : ''} ${g.status}" style="--h:${Math.round(hueOf(g.color) - 6)}deg"></span>`;
 const dueTxt = d => d ? `${MON[pd(d).getMonth()]} ${pd(d).getDate()}` : 'no due date';
+/* ---------- rooms ----------
+   On a phone the Dragon view is the whole app: a bar of rooms over the top of the cave, and a sideways swipe walks
+   between them. Ledger is the plain Daybook, for when you just need your list. */
+const ROOMS = [['lair', 'Lair'], ['fight', 'Fight'], ['week', 'War Table'], ['realm', 'Map'], ['ledger', 'Ledger']];
+const shell = () => document.body.classList.contains('td-shell');
+const roomOf = () => !lairOpen || lairOpen === 'help' ? 'fight' : lairOpen === 'week' ? 'week' : lairOpen === 'realm' ? 'realm' : 'lair';
+function rooms() {
+  const at = roomOf();
+  el.rooms.innerHTML = ROOMS.map(([k, n]) => k === 'ledger'
+    ? `<button data-act="mode" data-v="list" data-cave="1">${n}</button>`
+    : `<button data-td="room" data-v="${k}" aria-current="${k === at}">${n}</button>`).join('');
+}
+function goRoom(k) {
+  if (k === 'ledger') { el.rooms.querySelector('[data-cave]')?.click(); return; }
+  lairOpen = k === 'fight' ? null : k === 'lair' ? 'list' : k; lair();
+}
+// a sideways swipe anywhere on the stage walks to the next room; up and down stays the lane's
+function swipeRooms() {
+  let t0 = null;
+  el.stage.addEventListener('touchstart', e => { t0 = e.touches.length === 1 && shell() && !fan && !aim && el.hit.hidden ? { x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now() } : null; }, { passive: true });
+  el.stage.addEventListener('touchend', e => {
+    const s = t0; t0 = null; if (!s || Date.now() - s.at > 700) return;
+    const t = e.changedTouches[0], dx = t.clientX - s.x, dy = t.clientY - s.y;
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
+    const i = ROOMS.findIndex(([k]) => k === roomOf()), j = Math.max(0, Math.min(ROOMS.length - 1, i + (dx < 0 ? 1 : -1)));
+    if (j !== i) { scroll.end = Date.now(); goRoom(ROOMS[j][0]); }
+  }, { passive: true });
+}
 function lair() {
-  el.drg.hidden = !S.start;
+  el.drg.hidden = !S.start; rooms();
   root.parentElement?.classList.toggle('td-dawning', !!lairOpen || !el.dawn.hidden);
   if (!lairOpen) { el.lair.hidden = true; el.lair.innerHTML = ''; return; }
   const T = today(), again = !el.lair.hidden; el.lair.hidden = false;
@@ -424,7 +457,7 @@ function lair() {
     const tops = store.all().filter(n => n.p == null && !dragon.isGoal(n.id) && n.k !== 'area' && !isDone(n) && store.all().some(c => c.p === n.id));
     h = `${tabs('list')}<h2>Dragons</h2>
       ${S.goals.length ? `<div class="td-gl">${S.goals.map(g => `<button class="td-gi ${g.status}" data-td="goal" data-id="${g.id}">${portrait(g)}<span><b>${esc(g.name)}</b><small>${esc(g.p.t || '')} · ${STATUS[g.status]}${g.status === 'hunting' ? ` · ${Math.round(g.wild * 100)}% wild` : ''}</small></span></button>`).join('')}</div>` : '<p>No goal dragons yet. Pick a big project and he hatches.</p>'}
-      ${tops.length ? `<h3>Hatch a goal dragon <small>from a project</small></h3><div class="td-offs td-hatch">${tops.slice(0, 8).map(n => `<button data-td="hatch" data-id="${n.id}">${esc(n.t || 'Untitled')}</button>`).join('')}</div>` : ''}`;
+      ${tops.length ? `<h3>Hatch a goal dragon <small>from a project</small></h3><div class="td-offs td-hatch">${tops.slice(0, 8).map(n => `<button data-td="hatch" data-id="${n.id}">${esc(n.t || 'Untitled')}</button>`).join('')}</div>` : ''}${shell() ? lairView() : ''}`;
   }
   el.lair.innerHTML = `<div class="td-vc td-dc${again ? ' still' : ''}">${h}<button class="td-btn go" data-td="lair-x">Back to the fight</button></div>`;
 }
@@ -449,7 +482,7 @@ function helpView() {
       <li>At bedtime: win every round and keep everything and he starves; win 2 and you drive him off; otherwise he's stuffed.</li></ul>`;
 }
 const TABS = { list: 'Dragons', week: 'War Table', realm: 'Realm', lair: 'Lair' };
-const tabs = at => `<nav class="td-tabs">${Object.entries(TABS).map(([k, n]) => `<button data-td="tab" data-v="${k}" aria-pressed="${k === at}">${n}</button>`).join('')}</nav>`;
+const tabs = at => shell() ? '' : `<nav class="td-tabs">${Object.entries(TABS).map(([k, n]) => `<button data-td="tab" data-v="${k}" aria-pressed="${k === at}">${n}</button>`).join('')}</nav>`;
 const hrs = m => `${Math.round(m / 6) / 10}h`;
 /** The War Table: the week ahead, each day's quests and gold, planned hours against your free hours (provisions). */
 function weekView() {
