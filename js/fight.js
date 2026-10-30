@@ -358,7 +358,8 @@ const hueOf = hex => { const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.e
 /** When the next quest belongs to a big goal, that goal's dragon slides in for it: his colour, his name. */
 function duty() {
   const live = view === today() && !R.closed && !R.off;
-  const next = live ? R.Qs.find(q => q.st === 'jaws' || q.st === 'open') : null;
+  // whoever owns the quest in his jaws, else the next one to reach them (by when it reaches his jaws, not when it starts)
+  const next = !live ? null : R.Qs.find(q => q.st === 'jaws') || R.Qs.filter(q => q.st === 'open').sort((a, b) => a.e - b.e)[0];
   const g = next?.goal ? S.goals.find(x => x.id === next.goal) : null;
   if ((g?.id || null) !== (on?.id || null) && g) { el.banner.hidden = false; el.banner.className = 'td-banner card'; el.banner.innerHTML = `<b>${esc(g.name)}</b><span>takes over for ${esc(next.n.t || 'this quest')}</span>`; clearTimeout(roundOver.t); roundOver.t = setTimeout(() => { el.banner.hidden = true; }, 3000); }
   on = g || null;
