@@ -1553,7 +1553,7 @@ button.q-say.poked .q-face{animation:q-poke .5s}
 .td-purse i,.td-g i,.td-gold i,.td-chest i{display:inline-block;width:13px;height:13px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff3b0,#f2c14e 45%,#a8701e)}
 .td-lane{position:absolute;left:0;top:0;right:0;bottom:140px;z-index:4;pointer-events:none;-webkit-mask-image:linear-gradient(to bottom,transparent 140px,#000 190px,#000 calc(100% - 40px),transparent);mask-image:linear-gradient(to bottom,transparent 140px,#000 190px,#000 calc(100% - 40px),transparent)}
 .td-now{position:absolute;left:150px;right:6px;top:250px;border-top:2px dashed #ff5a3c;z-index:4;pointer-events:none}
-.td-now span{position:absolute;left:0;top:-17px;font-family:'Alegreya SC',serif;font-size:11px;letter-spacing:.08em;color:#ff7a5c}
+.td-now span{position:absolute;left:14px;top:-17px;font-family:'Alegreya SC',serif;font-size:11px;letter-spacing:.08em;color:#ff7a5c}
 .td-now span::before{content:"NOW"}
 .td-q{position:absolute;left:204px;width:176px;height:50px;box-sizing:border-box;display:flex;align-items:center;gap:4px;padding:0 8px 0 6px;pointer-events:auto;color:#3a2414;background:linear-gradient(180deg,#f3e4c4,#dcc497);border-radius:4px 7px 5px 6px;border:1px solid #8a5f33;border-left:4px solid var(--c);box-shadow:0 4px 0 #6a4422,0 8px 14px rgba(0,0,0,.55);transition:box-shadow .3s}
 .td-q.habit{background:linear-gradient(135deg,#f6edd8,#d7c6a4 45%,#efe2c4 55%,#cdb88e)}
