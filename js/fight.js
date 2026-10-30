@@ -47,22 +47,22 @@ function build() {
   root.innerHTML = `<div class="td-stage"><canvas class="td-cv" aria-hidden="true"></canvas>
     <button class="td-poke" data-td="poke" aria-label="Poke ${NAME}"></button>
     <nav class="td-rooms" aria-label="Rooms"></nav>
-    <div class="td-hud"><div class="td-hl"><div class="td-date"><button data-act="prev" aria-label="Previous day">‹</button><button class="td-dt" data-act="today"></button><button data-act="next" aria-label="Next day">›</button></div></div></div>
-    <div class="td-rnd" aria-label="The rounds"></div>
+    <div class="td-hud"><div class="td-hl"><div class="td-date"><button data-act="prev" aria-label="Previous day">‹</button><button class="td-dt" data-act="today"></button><button data-act="next" aria-label="Next day">›</button></div></div><div class="td-hr"><button class="td-snd" data-td="sound" aria-label="Sound"></button><div class="td-purse" title="Your gold"><i></i><b></b></div></div></div>
+    <div class="td-side"><div class="td-pips" aria-label="The rounds"></div><div class="td-rnd"></div><div class="td-sbtns"><button class="td-pill" data-td="dawn" hidden></button><button class="td-drg" data-td="lair">Dragons</button><span class="td-nyslot"></span><span class="td-sbr"><button class="td-help" data-td="help" aria-label="How the Fight works">?</button><span class="td-addslot"></span></span></div></div>
     <div class="td-lane" aria-label="Your quests, in order"><div class="td-ruler" aria-hidden="true"></div></div>
     <button class="td-back2" data-td="now" hidden>Back to now</button>
     <div class="td-now"><span></span></div>
     <button class="td-say" data-td="replay" aria-label="Hear it again"><small>${NAME.toUpperCase()}</small><span></span></button>
     <div class="td-banner" hidden></div>
     <button class="td-fanbg" data-td="fan-x" aria-label="Put your cards away" hidden><span>Tap a card to play it · tap here to tuck them back</span></button>
-    <div class="td-foot"><div class="td-tools"><div class="td-tl"><button class="td-pill" data-td="dawn" hidden></button><button class="td-drg" data-td="lair">Dragons</button><button class="td-help" data-td="help" aria-label="How the Fight works">?</button><span class="td-nyslot"></span></div><div class="td-tr"><span class="td-addslot"></span><button class="td-snd" data-td="sound" aria-label="Sound"></button><div class="td-purse" title="Your gold"><i></i><b></b></div></div></div><div class="td-belly"></div><div class="td-mx"></div><div class="td-aim" hidden></div><div class="td-hand"></div></div>
+    <div class="td-foot"><div class="td-belly"></div><div class="td-aim" hidden></div><div class="td-hand"></div></div>
     <div class="td-verdict" hidden></div>
     <div class="td-dawn" hidden></div>
     <div class="td-dawn td-lair" hidden></div>
     <div class="td-hit" hidden></div><div class="td-combo" hidden></div>
     <div class="td-flash"></div></div>`;
   const $ = s => root.querySelector(s);
-  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), mx: $('.td-mx'), foot: $('.td-foot'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small'), ruler: $('.td-ruler'), back: $('.td-back2'), hit: $('.td-hit'), combo: $('.td-combo'), fanbg: $('.td-fanbg'), rooms: $('.td-rooms'), dt: $('.td-dt') };
+  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), pips: $('.td-pips'), side: $('.td-side'), foot: $('.td-foot'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small'), ruler: $('.td-ruler'), back: $('.td-back2'), hit: $('.td-hit'), combo: $('.td-combo'), fanbg: $('.td-fanbg'), rooms: $('.td-rooms'), dt: $('.td-dt') };
   swipeRooms();
   cv = $('.td-cv'); ctx = cv.getContext('2d');
   // while a card is picked, tapping a quest plays it there instead of opening or finishing it
@@ -125,7 +125,9 @@ const SEEN = 'daybook-td-verdict-seen';
 function fit() {
   const host = root.parentElement; if (!host) return;
   const mb = host.closest('.mbody'), top = host.getBoundingClientRect().top, bottom = mb ? mb.getBoundingClientRect().bottom : innerHeight;
-  const w = host.clientWidth, h0 = bottom - top - 6; k = Math.min(w / BW, 1.35, Math.max(.8, h0 / 620));
+  const w = host.clientWidth, h0 = bottom - top - 6;
+  if (!w) { requestAnimationFrame(() => { if (root?.isConnected) { fit(); refresh(); } }); return; } // not laid out yet: try again next frame
+  k = Math.min(w / BW, 1.35, Math.max(.8, h0 / 620));
   const h = Math.max(480 * k, h0); LH = Math.min(Math.round(h / k), 980) || 760;
   host.style.height = h + 'px';
   el.stage.style.cssText = `width:${BW}px;height:${LH}px;transform:scale(${k})`;
@@ -158,7 +160,7 @@ function fitFoot() {
   const f = el.foot; if (!f) return;
   const ft = f.offsetTop;
   el.lane.style.bottom = Math.max(60, LH - ft - 6) + 'px';
-  el.rnd.style.top = LANE_Y + 8 + 'px'; el.rnd.style.height = Math.max(60, ft - LANE_Y - 18) + 'px';
+  el.side.style.top = LANE_Y + 8 + 'px'; el.side.style.height = Math.max(120, ft - LANE_Y - 14) + 'px';
 }
 const SPK = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/>';
 function soundBtn() {
@@ -174,21 +176,17 @@ function hud() {
   el.nowLine.hidden = !live || R.closed;
   meter(live);
 }
-/** The round meter down the left side: the three rounds as upright gilded bars. Gold rises from the bottom as you keep
- *  quests, red comes down from the top as he eats them, and the notch marks what you need to win. The live round is the wide one. */
+/** Down the left side: a marker for each round (gold won, red lost, ringed the one on now), and one upright gilded meter
+ *  for the round on now. Gold rises as you keep its quests, red comes down as he eats them, the notch is what you need.
+ *  A swoop or a curse shows on the NOW line. */
 function meter(live) {
-  const note = t => { el.rnd.hidden = true; el.mx.innerHTML = `<span class="td-mt">${t}</span>`; };
-  if (view > today()) return note(`<b>${view === add(today(), 1) ? 'Tomorrow' : DAYL[pd(view).getDay()]}</b> ${R.Qs.length} quests · ${R.total} gold on the table`);
-  if (R.off) return note(`<b>Day off</b> ${OFF[R.off]} He sleeps; nothing counts.`);
-  const now = live && !R.closed, cur = now ? R.R.find(x => x.live) : null, sw = now ? R.swoops.find(x => !x.past) : null;
-  const pct = (v, t) => t ? Math.min(100, v / t * 100).toFixed(1) : 0;
-  const bar = x => { const big = x === cur, st = x.res === 'none' ? 'none' : big ? 'live' : x.res;
-    return `<div class="td-vb ${st}${big ? ' big' : ''}" title="${x.name}: ${x.res === 'none' ? 'no contest' : `${x.kept} of ${x.total} kept, need ${x.need}`}">
-      <em>${big ? `${x.kept}/${x.total}` : ''}</em>
-      <span class="td-vbar"><i class="k" style="height:${pct(x.kept, x.total)}%"></i><i class="l" style="height:${pct(x.lost, x.total)}%"></i>${x.total ? `<u style="bottom:${pct(x.need, x.total)}%">${big ? `<b>need ${x.need}</b>` : ''}</u>` : ''}</span>
-      <small>${x.name[0]}</small></div>`; };
-  el.rnd.hidden = false; el.rnd.innerHTML = R.R.map(bar).join('');
-  el.mx.innerHTML = [sw ? `<span class="td-sw">Swoops at ${fmtT(sw.t)} on the richest in his jaws</span>` : '', now && R.curses.length ? `<span class="td-cu">Cursed: ${R.curses.map(c => dragon.CURSES[c].n).join(', ')}</span>` : ''].join('');
+  const now = live && !R.closed, cur = now && !R.off ? R.R.find(x => x.live) : null, sw = now ? R.swoops.find(x => !x.past) : null;
+  el.pips.hidden = view > today() || R.off;
+  el.pips.innerHTML = R.R.map(x => `<i class="${x.res}${x === cur ? ' live' : ''}" title="${x.name}: ${x.res === 'none' ? 'no contest' : x.res === 'open' ? `${x.kept} of ${x.total} kept` : `${x.res === 'won' ? 'won' : 'lost'}, ${x.kept} of ${x.total}`}"><b>${x.name[0]}</b></i>`).join('');
+  el.rnd.hidden = !cur || !cur.total;
+  if (cur?.total) { const pct = v => Math.min(100, v / cur.total * 100).toFixed(1);
+    el.rnd.innerHTML = `<em>${cur.kept}/${cur.total}</em><span class="td-vbar" title="${cur.name} round: ${cur.kept} of ${cur.total} kept, need ${cur.need}"><i class="k" style="height:${pct(cur.kept)}%"></i><i class="l" style="height:${pct(cur.lost)}%"></i><u style="bottom:${pct(cur.need)}%"><b>need ${cur.need}</b></u></span>`; }
+  el.now.textContent = [sw ? ` · swoops ${fmtT(sw.t)}` : '', now && R.curses.length ? ` · ${R.curses.map(c => dragon.CURSES[c].n).join(', ')}` : ''].join('');
 }
 /** The quests still in play, positioned by when they reach his jaws, never closer than one card apart. */
 function lane() {
@@ -727,7 +725,9 @@ function show(t, now = false) {
   if (el.say.textContent !== t) { el.say.textContent = t; el.say.parentElement.animate([{ opacity: 0.2, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: 300 }); }
 }
 function say() { line(false); }
-function poke() { said.n++; flinch = 0.6; talk('poke'); line(true); }
+// lots of pokes in a row and he gets flustered
+let pokes = [];
+function poke() { said.n++; flinch = 0.6; const t = Date.now(); pokes = [...pokes.filter(x => t - x < 15e3), t]; (pokes.length >= 4 && talk('pester')) || talk('poke'); line(true); }
 const ANGLES = ['gloat about something specific that happened', 'make a precise threat naming a quest and the minute it reaches your jaws', 'mock-sympathetic', 'a backhanded compliment', 'brag about your hoard', 'propose a cheeky wager', 'grumble like a sore loser', 'a two-line rhyming couplet', 'pretend to be bored and not watching (you are watching)', 'scheme out loud about the next quest you will eat', 'count coins out loud', 'a dramatic proclamation'];
 async function ask(recent) {
   const m = nowMin(), r = R.R.find(x => x.live) || R.R[2];
@@ -849,7 +849,7 @@ function painted(p, H, dt) {
   ctx.restore();
 }
 function draw(p, time, dt) {
-  const H = LH, hy = H - 150; // the hoard sits just above the rounds
+  const H = LH, hy = H - 58; // the hoard sits down behind the tips of your cards
   ctx.setTransform(ctx._dpr, 0, 0, ctx._dpr, 0, 0);
   // the cave
   let g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#120b18'); g.addColorStop(.55, '#1e1018'); g.addColorStop(1, '#2c140e'); ctx.fillStyle = g; ctx.fillRect(0, 0, BW, H);
