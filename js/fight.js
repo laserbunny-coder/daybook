@@ -11,7 +11,8 @@ import * as store from './store.js';
 import { colorOf, isDone } from './tree.js';
 import { esc, fmtT, lsGet, lsSet, today, nowMin, add, pd, DAYL, MON } from './util.js';
 
-const NOW_Y = 250, PPM = 0.6, GAP = 48, HALF = 21, BW = 390, JAW_GAP = 64;
+// NOW_Y is his mouth; the timeline starts lower, at LANE_Y, below his open lower jaw, and a quest jumps up into his mouth when its time comes
+const NOW_Y = 250, PPM = 0.6, GAP = 48, HALF = 21, BW = 390, LANE_Y = NOW_Y + 90;
 const NAME = 'Gristlemaw';
 let client = null, onUpdate = () => {}, freeH = () => 10;
 let root = null, cv = null, ctx = null, el = {}, view = null, S = null, R = null, LH = 760, k = 1, raf = 0, last = 0, seen = null, pose = null;
@@ -170,14 +171,11 @@ function targets() {
   const live = view === today(), m = live ? nowF() : null, base = view > today() ? Math.min(...R.Qs.map(q => q.e), 24 * 60) : m;
   base0 = base; anchors = [];
   const L = [...cards.values()].filter(c => !c.leaving).sort((a, b) => a.q.e - b.q.e || a.q.s0 - b.q.s0);
-  let prev = -1e9, bitten = false;
+  let prev = -1e9;
   for (const c of L) {
     const q = c.q;
-    let y = q.st === 'jaws' ? NOW_Y - 16 - Math.min(1, (m - q.e) / Math.max(1, q.by - q.e)) * 34 : NOW_Y + (q.e - base) * PPM - HALF; // its bottom edge is the minute it reaches his jaws
-    y = Math.max(y, prev + GAP);
-    if (q.st === 'jaws') bitten = true;
-    else if (bitten) { y = Math.max(y, NOW_Y + JAW_GAP + HALF); bitten = false; } // the next one waits below his lower jaw, so only the bitten one reads as in his mouth
-    prev = y; c.ty = y;
+    let y = q.st === 'jaws' ? NOW_Y - 16 - Math.min(1, (m - q.e) / Math.max(1, q.by - q.e)) * 34 : LANE_Y + (q.e - base) * PPM - HALF; // its bottom edge is the minute it reaches his jaws
+    y = Math.max(y, prev + GAP); prev = y; c.ty = y;
     if (q.st !== 'jaws') anchors.push([q.e, y + HALF]);
   }
   return L;
@@ -197,18 +195,18 @@ function place(snap) {
     const sh = c.q.st === 'jaws' && !reduce ? (Math.random() - 0.5) * 3 : 0;
     c.el.style.transform = `translate(${sh}px,${(c.y - HALF + off).toFixed(1)}px)`;
   }
-  el.nowLine.style.transform = `translateY(${(-scroll.y).toFixed(1)}px)`;
+  el.nowLine.style.transform = `translateY(${(LANE_Y - NOW_Y - scroll.y).toFixed(1)}px)`;
   el.back.hidden = scroll.to < 20;
   ruler(off);
 }
 /** Where minute t of the day sits on the lane: steady time, stretched wherever quests are packed closer than a card apart. */
 function laneY(t) {
-  const A = [[base0, NOW_Y], ...anchors.filter(a => a[0] > base0)];
+  const A = [[base0, LANE_Y], ...anchors.filter(a => a[0] > base0)];
   for (let i = A.length - 1; i >= 0; i--) if (t >= A[i][0]) {
     const a = A[i], b = A[i + 1]; if (!b) return a[1] + (t - a[0]) * PPM;
     return a[1] + (b[1] - a[1]) * (t - a[0]) / Math.max(1, b[0] - a[0]);
   }
-  return NOW_Y + (t - base0) * PPM;
+  return LANE_Y + (t - base0) * PPM;
 }
 /** The time behind the quests: a line every half hour, the hours named, noon and 5pm marked as round ends, bedtime last. */
 const ticks = new Map();
