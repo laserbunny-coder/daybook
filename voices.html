@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gristlemaw's voice</title>
+<meta name="robots" content="noindex">
+<style>
+  /* The audition: tryouts for the dragon's voice, made with ElevenLabs. Pick one and he speaks with it in the Fight. */
+  :root { --bg: #120f0c; --panel: #1d1813; --line: #3a3026; --fg: #f0e6d4; --muted: #a8977f; --ember: #e0874a; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, sans-serif; padding: max(14px, env(safe-area-inset-top, 0px)) 16px 48px; max-width: 620px; margin-inline: auto; }
+  h1 { font: 650 22px/1.2 system-ui; margin: 8px 0 4px; }
+  p.lede { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
+  h2 { font: 600 13px/1.2 system-ui; text-transform: uppercase; letter-spacing: .07em; color: var(--ember); margin: 22px 0 4px; }
+  .desc { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+  .take { display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; margin-bottom: 8px; }
+  .take.on { border-color: var(--ember); }
+  .take b { font-size: 14px; min-width: 52px; }
+  .take audio { flex: 1; min-width: 0; height: 36px; }
+  button { font: 600 13px system-ui; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line); background: transparent; color: var(--fg); white-space: nowrap; }
+  button.go { background: var(--ember); border-color: var(--ember); color: #1b0f05; }
+  .take.on button { color: var(--ember); border-color: var(--ember); }
+  textarea { width: 100%; min-height: 70px; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: 15px/1.4 system-ui; }
+  .row { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+  #msg { color: var(--muted); font-size: 13px; min-height: 1.4em; margin-top: 10px; }
+  a { color: var(--ember); }
+</style>
+</head>
+<body>
+<h1>Gristlemaw's voice</h1>
+<p class="lede">Three kinds of dragon, three takes each. Listen, then tap <b>This is him</b> on the one you like. You can try him on any line at the bottom. <a href="./">Back to Daybook</a></p>
+<div id="list">Loading the tryouts…</div>
+<h2>Try a line</h2>
+<textarea id="line">You kept Morning walk. Fine. I wasn't hungry for walking anyway. Liar that I am.</textarea>
+<div class="row"><button class="go" id="say">Say it</button><audio id="out" controls hidden></audio></div>
+<div id="msg"></div>
+<script src="js/vendor/supabase.js"></script>
+<script type="module">
+let cfg = {};
+try { cfg = (await import('./js/config.js')).default || {}; } catch {}
+const $ = s => document.querySelector(s), msg = t => { $('#msg').textContent = t; };
+if (!cfg.supabaseUrl) { $('#list').textContent = 'Open this page from the live Daybook.'; throw 0; }
+const client = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true } });
+const pub = p => `${cfg.supabaseUrl.replace(/\/+$/, '')}/storage/v1/object/public/voices/${p}?t=${Date.now()}`;
+const get = async p => { try { const r = await fetch(pub(p)); return r.ok ? r.json() : null; } catch { return null; } };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+let mine = (await get('voice.json'))?.slug;
+const list = (await get('audition/list.json')) || [];
+function draw() {
+  if (!list.length) { $('#list').textContent = 'No tryouts yet.'; return; }
+  const groups = [...new Set(list.map(x => x.title))];
+  $('#list').innerHTML = groups.map(g => { const takes = list.filter(x => x.title === g);
+    return `<h2>${esc(g)}</h2><p class="desc">${esc(takes[0].description)}</p>` + takes.map(x =>
+      `<div class="take${x.slug === mine ? ' on' : ''}"><b>Take ${x.take}</b><audio controls preload="none" src="${pub(x.file)}"></audio><button data-pick="${esc(x.slug)}">${x.slug === mine ? 'His voice ✓' : 'This is him'}</button></div>`).join(''); }).join('');
+}
+draw();
+// one tryout plays at a time
+document.addEventListener('play', e => document.querySelectorAll('audio').forEach(a => a !== e.target && a.pause()), true);
+async function call(body) {
+  const { data: { session } } = await client.auth.getSession();
+  if (!session) { msg('Sign in to Daybook first (open the app), then come back here.'); return null; }
+  const { data, error } = await client.functions.invoke('voice', { body });
+  if (error || data?.error) { msg('That didn\'t work: ' + (data?.error || error.message).slice(0, 160)); return null; }
+  return data;
+}
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-pick]'); if (!b) return;
+  msg('Saving his voice…'); b.disabled = true;
+  const r = await call({ action: 'pick', slug: b.dataset.pick }); b.disabled = false;
+  if (r) { mine = b.dataset.pick; draw(); msg('Done. That\'s his voice now. Try a line below.'); }
+});
+$('#say').onclick = async () => {
+  const text = $('#line').value.trim(); if (!text) return;
+  msg('Gristlemaw is clearing his throat…'); $('#say').disabled = true;
+  const r = await call({ action: 'say', text }); $('#say').disabled = false;
+  if (r?.url) { const a = $('#out'); a.hidden = false; a.src = r.url; a.play().catch(() => {}); msg(''); }
+};
+</script>
+</body>
+</html>
