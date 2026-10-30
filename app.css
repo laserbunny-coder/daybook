@@ -1959,3 +1959,65 @@ body.td-shell .td-sbtns .td-ny,body.td-shell .td-dawning .td-sbtns .td-ny{displa
 .td-fanned .td-side{visibility:hidden}
 .td-bl{padding:3px 9px;border-radius:999px;background:rgba(20,8,6,.8)}
 .td-sbtns .td-add .ladd{background:rgba(24,12,8,.82);border-color:rgba(243,228,196,.35)}
+/* Fight cleanup (PR 187): his words in a chip that opens into a bubble, the NOW line under his chin, wider quests with the
+   hours on their left edge, one left rail of round buttons, the gut as a tray, and a darker hand set apart from the quests */
+.td-q{left:118px;width:264px}
+.td-now{left:84px}
+.td-now span{left:0}
+.td-tk{left:84px}
+.td-tk span,.td-tk.end span,.td-tk.bed span{left:0;width:30px;text-align:right;top:-7px;font-size:10px}
+.td-lane{-webkit-mask-image:linear-gradient(to bottom,transparent 140px,#000 190px,#000 calc(100% - 26px),transparent);mask-image:linear-gradient(to bottom,transparent 140px,#000 190px,#000 calc(100% - 26px),transparent)}
+.td-help{position:absolute;left:12px;top:6px;width:30px;height:30px;pointer-events:auto;z-index:6}
+body.td-shell .td-help{top:6px}
+/* his words */
+.td-chip{position:absolute;left:322px;z-index:6;display:flex;align-items:center;gap:4px;height:28px;padding:0 9px 0 7px;border:0;border-radius:14px;background:#f3e4c4;color:#3a2414;box-shadow:0 3px 10px rgba(0,0,0,.55);cursor:pointer;font:700 13px 'Alegreya Sans',sans-serif}
+.td-chip svg{width:14px;height:14px}
+.td-chip.new::after{content:"";position:absolute;right:-2px;top:-2px;width:9px;height:9px;border-radius:50%;background:#e04a3a;box-shadow:0 0 0 2px #140c10}
+.td-chip.on{box-shadow:0 0 0 2px #f2c14e,0 3px 10px rgba(0,0,0,.55)}
+.td-fanned .td-chip,.td-dawning .td-chip{visibility:hidden}
+.td-say,.td-say{left:96px;right:10px;width:auto;min-width:0;max-width:none;padding:9px 13px 8px;border-radius:14px;z-index:7;display:block}
+.td-say[hidden]{display:none}
+.td-say::before{left:auto;right:30px;top:-7px;bottom:auto}
+.td-say span{display:block;-webkit-line-clamp:unset;font-size:15px;line-height:1.3;overflow:visible}
+.td-say em{display:block;margin-top:4px;font:500 11px 'Alegreya Sans',sans-serif;font-style:normal;color:#8a6a44}
+.td-saybg{position:absolute;left:84px;right:0;top:250px;bottom:0;z-index:6;background:rgba(10,5,7,.35);pointer-events:none}
+.td-fanned .td-say,.td-fanned .td-saybg{display:none}
+/* the left rail */
+.td-side{left:8px;width:62px;align-items:center;gap:7px;padding:9px 0 10px;box-sizing:border-box;border-radius:18px;background:rgba(14,8,10,.42)}
+.td-pips{gap:2px;padding:3px;border-radius:12px;background:rgba(10,4,4,.75)}
+.td-pips i{width:17px;height:17px}
+.td-pips i b{font-size:9px}
+.td-side .td-rnd{width:100%;min-height:40px}
+.td-rnd em{padding:1px 6px;border-radius:8px;background:rgba(10,4,4,.75)}
+.td-rnd em.nd{font-size:10.5px;color:#e8d8b8}
+.td-sbtns{align-items:center;gap:8px}
+.td-sbtns .td-pill,.td-sbtns .td-drg,.td-gutb,.td-sbtns .ny-line,.td-sbtns .td-add .ladd{position:relative;width:42px;height:42px;min-height:0;padding:0;margin:0;display:grid;place-items:center;border-radius:50%;border:1px solid rgba(242,193,78,.32);background:rgba(36,20,22,.92);color:#ecdcbc;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.45)}
+.td-sbtns .td-pill[hidden],.td-gutb[hidden]{display:none}
+.td-sbtns .td-pill b,.td-gutb b,.td-sbtns .ny-line b{position:absolute;right:-5px;top:-4px;min-width:17px;height:17px;padding:0 4px;box-sizing:border-box;border-radius:9px;display:grid;place-items:center;font:700 10.5px 'Alegreya Sans',sans-serif;line-height:1;background:#e04a3a;color:#fff}
+.td-sbtns .td-pill b,.td-gutb b{background:#f2c14e;color:#3a2410}
+.td-gutb[aria-expanded="true"]{box-shadow:0 0 0 2px #f2c14e,0 2px 8px rgba(0,0,0,.45)}
+.td-sbtns .ny-line{font-size:0}
+.td-sbtns .ny-line>*:not(b){display:none}
+.td-sbtns .ny-line::before{content:"";width:20px;height:20px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6 16V11a6 6 0 0 1 12 0v5l2 2H4z'/%3E%3Cpath d='M10 21h4'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6 16V11a6 6 0 0 1 12 0v5l2 2H4z'/%3E%3Cpath d='M10 21h4'/%3E%3C/svg%3E") center/contain no-repeat}
+.td-sbtns .ny-line b{font-size:10.5px}
+.td-sbtns .td-add .ladd{font-size:0;background:radial-gradient(circle at 40% 35%,#ffe28a,#e0a92c 70%);border-color:#ffe28a;color:#3a2410}
+.td-sbtns .td-add .ladd span{font-size:28px;font-weight:600;line-height:1;margin-top:-2px}
+.td-nyslot,.td-addslot{display:contents}
+/* the gut: a tray above your cards, opened from the rail */
+.td-belly{position:absolute;left:8px;right:8px;bottom:calc(100% + 6px);display:flex;flex-direction:column;align-items:stretch;gap:6px;padding:8px;border-radius:14px;background:rgba(24,10,8,.95);border:1px solid rgba(255,120,90,.35);box-shadow:0 8px 24px rgba(0,0,0,.6);overflow:visible}
+.td-belly[hidden],.td-belly:empty{display:none}
+.td-belly .td-bl{padding:0 2px;background:none}
+.td-bones{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
+.td-fanned .td-belly{display:none}
+/* your hand: tucked low on a dark band, dark backs with gold names, so they never read as quests */
+.td-foot{background:linear-gradient(rgba(12,5,4,0),rgba(12,5,4,.82) 38%,rgba(12,5,4,.95));padding-top:14px}
+.td-hand{height:50px}
+.td-stage:not(.td-fanned) .td-card{background:linear-gradient(170deg,#5a2418,#2a100c 70%);box-shadow:0 -4px 16px rgba(0,0,0,.6),inset 0 0 0 2px #c99a3a,inset 0 0 0 4px #3a160e}
+.td-stage:not(.td-fanned) .td-card b{color:#f2c14e;text-shadow:0 1px 2px #000}
+.td-stage:not(.td-fanned) .td-card.comeback{background:linear-gradient(170deg,#2a4a24,#10200c 70%)}
+.td-fanned .td-foot{background:none}
+body.td-shell .td-sbtns .td-pill,.td-sbtns .td-pill{top:auto;right:auto;left:auto;bottom:auto;gap:0}
+.td-side .td-pips i{width:17px;height:17px}
+.td-side .td-pips i b{font-size:9px}
+.td-belly{left:78px}
+.td-host .td-sbtns .td-addslot .td-add:has(form){position:absolute;left:0;top:auto;bottom:0;width:340px;z-index:9}

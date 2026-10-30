@@ -15,10 +15,17 @@ import * as store from './store.js';
 import { colorOf, isDone } from './tree.js';
 import { esc, fmtT, lsGet, lsSet, today, nowMin, add, pd, DAYL, MON } from './util.js';
 
-// NOW_Y is his mouth; the timeline starts lower, at LANE_Y, below his open lower jaw, and a quest jumps up into his mouth when its time comes
-// his words sit in the gap between his chin and the timeline
-const NOW_Y = 210, PPM = 0.6, GAP = 48, HALF = 21, BW = 390, LANE_Y = NOW_Y + 100;
+// NOW_Y is his mouth; the timeline starts just under his chin, at LANE_Y, and a quest jumps up into his mouth when its time comes.
+// His words fold into a small chip by his snout and open into a bubble over the top of the timeline when he speaks.
+const NOW_Y = 210, PPM = 0.6, GAP = 48, HALF = 21, BW = 390, LANE_Y = NOW_Y + 56;
 const NAME = 'Gristlemaw';
+const svg = (d, fill) => `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="${fill ? 'currentColor' : 'none'}" stroke="${fill ? 'none' : 'currentColor'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const ICON = {
+  dawn: svg('<path d="M5 17a7 7 0 0 1 14 0"/><path d="M3 20h18M12 5v3M5.6 8.6l2 2M18.4 8.6l-2 2"/>'),
+  drg: svg('<path d="M3 18c4-1 6-4 7-9 2 3 5 4 11 3-3 2-5 5-6 8-3-2-7-3-12-2z"/>'),
+  gut: svg('<path d="M4 9l3 2.5 3-3.5 2 3.5 2-3.5 3 3.5 3-2.5-2 10H6z"/>'),
+  say: svg('<path d="M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H10l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/>', true),
+};
 let client = null, onUpdate = () => {}, freeH = () => 10;
 let root = null, cv = null, ctx = null, el = {}, view = null, S = null, R = null, LH = 760, k = 1, raf = 0, last = 0, seen = null, pose = null;
 const cards = new Map(); // quest id -> { el, y }
@@ -37,7 +44,7 @@ export function mounted(d) {
   root.querySelector('.td-nyslot').replaceChildren(...host.querySelectorAll(':scope > .td-ny'));
   root.querySelector('.td-addslot').replaceChildren(...host.querySelectorAll(':scope > .td-add'));
   if (view !== d) { view = d; seen = null; cards.forEach(c => c.el.remove()); cards.clear(); }
-  fit(); el.nowLine.style.top = NOW_Y + 'px'; el.say.parentElement.style.top = NOW_Y + 44 + 'px'; voice.prepare(client); refresh(true);
+  fit(); el.nowLine.style.top = NOW_Y + 'px'; el.say.parentElement.style.top = LANE_Y + 8 + 'px'; el.chip.style.top = NOW_Y - 6 + 'px'; voice.prepare(client); refresh(true);
   if (!raf) { last = performance.now(); raf = requestAnimationFrame(loop); }
 }
 
@@ -47,12 +54,13 @@ function build() {
   root.innerHTML = `<div class="td-stage"><canvas class="td-cv" aria-hidden="true"></canvas>
     <button class="td-poke" data-td="poke" aria-label="Poke ${NAME}"></button>
     <nav class="td-rooms" aria-label="Rooms"></nav>
-    <div class="td-hud"><div class="td-hl"><div class="td-date"><button data-act="prev" aria-label="Previous day">‹</button><button class="td-dt" data-act="today"></button><button data-act="next" aria-label="Next day">›</button></div></div><div class="td-hr"><button class="td-snd" data-td="sound" aria-label="Sound"></button><div class="td-purse" title="Your gold"><i></i><b></b></div></div></div>
-    <div class="td-side"><div class="td-pips" aria-label="The rounds"></div><div class="td-rnd"></div><div class="td-sbtns"><button class="td-pill" data-td="dawn" hidden></button><button class="td-drg" data-td="lair">Dragons</button><span class="td-nyslot"></span><span class="td-sbr"><button class="td-help" data-td="help" aria-label="How the Fight works">?</button><span class="td-addslot"></span></span></div></div>
+    <div class="td-hud"><button class="td-help" data-td="help" aria-label="How the Fight works">?</button><div class="td-hl"><div class="td-date"><button data-act="prev" aria-label="Previous day">‹</button><button class="td-dt" data-act="today"></button><button data-act="next" aria-label="Next day">›</button></div></div><div class="td-hr"><button class="td-snd" data-td="sound" aria-label="Sound"></button><div class="td-purse" title="Your gold"><i></i><b></b></div></div></div>
+    <div class="td-side"><div class="td-pips" aria-label="The rounds"></div><div class="td-rnd"></div><div class="td-sbtns"><button class="td-pill" data-td="dawn" hidden></button><button class="td-drg" data-td="lair" aria-label="Dragons" title="Dragons">${ICON.drg}</button><span class="td-nyslot"></span><button class="td-gutb" data-td="gut" aria-label="In his gut" title="In his gut: finish one to make him cough up half" hidden>${ICON.gut}<b></b></button><span class="td-addslot"></span></div></div>
     <div class="td-lane" aria-label="Your quests, in order"><div class="td-ruler" aria-hidden="true"></div></div>
     <button class="td-back2" data-td="now" hidden>Back to now</button>
     <div class="td-now"><span></span></div>
-    <button class="td-say" data-td="replay" aria-label="Hear it again"><small>${NAME.toUpperCase()}</small><span></span></button>
+    <div class="td-saybg" hidden></div><button class="td-say" data-td="say-x" aria-label="Close" hidden><small>${NAME.toUpperCase()}</small><span></span><em>Tap to close · tap the chip to hear it again</em></button>
+    <button class="td-chip" data-td="replay" aria-label="What ${NAME} said">${ICON.say}<b>…</b></button>
     <div class="td-banner" hidden></div>
     <button class="td-fanbg" data-td="fan-x" aria-label="Put your cards away" hidden><span>Tap a card to play it · tap here to tuck them back</span></button>
     <div class="td-foot"><div class="td-belly"></div><div class="td-aim" hidden></div><div class="td-hand"></div></div>
@@ -62,7 +70,7 @@ function build() {
     <div class="td-hit" hidden></div><div class="td-combo" hidden></div>
     <div class="td-flash"></div></div>`;
   const $ = s => root.querySelector(s);
-  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), pips: $('.td-pips'), side: $('.td-side'), foot: $('.td-foot'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small'), ruler: $('.td-ruler'), back: $('.td-back2'), hit: $('.td-hit'), combo: $('.td-combo'), fanbg: $('.td-fanbg'), rooms: $('.td-rooms'), dt: $('.td-dt') };
+  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), pips: $('.td-pips'), side: $('.td-side'), foot: $('.td-foot'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small'), sayb: $('.td-say'), saybg: $('.td-saybg'), chip: $('.td-chip'), gutb: $('.td-gutb'), ruler: $('.td-ruler'), back: $('.td-back2'), hit: $('.td-hit'), combo: $('.td-combo'), fanbg: $('.td-fanbg'), rooms: $('.td-rooms'), dt: $('.td-dt') };
   swipeRooms();
   cv = $('.td-cv'); ctx = cv.getContext('2d');
   // while a card is picked, tapping a quest plays it there instead of opening or finishing it
@@ -78,7 +86,9 @@ function build() {
     if (e.target === el.dawn && !el.dawn.hidden) { el.dawn.querySelector('[data-td="dawn-x"]')?.click(); return; }
     const b = e.target.closest('[data-td]'); if (!b) return;
     if (b.dataset.td === 'poke') { poke(); }
-    else if (b.dataset.td === 'replay') hear();
+    else if (b.dataset.td === 'replay') { if (bub.open) bubble(false); else { bubble(true, 8); hear(); } }
+    else if (b.dataset.td === 'say-x') bubble(false);
+    else if (b.dataset.td === 'gut') { gutOpen = !gutOpen; foot(); }
     else if (b.dataset.td === 'card') { if (fan) { fan = false; pickCard(b.dataset.c); hand(); } else { fan = true; hand(); } }
     else if (b.dataset.td === 'fan-x') { fan = false; hand(); }
     else if (b.dataset.td === 'room') goRoom(b.dataset.v);
@@ -110,7 +120,7 @@ function build() {
   hitEvents();
   addEventListener('resize', () => { if (root?.isConnected) fit(); });
   // drag (or wheel) the lane to look further ahead; a drag never counts as a tap on a quest
-  const inLane = e => { if (e.target.closest('.td-hit,.td-foot,.td-fanbg,.td-dawn,.td-verdict,.td-hud,.td-pill,.td-drg,.td-help,.td-banner,.td-say,.td-poke,.td-back2,.td-add')) return false; const r = el.stage.getBoundingClientRect(); return (e.clientX - r.left) / k > 140; };
+  const inLane = e => { if (e.target.closest('.td-hit,.td-foot,.td-fanbg,.td-dawn,.td-verdict,.td-hud,.td-pill,.td-drg,.td-help,.td-banner,.td-say,.td-chip,.td-poke,.td-back2,.td-add,.td-side')) return false; const r = el.stage.getBoundingClientRect(); return (e.clientX - r.left) / k > 84; };
   el.stage.addEventListener('pointerdown', e => { if (!inLane(e) || aim) return; scroll.drag = { y0: e.clientY, s0: scroll.to, id: e.pointerId, moved: false }; });
   el.stage.addEventListener('pointermove', e => { const d = scroll.drag; if (!d || d.id !== e.pointerId) return; const dy = (d.y0 - e.clientY) / k;
     if (!d.moved && Math.abs(dy) > 6) { d.moved = true; el.stage.setPointerCapture?.(e.pointerId); }
@@ -159,8 +169,8 @@ function refresh(force) {
 function fitFoot() {
   const f = el.foot; if (!f) return;
   const ft = f.offsetTop;
-  el.lane.style.bottom = Math.max(60, LH - ft - 6) + 'px';
-  el.side.style.top = LANE_Y + 8 + 'px'; el.side.style.height = Math.max(120, ft - LANE_Y - 14) + 'px';
+  el.lane.style.bottom = Math.max(50, LH - ft) + 'px';
+  el.side.style.top = LANE_Y + 6 + 'px'; el.side.style.height = Math.max(120, ft - LANE_Y - 12) + 'px';
 }
 const SPK = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/>';
 function soundBtn() {
@@ -185,7 +195,7 @@ function meter(live) {
   el.pips.innerHTML = R.R.map(x => `<i class="${x.res}${x === cur ? ' live' : ''}" title="${x.name}: ${x.res === 'none' ? 'no contest' : x.res === 'open' ? `${x.kept} of ${x.total} kept` : `${x.res === 'won' ? 'won' : 'lost'}, ${x.kept} of ${x.total}`}"><b>${x.name[0]}</b></i>`).join('');
   el.rnd.hidden = !cur || !cur.total;
   if (cur?.total) { const pct = v => Math.min(100, v / cur.total * 100).toFixed(1);
-    el.rnd.innerHTML = `<em>${cur.kept}/${cur.total}</em><span class="td-vbar" title="${cur.name} round: ${cur.kept} of ${cur.total} kept, need ${cur.need}"><i class="k" style="height:${pct(cur.kept)}%"></i><i class="l" style="height:${pct(cur.lost)}%"></i><u style="bottom:${pct(cur.need)}%"><b>need ${cur.need}</b></u></span>`; }
+    el.rnd.innerHTML = `<em>${cur.kept}/${cur.total}</em><span class="td-vbar" title="${cur.name} round: ${cur.kept} of ${cur.total} kept, need ${cur.need}"><i class="k" style="height:${pct(cur.kept)}%"></i><i class="l" style="height:${pct(cur.lost)}%"></i><u style="bottom:${pct(cur.need)}%"></u></span><em class="nd">need ${cur.need}</em>`; }
   el.now.textContent = [sw ? ` · swoops ${fmtT(sw.t)}` : '', now && R.curses.length ? ` · ${R.curses.map(c => dragon.CURSES[c].n).join(', ')}` : ''].join('');
 }
 /** The quests still in play, positioned by when they reach his jaws, never closer than one card apart. */
@@ -277,11 +287,15 @@ const scroll = { y: 0, to: 0, at: 0, drag: null };
 function foot() {
   const live = view === today();
   const eaten = live || view < today() ? R.Qs.filter(q => q.st === 'eaten') : [];
-  el.belly.innerHTML = eaten.length ? `<span class="td-bl" title="Finish one and he coughs up half">In his gut · finish to make him cough up half</span>${eaten.map(q => `<span class="td-bone"><button class="td-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Finish ${esc(q.n.t)} to make him cough up half"></button><button class="td-n" data-act="open" data-id="${q.n.id}">${esc(q.n.t || 'Untitled')}</button><em>½ ${Math.ceil(q.g / 2)}</em></span>`).join('')}` : '';
+  el.gutb.hidden = !eaten.length; el.gutb.querySelector('b').textContent = eaten.length || '';
+  if (!eaten.length) gutOpen = false;
+  el.gutb.setAttribute('aria-expanded', gutOpen); el.belly.hidden = !gutOpen;
+  el.belly.innerHTML = eaten.length ? `<span class="td-bl">In his gut · finish one and he coughs up half</span><span class="td-bones">${eaten.map(q => `<span class="td-bone"><button class="td-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Finish ${esc(q.n.t)} to make him cough up half"></button><button class="td-n" data-act="open" data-id="${q.n.id}">${esc(q.n.t || 'Untitled')}</button><em>½ ${Math.ceil(q.g / 2)}</em></span>`).join('')}</span>` : '';
   hand();
 }
 /* ---------- your hand ---------- */
 // The cards sit tucked along the bottom, only their tops showing. Tap them and they rise and fan out big; tap one to play it.
+let gutOpen = false;
 let aim = null; // { c, ids: [], plan } while a card waits for its quest(s), then for your yes
 let fan = false;
 const AIM_TXT = { wind: 'Tap the quest to give a Second Wind', shield: 'Tap the quest to shield', swap: 'Tap the first quest to swap', back: 'Tap the quest to send back', split: 'Tap the big quest to split' };
@@ -372,7 +386,7 @@ function dawn() {
   const auto = live && !dragon.dawnSeen(T), open = live && (auto || dawnOpen);
   // the pill brings Dawn back: the Market before noon, a pack waiting, or just the day's look
   el.pill.hidden = !live || open;
-  if (!el.pill.hidden) el.pill.innerHTML = S.packs > 0 ? '<b>A pack waits</b>' : dragon.marketOpen() ? '<b>Market</b><span>open till noon</span>' : '<b>Dawn</b>';
+  if (!el.pill.hidden) { const t = S.packs > 0 ? 'Dawn: a pack waits' : dragon.marketOpen() ? 'Dawn: the Market is open till noon' : 'Dawn'; el.pill.innerHTML = ICON.dawn + (t !== 'Dawn' ? '<b>!</b>' : ''); el.pill.title = t; el.pill.setAttribute('aria-label', t); }
   root.parentElement?.classList.toggle('td-dawning', open || !!lairOpen);
   if (!open) { el.dawn.hidden = true; el.dawn.innerHTML = ''; return; }
   const mk = R.mark, sw = R.swoops, mkt = dragon.market(T), offer = S.packs > 0 ? dragon.packOffer() : null;
@@ -710,7 +724,18 @@ function line(fresh = false) {
 const ONCE = 'daybook-td-said';
 function once(k, m) { const o = lsGet(ONCE, {}); if (o[k] === today()) return; if (talk(m)) { o[k] = today(); lsSet(ONCE, o); } }
 /** A big moment: he says one of his stock lines right away, and it stays up while he talks. */
-function talk(m) { const t = voice.stock(m); if (t) show(t, true); return !!t; }
+function talk(m) { const t = voice.stock(m); if (t) { show(t, true); bubble(true); } return !!t; }
+/** His bubble: open while he talks and a few seconds after (or `hold` seconds when you asked), then it folds back into the chip. */
+const bub = { open: false, until: 0, hold: 3 };
+function bubble(on, hold = 3) {
+  bub.open = on; bub.hold = hold; bub.until = performance.now() + (hold + 1.5) * 1000;
+  el.sayb.hidden = el.saybg.hidden = !on; el.chip.classList.toggle('on', on);
+  if (on) { el.chip.classList.remove('new'); el.sayb.animate([{ opacity: 0, transform: 'translateY(-6px) scale(.96)' }, { opacity: 1, transform: 'none' }], { duration: 220, easing: 'ease-out' }); }
+}
+function bubbleTick(now) {
+  if (!bub.open) return;
+  if (voice.speaking()) bub.until = now + bub.hold * 1000; else if (now > bub.until) bubble(false);
+}
 /** Tap on his words: hear them. A stock line plays again at once; anything else is voiced (a few a day), or he answers with a poke line. */
 const VOICED = 'daybook-td-voiced';
 function hear() {
@@ -722,7 +747,7 @@ function hear() {
 function show(t, now = false) {
   if (!now && voice.speaking()) { pending = t; return; }
   pending = null;
-  if (el.say.textContent !== t) { el.say.textContent = t; el.say.parentElement.animate([{ opacity: 0.2, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: 300 }); }
+  if (el.say.textContent !== t) { const first = !el.say.textContent; el.say.textContent = t; if (!bub.open && !first) el.chip.classList.add('new'); }
 }
 function say() { line(false); }
 // lots of pokes in a row and he gets flustered
@@ -950,7 +975,7 @@ function loop(ts) {
   if (live && lastQuarter != null && qtr !== lastQuarter && !reduce) { crank = 5; sfx.tick?.(); }
   lastQuarter = qtr; crank *= .85;
   snapT = Math.max(0, snapT - dt * 3); flinch = Math.max(0, flinch - dt * 2); cough = Math.max(0, cough - dt * .8);
-  const glow = hitTick(ts);
+  const glow = hitTick(ts); bubbleTick(ts);
   blinkT -= dt; if (blinkT < 0) { blink = 1; blinkT = 2.5 + Math.random() * 3; } blink = Math.max(0, blink - dt * 6);
   const time = ts / 1000, v = !live && view <= today() ? R.verdict : null;
   const open = .06 + danger * .36 + Math.sin(time * 1.4) * .025;
