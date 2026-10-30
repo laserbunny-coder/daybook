@@ -72,7 +72,7 @@ jobs:
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
         run: |
           mkdir -p _site
-          cp -r index.html privacy.html lab.html app.css manifest.webmanifest sw.js favicon.ico icons js _site/
+          cp -r index.html privacy.html lab.html app.css manifest.webmanifest sw.js favicon.ico icons js art _site/
           printf "export default { supabaseUrl: '%s', supabaseAnonKey: '%s' };\n" "$SUPABASE_URL" "$SUPABASE_ANON_KEY" > _site/js/config.js
           # New cache name on every publish so phones pick up the update.
           sed -i "s/daybook-v1/daybook-${GITHUB_SHA::8}/" _site/sw.js
