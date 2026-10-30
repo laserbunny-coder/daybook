@@ -57,16 +57,21 @@ Deno.serve(async (req) => {
   const isReport = kind === "report";
   if (!facts) return json({ error: "Missing facts" }, 400);
   try {
-    const response = await client.beta.messages.create({
-      model: "claude-opus-5-5",
+    const ask = {
       max_tokens: 2000,
       system: isReport ? `${SYSTEM}\n\n${REPORT}` : kind === "fight" ? FIGHT : kind === "name" ? NAME : SYSTEM,
-      messages: [{ role: "user", content: isReport ? `The week:\n${JSON.stringify(facts)}\n\nThe Dragon's Due:` : kind === "name" ? `The goal:\n${JSON.stringify(facts)}\n\nHis name:` : `How the day stands:\n${JSON.stringify(facts)}\n\nYour line:` }],
-      output_config: { effort: "low" },
-      betas: ["server-side-fallback-2026-07-01"],
-      // @ts-ignore: server-side fallback parameter (beta)
-      fallbacks: "default",
-    });
+      messages: [{ role: "user" as const, content: isReport ? `The week:\n${JSON.stringify(facts)}\n\nThe Dragon's Due:` : kind === "name" ? `The goal:\n${JSON.stringify(facts)}\n\nHis name:` : `How the day stands:\n${JSON.stringify(facts)}\n\nYour line:` }],
+      output_config: { effort: "low" as const },
+    };
+    // His everyday lines come many times a day, so they use the small fast model, without thinking; the weekly letter gets Sonnet
+    const response = isReport
+      ? await client.beta.messages.create({
+        ...ask, model: "claude-sonnet-5-5",
+        betas: ["server-side-fallback-2026-07-01"],
+        // @ts-ignore: server-side fallback parameter (beta)
+        fallbacks: "default",
+      })
+      : await client.beta.messages.create({ ...ask, model: "claude-haiku-5-5", thinking: { type: "disabled" } });
     const text = response.content.find((b) => b.type === "text");
     if (response.stop_reason === "refusal" || !text || text.type !== "text") return json({ line: null });
     return json({ line: text.text.trim().replace(/^["“]|["”]$/g, "") });

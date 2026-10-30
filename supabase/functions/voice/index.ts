@@ -2,8 +2,10 @@
 // - say: a signed-in person's line as speech, with per-letter timings for his jaw; cached in storage.
 // - pick: a signed-in person chooses which auditioned voice is his.
 // - design / check: run from the database with the server's own secret, to make voices for the audition page.
-// Audio lives in the public "voices" bucket: audition/ for the tryouts, lines/ for cached speech.
+// - bank: records his stock lines (stock.ts) once, for every player; tidy: clears out old one-off lines (daily, from cron).
+// Audio lives in the public "voices" bucket: audition/ for the tryouts, bank/ for stock lines, lines/ for cached one-off speech.
 import { admin, cors, json, userFrom } from "../_shared/common.ts";
+import { STOCK } from "./stock.ts";
 
 const API = "https://api.elevenlabs.io/v1";
 const key = () => Deno.env.get("ELEVENLABS_API_KEY") ?? "";
@@ -77,17 +79,57 @@ Deno.serve(async (req) => {
     return json({ voice_id });
   }
 
+  // Record the stock lines that aren't in his bank yet, a few per call (each takes seconds); call again until left is 0
+  if (body.action === "bank" && server) {
+    const voice = (await readJson("voice.json"))?.voice_id;
+    if (!voice) return json({ error: "No voice picked yet" }, 409);
+    const want = Object.entries(STOCK).flatMap(([m, L]) => L.map((t) => ({ m, t })));
+    const list = ((await readJson(`bank/${voice}/list.json`)) ?? []).filter((x: { m: string; t: string }) => want.some((w) => w.m === x.m && w.t === x.t));
+    const todo = want.filter((w) => !list.some((x: { m: string; t: string }) => x.m === w.m && x.t === w.t));
+    let made = 0;
+    for (const w of todo.slice(0, Number(body.n) || 8)) {
+      const r = await el(`/text-to-speech/${voice}/with-timestamps?output_format=mp3_44100_64`, { text: w.t, model_id: "eleven_v3" });
+      if (!r.ok) return json({ error: await r.text(), made, left: todo.length - made }, 502);
+      const out = await r.json() as { audio_base64: string; alignment?: { characters: string[]; character_start_times_seconds: number[]; character_end_times_seconds: number[] } };
+      const f = `bank/${voice}/${await sha(w.t)}.mp3`;
+      await put(f, bytes(out.audio_base64), "audio/mpeg");
+      const a = out.alignment;
+      // the jaw's timings, kept small: the letters, when each starts, and when the last one ends
+      list.push({ ...w, f, a: a ? { c: a.characters.join(""), s: a.character_start_times_seconds.map((x) => Math.round(x * 100) / 100), e: a.character_end_times_seconds.at(-1) } : null });
+      made++;
+    }
+    await put(`bank/${voice}/list.json`, JSON.stringify(list), "application/json");
+    return json({ made, left: todo.length - made, total: list.length });
+  }
+
+  // One-off lines are heard once or twice; keep two weeks of them (stock lines live in bank/ and stay)
+  if (body.action === "tidy" && server) {
+    const S = admin().storage.from("voices"), cut = Date.now() - 14 * 864e5;
+    const { data: folders } = await S.list("lines", { limit: 1000 });
+    let gone = 0;
+    for (const f of folders ?? []) {
+      for (;;) {
+        const { data: files } = await S.list(`lines/${f.name}`, { limit: 1000, sortBy: { column: "created_at", order: "asc" } });
+        const old = (files ?? []).filter((x) => x.created_at && new Date(x.created_at).getTime() < cut).map((x) => `lines/${f.name}/${x.name}`);
+        if (!old.length) break;
+        await S.remove(old); gone += old.length;
+        if (old.length < (files ?? []).length) break;
+      }
+    }
+    return json({ gone });
+  }
+
   // A line as speech, plus when each letter is spoken (for the jaw). Same line, same voice = same file.
   if (body.action === "say") {
     const text = String(body.text ?? "").trim().slice(0, 400);
     if (!text) return json({ error: "Nothing to say" }, 400);
     const voice = body.voice_id || (await readJson("voice.json"))?.voice_id;
     if (!voice) return json({ error: "No voice picked yet" }, 409);
-    const path = `lines/${voice}/${await sha(text)}`;
+    const flash = body.model === "flash", path = `lines/${voice}/${await sha((flash ? "flash:" : "") + text)}`;
     const cached = await readJson(`${path}.json`);
     const url = (p: string) => admin().storage.from("voices").getPublicUrl(p).data.publicUrl;
     if (cached) return json({ ...cached, url: url(`${path}.mp3`) });
-    const r = await el(`/text-to-speech/${voice}/with-timestamps?output_format=mp3_44100_64`, { text, model_id: body.model || "eleven_v3" });
+    const r = await el(`/text-to-speech/${voice}/with-timestamps?output_format=mp3_44100_64`, { text, model_id: flash ? "eleven_flash_v2_5" : "eleven_v3" });
     if (!r.ok) return json({ error: await r.text() }, 502);
     const out = await r.json() as { audio_base64: string; alignment?: unknown; normalized_alignment?: unknown };
     const timing = { alignment: out.alignment ?? null, normalized: out.normalized_alignment ?? null };
