@@ -1896,3 +1896,29 @@ body.td-shell .td-tools .td-ny,body.td-shell .td-dawning .td-tools .td-ny{displa
 .td-mx{display:flex;gap:10px;flex-wrap:wrap;margin-top:5px}
 .td-mt b{display:flex;align-items:baseline;gap:8px;font:700 13.5px 'Alegreya SC',serif;color:#ffe08a}
 .td-mt span{font:500 12px 'Alegreya Sans',sans-serif;color:#d9c9ae}
+
+/* More of the day in view (2026-10-30): he sits higher, his words run wide in the gap under his chin, and the rounds
+   are upright bars down the left side */
+.td-poke{top:20px}
+.td-say,.td-say{left:12px;right:12px;width:auto;min-width:0;max-width:none;padding:7px 12px 8px;border-radius:14px;z-index:6}
+.td-say::before{left:170px;top:-7px;bottom:auto}
+.td-say small{display:none}
+.td-say span{-webkit-line-clamp:2;font-size:14px;line-height:1.25}
+.td-rnd{position:absolute;left:12px;z-index:5;display:flex;flex-direction:row;gap:8px;pointer-events:none}
+.td-rnd[hidden]{display:none}
+.td-vb{display:flex;flex-direction:column;align-items:center;gap:4px;width:12px}
+.td-vb.big{width:20px}
+.td-vb em{height:13px;font:600 11px 'Alegreya Sans',sans-serif;font-style:normal;color:#ffe08a;white-space:nowrap;font-variant-numeric:tabular-nums;text-shadow:0 1px 3px #000}
+.td-vbar{display:block;position:relative;flex:1;width:100%;border-radius:7px;background:rgba(10,4,4,.8);box-shadow:inset 0 1px 2px #000,0 0 0 1px rgba(201,154,58,.55)}
+.td-vb.big .td-vbar{border-radius:10px;box-shadow:inset 0 1px 3px #000,0 0 0 1.5px #c99a3a,0 0 12px rgba(242,193,78,.22)}
+.td-vbar i{position:absolute;left:0;right:0;border-radius:inherit;transition:height .6s cubic-bezier(.2,.8,.3,1)}
+.td-vbar .k{bottom:0;background:linear-gradient(90deg,#a8701e,#fff0a8 40%,#f2c14e 70%,#a8701e)}
+.td-vbar .l{top:0;background:linear-gradient(90deg,#6a1a12,#ff8a6a 40%,#c0442a 70%,#6a1a12)}
+.td-vbar u{position:absolute;left:-4px;right:-4px;height:2px;margin-bottom:-1px;background:#fff6dc;box-shadow:0 0 4px #000}
+.td-vbar u b{position:absolute;left:calc(100% + 5px);top:-7px;font:600 11px 'Alegreya Sans',sans-serif;color:#fff6dc;white-space:nowrap;text-shadow:0 1px 3px #000}
+.td-vb small{font:700 11px 'Alegreya SC',serif;color:#cdbca0;text-shadow:0 1px 3px #000}
+.td-vb.big small{color:#ffe08a}.td-vb.none{opacity:.5}
+.td-mx{display:flex;gap:10px;flex-wrap:wrap}
+.td-mx:empty{display:none}
+.td-mt{font:500 12.5px 'Alegreya Sans',sans-serif;color:#d9c9ae}.td-mt b{font:700 13.5px 'Alegreya SC',serif;color:#ffe08a;margin-right:6px}
+.td-fanned .td-rnd,.td-fanned .td-mx{visibility:hidden}
