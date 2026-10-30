@@ -66,6 +66,9 @@ function build() {
   root.addEventListener('click', e => {
     if (e.target.closest('[data-act="goday"],[data-act="ask"]')) { lairOpen = null; lair(); }
     if (e.target.closest('[data-cave]')) lairOpen = null; // off to the Ledger: come back to the Fight
+    // a tap on the dim space around a panel puts it away
+    if (e.target === el.lair && lairOpen) { lairOpen = null; lair(); return; }
+    if (e.target === el.dawn && !el.dawn.hidden) { el.dawn.querySelector('[data-td="dawn-x"]')?.click(); return; }
     const b = e.target.closest('[data-td]'); if (!b) return;
     if (b.dataset.td === 'poke') { poke(); }
     else if (b.dataset.td === 'card') { if (fan) { fan = false; pickCard(b.dataset.c); hand(); } else { fan = true; hand(); } }
@@ -418,7 +421,8 @@ function rooms() {
 }
 function goRoom(k) {
   if (k === 'ledger') { el.rooms.querySelector('[data-cave]')?.click(); return; }
-  lairOpen = k === 'fight' ? null : k === 'lair' ? 'list' : k; lair();
+  // tapping the room you're in takes you back to the Fight
+  lairOpen = k === 'fight' || k === roomOf() ? null : k === 'lair' ? 'list' : k; lair();
 }
 // a sideways swipe anywhere on the stage walks to the next room; up and down stays the lane's
 function swipeRooms() {
