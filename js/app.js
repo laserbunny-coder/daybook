@@ -617,7 +617,7 @@ function renderMain() {
 }
 /* Task Dragon (js/dragon.js, js/fight.js): the day as a battle against a close-up dragon. Its + adds a quest to that day. */
 function fightHTML(d) {
-  const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a quest to ${esc(dayShort(d))}"><span aria-hidden="true">+</span> Add a quest</button>`;
+  const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a quest to ${esc(dayShort(d))}"><span aria-hidden="true">+</span> Quest</button>`;
   return fight.html(d, { adder, needs: needLine() });
 }
 const beginDragon = () => dragon.begin(user, quest.started() ? quest.realm().vault : 0); // the keep's gold comes along into the hoard
