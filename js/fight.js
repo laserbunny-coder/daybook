@@ -800,7 +800,14 @@ function teeth(line, xs, down, fangs) {
   }
 }
 const embers = [], smoke = [];
-const COINS = Array.from({ length: 70 }, (_, i) => { const a = hash(i) * Math.PI, r = Math.sqrt(hash(i + 50)); return { x: 80 + Math.cos(a) * r * 150 * (hash(i + 3) < .5 ? -1 : 1), y: -Math.sin(a) * r * 50 + 6, s: 5 + hash(i + 7) * 4, t: hash(i + 11) }; }).sort((a, b) => a.y - b.y);
+// coins on the hoard: u across the screen, v from the mound's surface (0) down to the bottom (1), drawn top to bottom
+const COINS = Array.from({ length: 170 }, (_, i) => ({ u: hash(i) * 1.1 - .05, v: Math.pow(hash(i + 50), 1.6), s: 4.5 + hash(i + 7) * 4.5, t: hash(i + 11) })).sort((a, b) => a.v - b.v);
+/** The hoard is a mound piled up around his body: its peak just over the bottom of the painting, sloping down to the right. */
+function hoardTop(H) {
+  const s = Math.min(.44, Math.max(.36, (H - 400) / 936)), base = art.ok ? NOW_Y - ART.jaw * s + ART.h * s : H - 130;
+  const peak = Math.min(H - 110, base - 46), right = Math.min(H - 34, peak + 120);
+  return x => x < 120 ? peak + Math.pow((120 - x) / 140, 2) * 34 : peak + Math.pow(Math.min(1, (x - 120) / 290), 1.5) * (right - peak);
+}
 /* ---------- the painted dragon: two paintings of the same pose, mouth closed and mouth open ---------- */
 // Points on the 1024 x 1536 paintings: the eye, the snout tip, the bottom of the closed jaw (which sits on the NOW line),
 // and the base of the neck he sways from.
@@ -849,7 +856,7 @@ function painted(p, H, dt) {
   ctx.restore();
 }
 function draw(p, time, dt) {
-  const H = LH, hy = H - 58; // the hoard sits down behind the tips of your cards
+  const H = LH, top = hoardTop(H), hy = top(120) + 30; // the hoard: piled up around his body, down behind your cards
   ctx.setTransform(ctx._dpr, 0, 0, ctx._dpr, 0, 0);
   // the cave
   let g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#120b18'); g.addColorStop(.55, '#1e1018'); g.addColorStop(1, '#2c140e'); ctx.fillStyle = g; ctx.fillRect(0, 0, BW, H);
@@ -899,12 +906,16 @@ function draw(p, time, dt) {
   ctx.restore();
   }
   // his hoard
-  ctx.save(); ctx.translate(0, hy);
-  g = ctx.createRadialGradient(80, 10, 10, 80, 20, 190); g.addColorStop(0, '#ffdc7a'); g.addColorStop(.5, '#c98a2a'); g.addColorStop(1, '#4a2a10');
-  ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(80, 28, 190, 64, 0, Math.PI, 0); ctx.closePath(); ctx.fill();
-  for (const c of COINS) { ctx.fillStyle = c.t > .5 ? '#f2c14e' : '#d9a23c'; ctx.beginPath(); ctx.ellipse(c.x, c.y, c.s, c.s * .45, c.t * .6 - .3, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = 'rgba(90,50,10,.6)'; ctx.lineWidth = 1; ctx.stroke();
-    if (Math.sin(time * 2 + c.t * 40) > .93) { ctx.fillStyle = '#fff8d8'; ctx.beginPath(); ctx.arc(c.x - 1, c.y - 1, 1.8, 0, 7); ctx.fill(); } }
-  ctx.restore();
+  ctx.beginPath(); ctx.moveTo(-10, H);
+  for (let x = -10; x <= BW + 10; x += 10) ctx.lineTo(x, top(x));
+  ctx.lineTo(BW + 10, H); ctx.closePath();
+  g = ctx.createLinearGradient(0, top(120), 0, H); g.addColorStop(0, '#e9b54e'); g.addColorStop(.35, '#a8701e'); g.addColorStop(1, '#3a200c'); ctx.fillStyle = g; ctx.fill();
+  g = ctx.createRadialGradient(110, top(110) + 20, 10, 110, top(110) + 40, 260); g.addColorStop(0, `rgba(255,226,140,${.55 * p.flicker})`); g.addColorStop(1, 'rgba(255,200,90,0)'); ctx.fillStyle = g; ctx.fill();
+  for (const c of COINS) {
+    const x = c.u * BW, y0 = top(x), y = y0 + 4 + c.v * (H - y0 - 4), d = 1 - c.v * .55; // deeper coins sit in shadow
+    ctx.fillStyle = c.t > .5 ? `rgb(${242 * d | 0},${193 * d | 0},${78 * d | 0})` : `rgb(${217 * d | 0},${162 * d | 0},${60 * d | 0})`;
+    ctx.beginPath(); ctx.ellipse(x, y, c.s, c.s * .45, c.t * .6 - .3, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = 'rgba(90,50,10,.6)'; ctx.lineWidth = 1; ctx.stroke();
+    if (c.v < .5 && Math.sin(time * 2 + c.t * 40) > .93) { ctx.fillStyle = '#fff8d8'; ctx.beginPath(); ctx.arc(x - 1, y - 1, 1.8, 0, 7); ctx.fill(); } }
   // embers and smoke
   if (Math.random() < dt * (6 + p.heat * 30)) embers.push({ x: 80 + Math.random() * 120, y: hy + Math.random() * 20, vx: (Math.random() - .4) * 14, vy: -20 - Math.random() * 40, life: 1 });
   if (p.jaw > .18 && Math.random() < dt * p.heat * 40) embers.push({ x: HX + 60 + Math.random() * 100, y: HY + 20, vx: 20 + Math.random() * 30, vy: -30 - Math.random() * 30, life: .8 });
