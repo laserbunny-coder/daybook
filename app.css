@@ -1787,3 +1787,39 @@ button.q-say.poked .q-face{animation:q-poke .5s}
 .td-combo b{font:700 14px 'Alegreya SC',serif}.td-combo span{font-size:11.5px;color:#e8d4a8}
 .td-combo i{position:absolute;left:8px;right:8px;bottom:3px;height:2px;border-radius:2px;background:linear-gradient(90deg,#f2c14e calc(var(--p)*100%),rgba(242,193,78,.2) 0)}
 @media (prefers-reduced-motion:reduce){.td-popx,.td-pile,.td-pile::after{animation-duration:.01s}}
+
+/* Task Dragon, layout A2: his talk sits right of his eye, above his snout; your cards are tucked tips along the bottom
+   that rise and fan out big when tapped */
+.td-say,.td-say{left:auto;right:12px;top:116px;width:auto;max-width:178px;min-width:150px;border-radius:14px 14px 14px 4px}
+.td-say::before{left:-7px;top:auto;bottom:10px;width:14px;height:14px;transform:rotate(45deg)}
+.td-say span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden}
+.td-foot{padding-bottom:0}
+.td-hand{height:62px;position:relative}
+.td-card{left:calc(50% - 56px + var(--off) * var(--sp,112px));bottom:auto;top:6px;width:112px;height:200px;padding:9px 10px;gap:6px;border-radius:12px;
+  transform:translateY(calc(var(--ao) * 9px)) rotate(calc(var(--off) * 7deg));transform-origin:50% 30%;
+  background:linear-gradient(170deg,#fff3d6,#e6cf9e 60%,#cdb07a);box-shadow:0 -4px 16px rgba(0,0,0,.55),inset 0 0 0 3px #8a5f33;
+  transition:left .3s cubic-bezier(.2,.8,.3,1),top .3s cubic-bezier(.2,.8,.3,1),width .3s,height .3s,transform .3s cubic-bezier(.2,.8,.3,1),opacity .3s,filter .3s}
+.td-card b{font-size:15px;line-height:1.05}
+.td-card .td-art{display:flex;align-items:center;justify-content:center;flex:none;height:0;opacity:0;border-radius:8px;font-style:normal;font:700 32px 'Alegreya SC',serif;color:#fff2c0;
+  background:radial-gradient(circle at 50% 60%,#ffcf70,#c0501c 55%,#3a0f12);box-shadow:inset 0 0 0 2px rgba(0,0,0,.25);transition:height .3s,opacity .3s}
+.td-card span,.td-card small{opacity:0;transition:opacity .2s}
+.td-card.sel{transform:translateY(-14px) rotate(0);box-shadow:0 0 0 2px #f2c14e,0 -6px 22px rgba(0,0,0,.7),inset 0 0 0 3px #8a5f33}
+.td-card.used{opacity:.45}
+.td-fanbg{position:absolute;inset:0;z-index:7;border:0;padding:0 0 calc(64px) ;margin:0;cursor:pointer;background:linear-gradient(rgba(8,4,8,.25),rgba(8,4,8,.78) 55%);animation:td-fade .25s;display:flex;align-items:flex-end;justify-content:center}
+.td-fanbg[hidden]{display:none}
+.td-fanbg span{font:500 13px 'Alegreya Sans',sans-serif;color:#e8d4a8;padding:0 16px 14px;text-align:center}
+@keyframes td-fade{from{opacity:0}}
+.td-fanned .td-foot{z-index:8;background:none;pointer-events:none}
+.td-fanned .td-foot .td-hand{pointer-events:auto}
+.td-fanned .td-belly,.td-fanned .td-aim{visibility:hidden}
+.td-fanned .td-card{left:calc(50% - 75px + var(--off) * var(--fs,112px));top:-290px;width:150px;height:232px;padding:12px 12px 11px;gap:8px;
+  transform:translateY(calc(var(--ao) * var(--ao) * 26px)) rotate(calc(var(--off) * 7deg));box-shadow:0 14px 30px rgba(0,0,0,.65),inset 0 0 0 3px #8a5f33}
+.td-fanned .td-card b{font-size:19px}
+.td-fanned .td-card .td-art{height:72px;opacity:1}
+.td-fanned .td-card span{opacity:1;font-size:12.5px;line-height:1.28}
+.td-fanned .td-card small{opacity:1}
+.td-fanned .td-card:hover:not(:disabled){filter:brightness(1.06)}
+.td-fanned .td-card.used{filter:grayscale(1);opacity:.5}
+.td-stage{overflow:clip}
+.td-host:has(.td-fanned) .td-add,.td-fanned .td-pill,.td-fanned .td-back2{visibility:hidden}
+.td-fanned .td-card{left:calc(50% - 70px + var(--off) * var(--fs,122px));width:140px}

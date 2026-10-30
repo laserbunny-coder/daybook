@@ -44,6 +44,7 @@ function build() {
     <div class="td-now"><span></span></div>
     <button class="td-say" data-td="poke"><small>${NAME.toUpperCase()}</small><span></span></button>
     <div class="td-banner" hidden></div>
+    <button class="td-fanbg" data-td="fan-x" aria-label="Put your cards away" hidden><span>Tap a card to play it · tap here to tuck them back</span></button>
     <div class="td-foot"><div class="td-belly"></div><div class="td-aim" hidden></div><div class="td-hand"></div></div>
     <div class="td-verdict" hidden></div>
     <button class="td-pill" data-td="dawn" hidden></button>
@@ -53,7 +54,7 @@ function build() {
     <div class="td-hit" hidden></div><div class="td-combo" hidden></div>
     <div class="td-flash"></div></div>`;
   const $ = s => root.querySelector(s);
-  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), rounds: $('.td-rounds'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small'), ruler: $('.td-ruler'), back: $('.td-back2'), hit: $('.td-hit'), combo: $('.td-combo') };
+  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), rounds: $('.td-rounds'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small'), ruler: $('.td-ruler'), back: $('.td-back2'), hit: $('.td-hit'), combo: $('.td-combo'), fanbg: $('.td-fanbg') };
   cv = $('.td-cv'); ctx = cv.getContext('2d');
   // while a card is picked, tapping a quest plays it there instead of opening or finishing it
   root.addEventListener('click', e => {
@@ -64,7 +65,8 @@ function build() {
     if (e.target.closest('[data-act="goday"],[data-act="ask"]')) { lairOpen = null; lair(); }
     const b = e.target.closest('[data-td]'); if (!b) return;
     if (b.dataset.td === 'poke') { poke(); }
-    else if (b.dataset.td === 'card') pickCard(b.dataset.c);
+    else if (b.dataset.td === 'card') { if (fan) { fan = false; pickCard(b.dataset.c); hand(); } else { fan = true; hand(); } }
+    else if (b.dataset.td === 'fan-x') { fan = false; hand(); }
     else if (b.dataset.td === 'aim-x') { aim = null; hand(); }
     else if (b.dataset.td === 'aim-go') go();
     else if (b.dataset.td === 'undo-card') undoCard();
@@ -92,7 +94,7 @@ function build() {
   hitEvents();
   addEventListener('resize', () => { if (root?.isConnected) fit(); });
   // drag (or wheel) the lane to look further ahead; a drag never counts as a tap on a quest
-  const inLane = e => { if (e.target.closest('.td-hit,.td-foot,.td-dawn,.td-verdict,.td-hud,.td-pill,.td-drg,.td-help,.td-banner,.td-say,.td-poke,.td-back2,.td-add')) return false; const r = el.stage.getBoundingClientRect(); return (e.clientX - r.left) / k > 140; };
+  const inLane = e => { if (e.target.closest('.td-hit,.td-foot,.td-fanbg,.td-dawn,.td-verdict,.td-hud,.td-pill,.td-drg,.td-help,.td-banner,.td-say,.td-poke,.td-back2,.td-add')) return false; const r = el.stage.getBoundingClientRect(); return (e.clientX - r.left) / k > 140; };
   el.stage.addEventListener('pointerdown', e => { if (!inLane(e) || aim) return; scroll.drag = { y0: e.clientY, s0: scroll.to, id: e.pointerId, moved: false }; });
   el.stage.addEventListener('pointermove', e => { const d = scroll.drag; if (!d || d.id !== e.pointerId) return; const dy = (d.y0 - e.clientY) / k;
     if (!d.moved && Math.abs(dy) > 6) { d.moved = true; el.stage.setPointerCapture?.(e.pointerId); }
@@ -238,14 +240,18 @@ function foot() {
   hand();
 }
 /* ---------- your hand ---------- */
+// The cards sit tucked along the bottom, only their tops showing. Tap them and they rise and fan out big; tap one to play it.
 let aim = null; // { c, ids: [], plan } while a card waits for its quest(s), then for your yes
+let fan = false;
 const AIM_TXT = { wind: 'Tap the quest to give a Second Wind', shield: 'Tap the quest to shield', swap: 'Tap the first quest to swap', back: 'Tap the quest to send back', split: 'Tap the big quest to split' };
+const GLYPH = { shield: '⛨', swap: '⇅', back: '↓', lure: '◎', bet: '✦', split: '÷', wind: '≋' };
 function hand() {
   const live = view === today() && !R.closed;
-  if (!live || R.off) { el.hand.innerHTML = ''; el.aim.hidden = true; return; }
-  const n = R.hand.length;
+  if (!live || R.off) { el.hand.innerHTML = ''; el.aim.hidden = true; fan = false; el.fanbg.hidden = true; el.stage.classList.remove('td-fanned'); return; }
+  const n = R.hand.length; if (!n) fan = false;
+  el.stage.classList.toggle('td-fanned', fan); el.fanbg.hidden = !fan;
   el.hand.innerHTML = R.hand.map((c, i) => { const off = i - (n - 1) / 2, sel = aim?.c === c.c;
-    return `<button class="td-card${c.used ? ' used' : ''}${c.comeback ? ' comeback' : ''}${sel ? ' sel' : ''}" data-td="card" data-c="${c.c}" style="--off:${off};--sp:${n > 3 ? 90 : 114}px" aria-pressed="${sel}"${c.used ? ' disabled' : ''}><b>${c.n}</b><span>${c.t}</span><small class="${c.plan ? 'pl' : ''}">${c.plan ? 'Moves your plan' : 'Game only'}</small></button>`; }).join('');
+    return `<button class="td-card${c.used ? ' used' : ''}${c.comeback ? ' comeback' : ''}${sel ? ' sel' : ''}" data-td="card" data-c="${c.c}" style="--off:${off};--ao:${Math.abs(off)};--sp:${n > 3 ? 74 : 112}px;--fs:${n > 3 ? 78 : 122}px" aria-pressed="${sel}" aria-label="${fan ? `Play ${c.n}` : `${c.n}: tap to see your cards`}"${c.used && fan ? ' disabled' : ''}><b>${c.n}</b><i class="td-art" aria-hidden="true">${GLYPH[c.c] || '✦'}</i><span>${c.t}</span><small class="${c.plan ? 'pl' : ''}">${c.used ? 'Played' : c.plan ? 'Moves your plan' : 'Game only'}</small></button>`; }).join('');
   el.aim.hidden = !aim;
   if (aim) el.aim.innerHTML = aim.plan
     ? `<span><b>${dragon.CARDS[aim.c].n}:</b> ${esc(aim.plan.text)}</span><span class="td-aim-b"><button data-td="aim-x">Cancel</button><button class="go" data-td="aim-go">Play it</button></span>`
