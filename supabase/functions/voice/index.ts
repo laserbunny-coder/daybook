@@ -69,8 +69,10 @@ Deno.serve(async (req) => {
     const take = list.find((x: { slug: string }) => x.slug === body.slug);
     if (!take) return json({ error: "No such voice" }, 404);
     const r = await el("/text-to-voice", { voice_name: `Gristlemaw (${take.title} ${take.take})`, voice_description: take.description, generated_voice_id: take.id });
-    if (!r.ok) return json({ error: await r.text() }, 502);
-    const { voice_id } = await r.json();
+    // Picking a take a second time: ElevenLabs already made it, under the tryout's own id
+    const made = !r.ok && (await r.text()).includes("already been created");
+    if (!r.ok && !made) return json({ error: "ElevenLabs wouldn't save that voice" }, 502);
+    const voice_id = made ? take.id : (await r.json()).voice_id;
     await put("voice.json", JSON.stringify({ voice_id, slug: take.slug, at: new Date().toISOString() }), "application/json");
     return json({ voice_id });
   }
