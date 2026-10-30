@@ -4,7 +4,7 @@
 // The screen is one element kept across renders, so the dragon keeps breathing while the rest of the app redraws.
 // Your hand of power cards sits at the bottom: tap one, then the quest (or two) it works on. The Fight never moves
 // your plan by itself: only Swap, Send back and Split do, and each says what it will change and waits for a yes.
-// The dragon is painted in code for now; the painted-parts rig for real artwork plugs in where draw() is.
+// The dragon is Michael's two paintings (mouth closed, mouth open, art/), swayed and blended here; the one painted in code is the fallback.
 import * as dragon from './dragon.js';
 import * as sfx from './sfx.js';
 import * as store from './store.js';
@@ -695,6 +695,37 @@ function teeth(line, xs, down, fangs) {
 }
 const embers = [], smoke = [];
 const COINS = Array.from({ length: 70 }, (_, i) => { const a = hash(i) * Math.PI, r = Math.sqrt(hash(i + 50)); return { x: 80 + Math.cos(a) * r * 150 * (hash(i + 3) < .5 ? -1 : 1), y: -Math.sin(a) * r * 50 + 6, s: 5 + hash(i + 7) * 4, t: hash(i + 11) }; }).sort((a, b) => a.y - b.y);
+/* ---------- the painted dragon: two paintings of the same pose, mouth closed and mouth open ---------- */
+// Points on the 1024 x 1536 paintings: the eye, the snout tip, the bottom of the closed jaw (which sits on the NOW line),
+// and the base of the neck he sways from.
+const ART = { w: 1024, h: 1536, eye: [536, 344], tip: [1000, 470], nose: [945, 452], jaw: 600, base: [330, 1536], lid: [44, 17] };
+const art = { ok: false, open: 0 };
+if (typeof Image !== 'undefined') {
+  const load = src => new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
+  Promise.all([load('art/dragon-closed.webp'), load('art/dragon-open.webp')]).then(([c, o]) => { if (c && o) { art.closed = c; art.opened = o; art.ok = true; } });
+}
+function painted(p, H, dt) {
+  const s = Math.min(.44, Math.max(.36, (H - 400) / 936)), x0 = 312 - ART.tip[0] * s, y0 = NOW_Y - ART.jaw * s;
+  // the jaw: open while a quest is near or in his teeth, snapping shut on a CHOMP
+  art.open += ((p.jaw > .28 ? 1 : 0) - art.open) * Math.min(1, dt * 14);
+  const [bx, by] = [x0 + ART.base[0] * s, y0 + ART.base[1] * s];
+  ctx.save(); ctx.filter = tint;
+  ctx.translate(bx + p.lean, by + p.bob); ctx.rotate(p.tilt * .6); ctx.scale(1, 1 + Math.sin(performance.now() / 1300) * .004); ctx.translate(-bx, -by);
+  ctx.drawImage(art.closed, x0, y0, ART.w * s, ART.h * s);
+  if (art.open > .01) { ctx.globalAlpha = art.open; ctx.drawImage(art.opened, x0, y0, ART.w * s, ART.h * s); ctx.globalAlpha = 1; }
+  ctx.filter = 'none';
+  const ex = x0 + ART.eye[0] * s, ey = y0 + ART.eye[1] * s; art.nose = [x0 + ART.nose[0] * s + p.lean, y0 + ART.nose[1] * s + p.bob];
+  // his eye burns hotter as a quest gets close, and flares for a strike
+  ctx.globalCompositeOperation = 'lighter';
+  let g = ctx.createRadialGradient(ex, ey, 1, ex, ey, 30); g.addColorStop(0, `rgba(255,200,90,${.12 + p.eye * .5})`); g.addColorStop(1, 'rgba(255,120,30,0)'); ctx.fillStyle = g; ctx.fillRect(ex - 30, ey - 30, 60, 60);
+  if (p.flare) { g = ctx.createRadialGradient(ex, ey, 0, ex, ey, 80); g.addColorStop(0, 'rgba(255,255,220,.95)'); g.addColorStop(.25, 'rgba(255,220,120,.6)'); g.addColorStop(1, 'rgba(255,160,40,0)'); ctx.fillStyle = g; ctx.fillRect(ex - 80, ey - 80, 160, 160); }
+  ctx.globalCompositeOperation = 'source-over';
+  if (p.blink > .05 && !p.flare) { // a scaled lid drops over it
+    ctx.save(); ctx.translate(ex, ey); ctx.rotate(-.12); ctx.beginPath(); ctx.ellipse(0, -ART.lid[1] * s * (1 - p.blink), ART.lid[0] * s, ART.lid[1] * s * p.blink + .5, 0, 0, Math.PI * 2);
+    g = ctx.createLinearGradient(0, -ART.lid[1] * s, 0, ART.lid[1] * s); g.addColorStop(0, '#c4421e'); g.addColorStop(1, '#8a2414'); ctx.fillStyle = g; ctx.fill(); ctx.restore();
+  }
+  ctx.restore();
+}
 function draw(p, time, dt) {
   const H = LH, hy = H - 150; // the hoard sits just above the rounds
   ctx.setTransform(ctx._dpr, 0, 0, ctx._dpr, 0, 0);
@@ -706,7 +737,8 @@ function draw(p, time, dt) {
   for (let i = 0; i < 9; i++) { const x = 160 + i * 30 + hash(i) * 12, l = 30 + hash(i + 9) * 60; ctx.beginPath(); ctx.moveTo(x - 10, 0); ctx.lineTo(x, l); ctx.lineTo(x + 10, 0); ctx.fill(); }
   g = ctx.createRadialGradient(90, hy, 10, 90, hy, 340); g.addColorStop(0, `rgba(255,150,60,${.42 * p.flicker})`); g.addColorStop(1, 'rgba(255,120,40,0)');
   ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = g; ctx.fillRect(0, 250, BW, H - 250); ctx.globalCompositeOperation = 'source-over';
-  // the dragon
+  // the dragon: Michael's paintings once they've loaded, else the one painted in code
+  if (art.ok) painted(p, H, dt); else {
   ctx.save(); ctx.filter = tint; ctx.translate(HX + p.lean, HY + p.bob); ctx.rotate(p.tilt);
   const lights = [{ x: 90, y: hy, r: 520, c: `rgba(255,120,40,${.3 * p.flicker})` }, { x: HX + 70, y: HY + 30, r: 120 + p.jaw * 200, c: `rgba(255,140,50,${.15 + p.heat * .45 * p.flicker})` }];
   const skin = ['#7d2a22', '#3a0f12'];
@@ -743,6 +775,7 @@ function draw(p, time, dt) {
   ctx.restore();
   ctx.fillStyle = '#1a0608'; ctx.beginPath(); ctx.ellipse(P.nostril[0], P.nostril[1], 6, 3, -.3, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
+  }
   // his hoard
   ctx.save(); ctx.translate(0, hy);
   g = ctx.createRadialGradient(80, 10, 10, 80, 20, 190); g.addColorStop(0, '#ffdc7a'); g.addColorStop(.5, '#c98a2a'); g.addColorStop(1, '#4a2a10');
@@ -753,7 +786,7 @@ function draw(p, time, dt) {
   // embers and smoke
   if (Math.random() < dt * (6 + p.heat * 30)) embers.push({ x: 80 + Math.random() * 120, y: hy + Math.random() * 20, vx: (Math.random() - .4) * 14, vy: -20 - Math.random() * 40, life: 1 });
   if (p.jaw > .18 && Math.random() < dt * p.heat * 40) embers.push({ x: HX + 60 + Math.random() * 100, y: HY + 20, vx: 20 + Math.random() * 30, vy: -30 - Math.random() * 30, life: .8 });
-  if (Math.random() < dt * 2.2) smoke.push({ x: HX + P.nostril[0], y: HY + P.nostril[1], vx: 10 + Math.random() * 8, vy: -14 - Math.random() * 6, r: 6, life: 1 });
+  if (Math.random() < dt * 2.2) smoke.push({ x: art.ok ? art.nose[0] : HX + P.nostril[0], y: art.ok ? art.nose[1] : HY + P.nostril[1], vx: 10 + Math.random() * 8, vy: -14 - Math.random() * 6, r: 6, life: 1 });
   for (const e of embers) { e.x += e.vx * dt; e.y += e.vy * dt; e.vx += Math.sin(e.y * .05) * 6 * dt; e.life -= dt * .35; }
   for (const s of smoke) { s.x += s.vx * dt; s.y += s.vy * dt; s.r += dt * 10; s.life -= dt * .5; }
   while (embers.length && (embers[0].life <= 0 || embers.length > 160)) embers.shift();
