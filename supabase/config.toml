@@ -39,3 +39,7 @@ verify_jwt = false
 
 [functions.routine]
 verify_jwt = true
+
+# Gristlemaw's voice: checks the sign-in itself, or the server's own secret for making tryouts.
+[functions.voice]
+verify_jwt = false
