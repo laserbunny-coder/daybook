@@ -1861,3 +1861,38 @@ body.td-shell .td-dawning .td-ny{display:none}
 .td-prow{display:flex;align-items:center;gap:10px}
 .td-snd{pointer-events:auto;width:30px;height:30px;display:grid;place-items:center;padding:0;border-radius:50%;border:1px solid rgba(243,228,196,.3);background:rgba(30,18,14,.6);color:#f3e4c4;cursor:pointer}
 .td-snd[aria-pressed=false]{color:rgba(243,228,196,.5)}
+
+/* The Fight's top stays clear of his face: just the rooms and the day, centred. The round meter, your gold and the
+   buttons sit in the foot, right above your cards. */
+.td-hud{justify-content:center}
+body.td-shell .td-date{margin:0}
+.td-tools{position:relative;display:flex;justify-content:space-between;align-items:center;gap:8px;min-height:28px}
+.td-tl,.td-tr{display:flex;align-items:center;gap:6px;min-width:0}
+.td-tools .td-pill,.td-tools .td-drg,.td-tools .td-help{position:static}
+body.td-shell .td-tools .td-ny,body.td-shell .td-dawning .td-tools .td-ny{display:block;position:static;min-width:0}
+.td-tools .td-add,.td-host .td-tools .td-add{position:static;transform:none;width:auto}
+.td-tools .td-add .ladd{padding:3px 10px;font-size:12.5px;white-space:nowrap}
+.td-tools .ny-line{white-space:nowrap}
+.td-host .td-tools .td-addslot .td-add:has(form){position:absolute;left:0;right:0;top:auto;width:auto;bottom:calc(100% + 8px);z-index:9}
+.td-tools .td-purse{font-size:16px}
+.td-fanned .td-tools,.td-fanned .td-rnd{visibility:hidden}
+/* the round meter: gold fills from the left as you keep quests, red eats in from the right, the notch is what you need */
+.td-rnd{display:block}
+.td-rbs{display:flex;gap:7px;align-items:flex-end}
+.td-rb{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.td-rb.big{flex:3.2}
+.td-rb small{display:flex;justify-content:space-between;gap:6px;white-space:nowrap;overflow:hidden;font:700 11px 'Alegreya SC',serif;letter-spacing:.05em;color:#cdbca0;text-shadow:0 1px 3px #000}
+.td-rb.big small{font-size:13.5px;color:#ffe08a}
+.td-rb small em{font:500 11.5px 'Alegreya Sans',sans-serif;font-style:normal;letter-spacing:0;color:#e8d4a8;font-variant-numeric:tabular-nums}
+.td-rb.big small em{font-size:12.5px}
+.td-rb.won small em{color:#ffe08a}.td-rb.lost small em{color:#ff9a7a}.td-rb.none{opacity:.5}
+.td-bar2{position:relative;display:block;height:8px;border-radius:5px;background:rgba(10,4,4,.8);box-shadow:inset 0 1px 2px #000,0 0 0 1px rgba(201,154,58,.55)}
+.td-rb.big .td-bar2{height:14px;border-radius:8px;box-shadow:inset 0 1px 3px #000,0 0 0 1.5px #c99a3a,0 0 12px rgba(242,193,78,.22)}
+.td-bar2 i{position:absolute;top:0;bottom:0;border-radius:inherit;transition:width .6s cubic-bezier(.2,.8,.3,1)}
+.td-bar2 .k{left:0;background:linear-gradient(#fff0a8,#f2c14e 45%,#a8701e)}
+.td-bar2 .l{right:0;background:linear-gradient(#ff8a6a,#c0442a 50%,#6a1a12)}
+.td-bar2 u{position:absolute;top:-3px;bottom:-3px;width:2px;margin-left:-1px;background:#fff6dc;box-shadow:0 0 4px #000}
+.td-rb.big .td-bar2 u::after{content:"";position:absolute;left:-4px;top:-6px;border:5px solid transparent;border-top-color:#fff6dc}
+.td-mx{display:flex;gap:10px;flex-wrap:wrap;margin-top:5px}
+.td-mt b{display:flex;align-items:baseline;gap:8px;font:700 13.5px 'Alegreya SC',serif;color:#ffe08a}
+.td-mt span{font:500 12px 'Alegreya Sans',sans-serif;color:#d9c9ae}

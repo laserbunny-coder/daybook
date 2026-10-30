@@ -32,6 +32,9 @@ export function mounted(d) {
   const host = document.getElementById('td-host'); if (!host) return;
   if (!root) build();
   host.prepend(root);
+  // the app's needs chip and + Add a quest live in the row above your cards, off his face
+  root.querySelector('.td-nyslot').replaceChildren(...host.querySelectorAll(':scope > .td-ny'));
+  root.querySelector('.td-addslot').replaceChildren(...host.querySelectorAll(':scope > .td-add'));
   if (view !== d) { view = d; seen = null; cards.forEach(c => c.el.remove()); cards.clear(); }
   fit(); voice.prepare(client); refresh(true);
   if (!raf) { last = performance.now(); raf = requestAnimationFrame(loop); }
@@ -43,23 +46,21 @@ function build() {
   root.innerHTML = `<div class="td-stage"><canvas class="td-cv" aria-hidden="true"></canvas>
     <button class="td-poke" data-td="poke" aria-label="Poke ${NAME}"></button>
     <nav class="td-rooms" aria-label="Rooms"></nav>
-    <div class="td-hud"><div class="td-hl"><div class="td-date"><button data-act="prev" aria-label="Previous day">‹</button><button class="td-dt" data-act="today"></button><button data-act="next" aria-label="Next day">›</button></div><div class="td-rnd"></div></div><div class="td-hr"><div class="td-prow"><button class="td-snd" data-td="sound" aria-label="Sound"></button><div class="td-purse" title="Your gold"><i></i><b></b></div></div><div class="td-rounds"></div></div></div>
+    <div class="td-hud"><div class="td-hl"><div class="td-date"><button data-act="prev" aria-label="Previous day">‹</button><button class="td-dt" data-act="today"></button><button data-act="next" aria-label="Next day">›</button></div></div></div>
     <div class="td-lane" aria-label="Your quests, in order"><div class="td-ruler" aria-hidden="true"></div></div>
     <button class="td-back2" data-td="now" hidden>Back to now</button>
     <div class="td-now"><span></span></div>
     <button class="td-say" data-td="replay" aria-label="Hear it again"><small>${NAME.toUpperCase()}</small><span></span></button>
     <div class="td-banner" hidden></div>
     <button class="td-fanbg" data-td="fan-x" aria-label="Put your cards away" hidden><span>Tap a card to play it · tap here to tuck them back</span></button>
-    <div class="td-foot"><div class="td-belly"></div><div class="td-aim" hidden></div><div class="td-hand"></div></div>
+    <div class="td-foot"><div class="td-tools"><div class="td-tl"><button class="td-pill" data-td="dawn" hidden></button><button class="td-drg" data-td="lair">Dragons</button><button class="td-help" data-td="help" aria-label="How the Fight works">?</button><span class="td-nyslot"></span></div><div class="td-tr"><span class="td-addslot"></span><button class="td-snd" data-td="sound" aria-label="Sound"></button><div class="td-purse" title="Your gold"><i></i><b></b></div></div></div><div class="td-belly"></div><div class="td-rnd"></div><div class="td-aim" hidden></div><div class="td-hand"></div></div>
     <div class="td-verdict" hidden></div>
-    <button class="td-pill" data-td="dawn" hidden></button>
     <div class="td-dawn" hidden></div>
-    <button class="td-drg" data-td="lair">Dragons</button><button class="td-help" data-td="help" aria-label="How the Fight works">?</button>
     <div class="td-dawn td-lair" hidden></div>
     <div class="td-hit" hidden></div><div class="td-combo" hidden></div>
     <div class="td-flash"></div></div>`;
   const $ = s => root.querySelector(s);
-  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), rounds: $('.td-rounds'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small'), ruler: $('.td-ruler'), back: $('.td-back2'), hit: $('.td-hit'), combo: $('.td-combo'), fanbg: $('.td-fanbg'), rooms: $('.td-rooms'), dt: $('.td-dt') };
+  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small'), ruler: $('.td-ruler'), back: $('.td-back2'), hit: $('.td-hit'), combo: $('.td-combo'), fanbg: $('.td-fanbg'), rooms: $('.td-rooms'), dt: $('.td-dt') };
   swipeRooms();
   cv = $('.td-cv'); ctx = cv.getContext('2d');
   // while a card is picked, tapping a quest plays it there instead of opening or finishing it
@@ -123,7 +124,7 @@ function fit() {
   const host = root.parentElement; if (!host) return;
   const mb = host.closest('.mbody'), top = host.getBoundingClientRect().top, bottom = mb ? mb.getBoundingClientRect().bottom : innerHeight;
   const w = host.clientWidth, h0 = bottom - top - 6; k = Math.min(w / BW, 1.35, Math.max(.8, h0 / 620));
-  const h = Math.max(480 * k, h0); LH = Math.min(Math.round(h / k), 980);
+  const h = Math.max(480 * k, h0); LH = Math.min(Math.round(h / k), 980) || 760;
   host.style.height = h + 'px';
   el.stage.style.cssText = `width:${BW}px;height:${LH}px;transform:scale(${k})`;
   root.style.width = BW * k + 'px';
@@ -148,7 +149,13 @@ function refresh(force) {
     R.R.forEach((x, i) => { if (seen.r[i] === 'open' && (x.res === 'won' || x.res === 'lost')) roundOver(x); });
   }
   seen = { q: st, r: R.R.map(x => x.res) };
-  goalMoments(); duty(); hud(); comboMeter(); lane(); foot(); verdict(); dawn(); lair(); say();
+  goalMoments(); duty(); hud(); comboMeter(); lane(); foot(); verdict(); dawn(); lair(); say(); placeSay();
+}
+/** His words sit under his jaw, but never down over the meter and buttons above your cards (short screens). */
+function placeSay() {
+  const f = root.querySelector('.td-foot'), b = el.say.parentElement; if (!f) return;
+  const top = Math.max(NOW_Y + 40, Math.min(LANE_Y + 30, f.offsetTop - b.offsetHeight - 10));
+  b.style.top = top + 'px';
 }
 const SPK = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/>';
 function soundBtn() {
@@ -161,13 +168,23 @@ function hud() {
   const live = view === today(), r = R.R.find(x => x.live) || R.R[R.R.length - 1];
   el.purse.textContent = S.gold;
   const vd = pd(view); el.dt.textContent = `${view === today() ? 'Today' : DAYL[vd.getDay()].slice(0, 3)}, ${MON[vd.getMonth()]} ${vd.getDate()}`;
-  if (view > today()) el.rnd.innerHTML = `<b>${view === add(today(), 1) ? 'Tomorrow' : DAYL[pd(view).getDay()]}</b><span>${R.Qs.length} quests · ${R.total} gold on the table</span>`;
-  else if (!live || R.closed) el.rnd.innerHTML = `<b>${live ? 'Today' : DAYL[pd(view).getDay()] + ' ' + MON[pd(view).getMonth()] + ' ' + pd(view).getDate()}</b><span>${R.you} kept · ${R.him} eaten</span>`;
-  else if (R.off) el.rnd.innerHTML = `<b>Day off</b><span>${OFF[R.off]} He sleeps; nothing counts.</span>`;
-  else { const sw = R.swoops.find(x => !x.past);
-    el.rnd.innerHTML = `<b>${r.name} round</b><span>${r.total ? `${r.kept} of ${r.total} kept · need ${r.need}` : 'Nothing due this round'}</span>${sw ? `<span class="td-sw">Swoops at ${fmtT(sw.t)} on the richest in his jaws</span>` : ''}${R.curses.length ? `<span class="td-cu">Cursed: ${R.curses.map(c => dragon.CURSES[c].n).join(', ')}</span>` : ''}`; }
   el.nowLine.hidden = !live || R.closed;
-  el.rounds.innerHTML = R.R.map(x => `<i class="td-pip ${x.res}${x.live && live && !R.closed ? ' live' : ''}" title="${x.name}: ${x.res === 'none' ? 'no contest' : `${x.kept} of ${x.total}`}"></i>`).join('');
+  meter(live);
+}
+/** The round meter above your cards: the three rounds as gilded bars. Gold fills from the left as you keep quests,
+ *  red eats in from the right as he does, and the notch marks what you need to win. The live round is the wide one. */
+function meter(live) {
+  const note = t => `<div class="td-mt"><b>${t}</b></div>`;
+  if (view > today()) { el.rnd.innerHTML = note(`${view === add(today(), 1) ? 'Tomorrow' : DAYL[pd(view).getDay()]}<span>${R.Qs.length} quests · ${R.total} gold on the table</span>`); return; }
+  if (R.off) { el.rnd.innerHTML = note(`Day off<span>${OFF[R.off]} He sleeps; nothing counts.</span>`); return; }
+  const now = live && !R.closed, cur = now ? R.R.find(x => x.live) : null, sw = now ? R.swoops.find(x => !x.past) : null;
+  const pct = (v, t) => t ? Math.min(100, v / t * 100).toFixed(1) : 0;
+  const bar = x => { const big = x === cur, st = x.res === 'none' ? 'none' : big ? 'live' : x.res;
+    return `<div class="td-rb ${st}${big ? ' big' : ''}" title="${x.name}: ${x.res === 'none' ? 'no contest' : `${x.kept} of ${x.total} kept, need ${x.need}`}">
+      <small>${x.name}${big ? `<em>${x.kept} of ${x.total} · need ${x.need}</em>` : ''}</small>
+      <span class="td-bar2"><i class="k" style="width:${pct(x.kept, x.total)}%"></i><i class="l" style="width:${pct(x.lost, x.total)}%"></i>${x.total ? `<u style="left:${pct(x.need, x.total)}%"></u>` : ''}</span></div>`; };
+  const extra = [sw ? `<span class="td-sw">Swoops at ${fmtT(sw.t)} on the richest in his jaws</span>` : '', now && R.curses.length ? `<span class="td-cu">Cursed: ${R.curses.map(c => dragon.CURSES[c].n).join(', ')}</span>` : ''].join('');
+  el.rnd.innerHTML = `<div class="td-rbs">${R.R.map(bar).join('')}</div>${extra ? `<div class="td-mx">${extra}</div>` : ''}`;
 }
 /** The quests still in play, positioned by when they reach his jaws, never closer than one card apart. */
 function lane() {
@@ -701,7 +718,7 @@ function hear() {
 function show(t, now = false) {
   if (!now && voice.speaking()) { pending = t; return; }
   pending = null;
-  if (el.say.textContent !== t) { el.say.textContent = t; el.say.parentElement.animate([{ opacity: 0.2, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: 300 }); }
+  if (el.say.textContent !== t) { el.say.textContent = t; el.say.parentElement.animate([{ opacity: 0.2, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: 300 }); placeSay(); }
 }
 function say() { line(false); }
 function poke() { said.n++; flinch = 0.6; talk('poke'); line(true); }
