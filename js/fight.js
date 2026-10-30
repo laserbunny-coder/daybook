@@ -7,6 +7,7 @@
 // The dragon is Michael's two paintings (mouth closed, mouth open, art/), swayed and blended here; the one painted in code is the fallback.
 import * as dragon from './dragon.js';
 import * as sfx from './sfx.js';
+import * as cave from './cave.js';
 import * as store from './store.js';
 import { colorOf, isDone } from './tree.js';
 import { esc, fmtT, lsGet, lsSet, today, nowMin, add, pd, DAYL, MON } from './util.js';
@@ -39,7 +40,7 @@ function build() {
   root.innerHTML = `<div class="td-stage"><canvas class="td-cv" aria-hidden="true"></canvas>
     <button class="td-poke" data-td="poke" aria-label="Poke ${NAME}"></button>
     <nav class="td-rooms" aria-label="Rooms"></nav>
-    <div class="td-hud"><div class="td-hl"><div class="td-date"><button data-act="prev" aria-label="Previous day">‹</button><button class="td-dt" data-act="today"></button><button data-act="next" aria-label="Next day">›</button></div><div class="td-rnd"></div></div><div class="td-hr"><div class="td-purse" title="Your gold"><i></i><b></b></div><div class="td-rounds"></div></div></div>
+    <div class="td-hud"><div class="td-hl"><div class="td-date"><button data-act="prev" aria-label="Previous day">‹</button><button class="td-dt" data-act="today"></button><button data-act="next" aria-label="Next day">›</button></div><div class="td-rnd"></div></div><div class="td-hr"><div class="td-prow"><button class="td-snd" data-td="sound" aria-label="Sound"></button><div class="td-purse" title="Your gold"><i></i><b></b></div></div><div class="td-rounds"></div></div></div>
     <div class="td-lane" aria-label="Your quests, in order"><div class="td-ruler" aria-hidden="true"></div></div>
     <button class="td-back2" data-td="now" hidden>Back to now</button>
     <div class="td-now"><span></span></div>
@@ -74,6 +75,7 @@ function build() {
     else if (b.dataset.td === 'card') { if (fan) { fan = false; pickCard(b.dataset.c); hand(); } else { fan = true; hand(); } }
     else if (b.dataset.td === 'fan-x') { fan = false; hand(); }
     else if (b.dataset.td === 'room') goRoom(b.dataset.v);
+    else if (b.dataset.td === 'sound') { sfx.set(!sfx.on()); soundBtn(); }
     else if (b.dataset.td === 'aim-x') { aim = null; hand(); }
     else if (b.dataset.td === 'aim-go') go();
     else if (b.dataset.td === 'undo-card') undoCard();
@@ -143,7 +145,14 @@ function refresh(force) {
   seen = { q: st, r: R.R.map(x => x.res) };
   goalMoments(); duty(); hud(); comboMeter(); lane(); foot(); verdict(); dawn(); lair(); say();
 }
+const SPK = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/>';
+function soundBtn() {
+  const b = root?.querySelector('.td-snd'); if (!b) return; const on = sfx.on();
+  b.innerHTML = SPK + (on ? '<path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11"/></svg>' : '<path d="M17 9l5 6M22 9l-5 6"/></svg>');
+  b.setAttribute('aria-pressed', on); b.setAttribute('aria-label', on ? 'Sound on: tap to mute' : 'Sound off: tap to turn on');
+}
 function hud() {
+  soundBtn();
   const live = view === today(), r = R.R.find(x => x.live) || R.R[R.R.length - 1];
   el.purse.textContent = S.gold;
   const vd = pd(view); el.dt.textContent = `${view === today() ? 'Today' : DAYL[vd.getDay()].slice(0, 3)}, ${MON[vd.getMonth()]} ${vd.getDate()}`;
@@ -616,7 +625,7 @@ function comboMeter() {
 function chomped(q) {
   const c = cards.get(q.n.id); snapT = 1; happened.push(`${q.swooped ? 'swooped on' : 'ate'}: ${q.n.t}`);
   if (q.swooped) { el.banner.hidden = false; el.banner.className = 'td-banner lost'; el.banner.innerHTML = `<b>SWOOP</b><span>He took ${esc(q.n.t)} early</span>`; clearTimeout(roundOver.t); roundOver.t = setTimeout(() => { el.banner.hidden = true; }, 3500); }
-  sfx.roar();
+  sfx.roar(); cave.boom();
   if (c) { c.leaving = true; c.el.classList.add('chomp'); setTimeout(() => { c.el.remove(); cards.delete(q.n.id); }, 600); }
   coins(280, NOW_Y - 20, 230, 200, 6);
   el.flash.animate([{ opacity: 0.85 }, { opacity: 0 }], { duration: 600 });
@@ -856,6 +865,9 @@ function loop(ts) {
   const live = view === today() && !R.closed, m = nowF();
   let danger = 0;
   if (live) for (const q of R.Qs) if (q.st === 'open' || q.st === 'jaws') danger = Math.max(danger, Math.min(1, Math.max(0, 1 - (q.e - m) / 110)));
+  // the cave's soundtrack: calm far off, a heartbeat as the next quest closes in, war drums while one is in his jaws
+  let near = 0; if (live) for (const q of R.Qs) if (q.st === 'jaws') near = 1; else if (q.st === 'open') near = Math.max(near, Math.min(1, Math.max(0, 1 - (q.e - m) / 40)) * .68);
+  cave.tension(lairOpen || fan || !el.dawn.hidden ? Math.min(near, .2) : near);
   // the crank: every quarter hour the column clunks up a notch
   const qtr = Math.floor(m / 15);
   if (live && lastQuarter != null && qtr !== lastQuarter && !reduce) { crank = 5; sfx.tick?.(); }

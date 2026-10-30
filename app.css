@@ -1857,3 +1857,7 @@ body.td-shell .td-lair{top:40px;border-radius:0}
 
 .cave-back{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(92px + env(safe-area-inset-bottom,0px));z-index:40;padding:9px 16px;border-radius:999px;border:1px solid #c99a3a;background:#2a160e;color:#ffe08a;font:700 14px 'Alegreya SC',serif;box-shadow:0 8px 20px rgba(0,0,0,.45);cursor:pointer}
 body.td-shell .td-dawning .td-ny{display:none}
+/* the cave's Sound on/off, beside your gold */
+.td-prow{display:flex;align-items:center;gap:10px}
+.td-snd{pointer-events:auto;width:30px;height:30px;display:grid;place-items:center;padding:0;border-radius:50%;border:1px solid rgba(243,228,196,.3);background:rgba(30,18,14,.6);color:#f3e4c4;cursor:pointer}
+.td-snd[aria-pressed=false]{color:rgba(243,228,196,.5)}
