@@ -355,7 +355,7 @@ function dawn() {
   if (!open) { el.dawn.hidden = true; el.dawn.innerHTML = ''; return; }
   const mk = R.mark, sw = R.swoops, mkt = dragon.market(T), offer = S.packs > 0 ? dragon.packOffer() : null;
   const coin = '<i class="td-c"></i>';
-  const item = (x, extra) => `<div class="td-it ${x.k}"><div><small>${x.k === 'card' ? 'Card' : `${x.r} charm`}</small><b>${x.n}</b><span>${x.t}</span></div>${extra || ''}</div>`;
+  const item = (x, extra) => `<div class="td-it ${x.k}"><div><small>${x.k === 'card' ? 'Card <em>· goes in your deck, play it once</em>' : `${x.r} charm <em>· always on, wear up to 3</em>`}</small><b>${x.n}</b><span>${x.t}</span></div>${extra || ''}</div>`;
   const offs = R.off
     ? `<p class="td-dm">${OFF[R.off]} He sleeps today.</p><button class="td-btn td-gh" data-td="off">Undo, let's fight</button>`
     : `<div class="td-offs">${dragon.restLeft(T) ? '<button data-td="off" data-k="rest">Rest day <small>one a week</small></button>' : '<button disabled>Rest day <small>used this week</small></button>'}<button data-td="off" data-k="sick">Sick</button><button data-td="off" data-k="holiday">Holiday</button></div>`;
