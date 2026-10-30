@@ -460,7 +460,9 @@ function goRoom(k) {
 // a sideways swipe anywhere on the stage walks to the next room; up and down stays the lane's
 function swipeRooms() {
   let t0 = null;
-  el.stage.addEventListener('touchstart', e => { t0 = e.touches.length === 1 && shell() && !fan && !aim && el.hit.hidden ? { x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now() } : null; }, { passive: true });
+  // a swipe that starts on a row you can scroll sideways (the quests in his gut) scrolls that row, not the rooms
+  const sideways = n => { for (; n && n !== el.stage; n = n.parentElement) if (n.scrollWidth > n.clientWidth + 2 && /auto|scroll/.test(getComputedStyle(n).overflowX)) return true; return false; };
+  el.stage.addEventListener('touchstart', e => { t0 = e.touches.length === 1 && shell() && !fan && !aim && el.hit.hidden && !sideways(e.target) ? { x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now() } : null; }, { passive: true });
   el.stage.addEventListener('touchend', e => {
     const s = t0; t0 = null; if (!s || Date.now() - s.at > 700) return;
     const t = e.changedTouches[0], dx = t.clientX - s.x, dy = t.clientY - s.y;
