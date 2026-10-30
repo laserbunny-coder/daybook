@@ -174,7 +174,7 @@ function targets() {
   let prev = -1e9;
   for (const c of L) {
     const q = c.q;
-    let y = q.st === 'jaws' ? NOW_Y - 16 - Math.min(1, (m - q.e) / Math.max(1, q.by - q.e)) * 34 : LANE_Y + (q.e - base) * PPM - HALF; // its bottom edge is the minute it reaches his jaws
+    let y = q.st === 'jaws' ? NOW_Y - 6 - Math.min(1, (m - q.e) / Math.max(1, q.by - q.e)) * 10 : LANE_Y + (q.e - base) * PPM - HALF; // its bottom edge is the minute it reaches his jaws
     y = Math.max(y, prev + GAP); prev = y; c.ty = y;
     if (q.st !== 'jaws') anchors.push([q.e, y + HALF]);
   }
