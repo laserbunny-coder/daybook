@@ -1922,3 +1922,39 @@ body.td-shell .td-tools .td-ny,body.td-shell .td-dawning .td-tools .td-ny{displa
 .td-mx:empty{display:none}
 .td-mt{font:500 12.5px 'Alegreya Sans',sans-serif;color:#d9c9ae}.td-mt b{font:700 13.5px 'Alegreya SC',serif;color:#ffe08a;margin-right:6px}
 .td-fanned .td-rnd,.td-fanned .td-mx{visibility:hidden}
+
+/* Clean bottom (2026-10-30): the foot is only the quests in his gut and your cards; everything else lives in the top
+   right corner (gold, sound) or down the left side (round markers, one meter, the buttons). Quests run on top of his
+   hoard, unfaded, right down to the cards. */
+.td-lane{-webkit-mask-image:linear-gradient(to bottom,transparent 140px,#000 190px);mask-image:linear-gradient(to bottom,transparent 140px,#000 190px)}
+.td-foot{background:none;gap:6px}
+.td-belly{padding:4px 0;border-radius:999px}
+.td-hud .td-hr{position:absolute;right:12px;top:0;display:flex;flex-direction:row;align-items:center;gap:8px;pointer-events:auto}
+body.td-shell .td-hud .td-hr{top:6px}
+.td-hud .td-purse{font-size:16px;text-shadow:0 1px 3px #000}
+.td-side{position:absolute;left:10px;z-index:5;width:128px;display:flex;flex-direction:column;align-items:flex-start;gap:8px;pointer-events:none}
+.td-side>*{pointer-events:auto}
+.td-pips{display:flex;gap:5px}
+.td-pips[hidden]{display:none}
+.td-pips i{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:rgba(10,4,4,.75);box-shadow:0 0 0 1px rgba(201,154,58,.5)}
+.td-pips i b{font:700 11px 'Alegreya SC',serif;color:#cdbca0}
+.td-pips i.won{background:radial-gradient(circle at 35% 30%,#fff3b0,#f2c14e 45%,#a8701e)}.td-pips i.won b{color:#3a2410}
+.td-pips i.lost{background:radial-gradient(circle at 35% 30%,#ff9a7a,#c0442a 50%,#6a1a12)}.td-pips i.lost b{color:#fff0e0}
+.td-pips i.none{opacity:.45}
+.td-pips i.live{box-shadow:0 0 0 1.5px #f2c14e,0 0 10px rgba(242,193,78,.45)}.td-pips i.live b{color:#ffe08a}
+.td-side .td-rnd{position:static;flex:1;min-height:60px;width:22px;margin-left:0;display:flex;flex-direction:column;align-items:center;gap:4px;pointer-events:none}
+.td-side .td-rnd[hidden]{display:block;visibility:hidden}
+.td-rnd em{font:600 11px 'Alegreya Sans',sans-serif;font-style:normal;color:#ffe08a;white-space:nowrap;font-variant-numeric:tabular-nums;text-shadow:0 1px 3px #000}
+.td-side .td-vbar{width:16px;border-radius:9px;box-shadow:inset 0 1px 3px #000,0 0 0 1.5px #c99a3a,0 0 12px rgba(242,193,78,.22)}
+.td-side .td-vbar u{left:-4px;right:-4px}
+.td-sbtns{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.td-sbtns .td-pill,.td-sbtns .td-drg,.td-sbtns .td-help{position:static}
+.td-sbr{display:flex;align-items:center;gap:6px;position:relative}
+body.td-shell .td-sbtns .td-ny,body.td-shell .td-dawning .td-sbtns .td-ny{display:block;position:static}
+.td-sbtns .ny-line{white-space:nowrap}
+.td-sbtns .td-add,.td-host .td-sbtns .td-add{position:static;transform:none;width:auto}
+.td-sbtns .td-add .ladd{padding:3px 10px;font-size:12.5px;white-space:nowrap}
+.td-host .td-sbtns .td-addslot .td-add:has(form){position:absolute;left:0;top:auto;bottom:calc(100% + 8px);width:340px;z-index:9}
+.td-now span{white-space:nowrap}
+.td-fanned .td-side{visibility:hidden}
+.td-bl{padding:3px 9px;border-radius:999px;background:rgba(20,8,6,.8)}

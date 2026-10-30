@@ -35,7 +35,7 @@ function load(x) { const a = new Audio(x.url); a.preload = 'auto'; a.load(); ret
 export function stock(m) {
   const r = ready.get(m); if (!r || !sfx.on()) return null;
   const { x, a } = r; ready.set(m, load(next(m)));
-  try { const h = JSON.parse(localStorage.getItem(HEARD) || '[]').filter(t => t !== x.t); h.push(x.t); localStorage.setItem(HEARD, JSON.stringify(h.slice(-60))); } catch {}
+  try { const h = JSON.parse(localStorage.getItem(HEARD) || '[]').filter(t => t !== x.t); h.push(x.t); localStorage.setItem(HEARD, JSON.stringify(h.slice(-150))); } catch {}
   const tm = x.a ? { characters: [...x.a.c], character_start_times_seconds: x.a.s, character_end_times_seconds: [...Array(x.a.s.length - 1).fill(0), x.a.e] } : null;
   play(a, tm); last = { t: shown(x.t), url: x.url, tm };
   return last.t;
