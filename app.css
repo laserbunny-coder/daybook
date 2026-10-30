@@ -1823,3 +1823,9 @@ button.q-say.poked .q-face{animation:q-poke .5s}
 .td-stage{overflow:clip}
 .td-host:has(.td-fanned) .td-add,.td-fanned .td-pill,.td-fanned .td-back2{visibility:hidden}
 .td-fanned .td-card{left:calc(50% - 70px + var(--off) * var(--fs,122px));width:140px}
+/* his talk sits down the left gutter, under his head, so his face stays clear; tail points up at him */
+.td-say,.td-say{left:12px;right:auto;top:calc(var(--lane-y,340px) + 30px);width:146px;min-width:0;max-width:none;border-radius:4px 14px 14px 14px}
+.td-say::before{left:22px;top:-7px;bottom:auto}
+.td-say span{-webkit-line-clamp:6}
+.td-today{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;white-space:nowrap;padding:8px 8px 8px 14px;border-radius:999px;border:1px solid rgba(242,193,78,.55);background:rgba(30,18,14,.88);color:#e8d4a8;font:500 13px 'Alegreya Sans',sans-serif;cursor:pointer}
+.td-today b{padding:5px 12px;border-radius:999px;background:#f2c14e;color:#2a160c;font:700 13px 'Alegreya Sans',sans-serif}

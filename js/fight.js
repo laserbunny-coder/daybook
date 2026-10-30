@@ -247,7 +247,10 @@ const AIM_TXT = { wind: 'Tap the quest to give a Second Wind', shield: 'Tap the 
 const GLYPH = { shield: '⛨', swap: '⇅', back: '↓', lure: '◎', bet: '✦', split: '÷', wind: '≋' };
 function hand() {
   const live = view === today() && !R.closed;
-  if (!live || R.off) { el.hand.innerHTML = ''; el.aim.hidden = true; fan = false; el.fanbg.hidden = true; el.stage.classList.remove('td-fanned'); return; }
+  if (!live || R.off) {
+    // on another day the cards wait on today; say so and offer the way back, so they never just vanish
+    el.hand.innerHTML = view !== today() ? `<button class="td-today" data-act="today"><span>${view > today() ? 'Cards are dealt at dawn' : 'That day is over'}</span><b>Back to today</b></button>` : '';
+    el.aim.hidden = true; fan = false; el.fanbg.hidden = true; el.stage.classList.remove('td-fanned'); return; }
   const n = R.hand.length; if (!n) fan = false;
   el.stage.classList.toggle('td-fanned', fan); el.fanbg.hidden = !fan;
   el.hand.innerHTML = R.hand.map((c, i) => { const off = i - (n - 1) / 2, sel = aim?.c === c.c;
