@@ -1854,6 +1854,6 @@ body.td-shell .td-ny{display:block;position:absolute;left:12px;top:116px;z-index
 .td-ny .ny-line{margin:0;padding:4px 10px;border-radius:999px;background:rgba(30,18,14,.8);border:1px solid rgba(255,120,90,.45);font-size:12px;gap:5px}
 .td-ny .ny-line small,.td-ny .ny-line .ny-arr{display:none}
 body.td-shell .td-lair{top:40px;border-radius:0}
-body.td-shell .td-lair .td-btn.go[data-td="lair-x"]{display:none}
+
 .cave-back{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(92px + env(safe-area-inset-bottom,0px));z-index:40;padding:9px 16px;border-radius:999px;border:1px solid #c99a3a;background:#2a160e;color:#ffe08a;font:700 14px 'Alegreya SC',serif;box-shadow:0 8px 20px rgba(0,0,0,.45);cursor:pointer}
 body.td-shell .td-dawning .td-ny{display:none}
