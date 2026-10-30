@@ -5,9 +5,11 @@
 // Your hand of power cards sits at the bottom: tap one, then the quest (or two) it works on. The Fight never moves
 // your plan by itself: only Swap, Send back and Split do, and each says what it will change and waits for a yes.
 // The dragon is Michael's two paintings (mouth closed, mouth open, art/), swayed and blended here; the one painted in code is the fallback.
+// He speaks the big moments out loud (a chomp, a round's end, a poke on his head); tap his words to hear them again.
 import * as dragon from './dragon.js';
 import * as sfx from './sfx.js';
 import * as cave from './cave.js';
+import * as voice from './speak.js';
 import * as store from './store.js';
 import { colorOf, isDone } from './tree.js';
 import { esc, fmtT, lsGet, lsSet, today, nowMin, add, pd, DAYL, MON } from './util.js';
@@ -44,7 +46,7 @@ function build() {
     <div class="td-lane" aria-label="Your quests, in order"><div class="td-ruler" aria-hidden="true"></div></div>
     <button class="td-back2" data-td="now" hidden>Back to now</button>
     <div class="td-now"><span></span></div>
-    <button class="td-say" data-td="poke"><small>${NAME.toUpperCase()}</small><span></span></button>
+    <button class="td-say" data-td="replay" aria-label="Hear it again"><small>${NAME.toUpperCase()}</small><span></span></button>
     <div class="td-banner" hidden></div>
     <button class="td-fanbg" data-td="fan-x" aria-label="Put your cards away" hidden><span>Tap a card to play it · tap here to tuck them back</span></button>
     <div class="td-foot"><div class="td-belly"></div><div class="td-aim" hidden></div><div class="td-hand"></div></div>
@@ -72,10 +74,11 @@ function build() {
     if (e.target === el.dawn && !el.dawn.hidden) { el.dawn.querySelector('[data-td="dawn-x"]')?.click(); return; }
     const b = e.target.closest('[data-td]'); if (!b) return;
     if (b.dataset.td === 'poke') { poke(); }
+    else if (b.dataset.td === 'replay') voice.speak(client, el.say.textContent);
     else if (b.dataset.td === 'card') { if (fan) { fan = false; pickCard(b.dataset.c); hand(); } else { fan = true; hand(); } }
     else if (b.dataset.td === 'fan-x') { fan = false; hand(); }
     else if (b.dataset.td === 'room') goRoom(b.dataset.v);
-    else if (b.dataset.td === 'sound') { sfx.set(!sfx.on()); soundBtn(); }
+    else if (b.dataset.td === 'sound') { sfx.set(!sfx.on()); if (!sfx.on()) voice.stop(); soundBtn(); }
     else if (b.dataset.td === 'aim-x') { aim = null; hand(); }
     else if (b.dataset.td === 'aim-go') go();
     else if (b.dataset.td === 'undo-card') undoCard();
@@ -630,12 +633,13 @@ function chomped(q) {
   coins(280, NOW_Y - 20, 230, 200, 6);
   el.flash.animate([{ opacity: 0.85 }, { opacity: 0 }], { duration: 600 });
   if (!reduce) el.stage.animate([{ translate: '0 0' }, { translate: '-5px 3px' }, { translate: '4px -3px' }, { translate: '0 0' }], { duration: 260 });
-  line(true);
+  aloud = true; line(true);
 }
 function roundOver(x) {
   el.banner.hidden = false; el.banner.className = 'td-banner ' + x.res;
   el.banner.innerHTML = `<b>${x.name} ${x.res === 'won' ? 'won' : 'lost'}</b><span>${x.kept} of ${x.total} kept</span>`;
   (x.res === 'won' ? sfx.fanfare : sfx.thud)();
+  happened.push(`${x.name} round ${x.res === 'won' ? 'won by them' : 'won by you'}: ${x.kept} of ${x.total} kept`); aloud = true; line(true);
   clearTimeout(roundOver.t); roundOver.t = setTimeout(() => { el.banner.hidden = true; }, 5000);
 }
 function coins(x, y, tx, ty, n) {
@@ -664,21 +668,23 @@ function fallback() {
   return pick(['Take your time. Really. I\'m patient. And hungry.', 'Every minute you scroll, I get a coin.', `${next.n.t}? I'll eat it right out of your day.`, 'Your list is my menu, you know.', `${R.total - R.you - R.him} gold still out there. I only need you to look away.`, 'I\'ve been watching you. You\'re doing that thing where you don\'t do the thing.'], seed);
 }
 const LINES = 'daybook-td-lines';
-let said = { n: 0 }, asking = null, lastAsk = 0;
+let said = { n: 0 }, asking = null, lastAsk = 0, aloud = false; // aloud: speak the next line (a big moment or a poke)
 function line(fresh = false) {
   const base = fallback(), T = today();
-  if (view !== T || R.closed) return show(base);
+  if (view !== T || R.closed) { show(base); if (aloud) { aloud = false; voice.speak(client, base); } return; }
   const m = nowMin(), key = `${R.you}|${R.him}|${R.Qs.filter(q => q.st === 'open').length}|${R.Qs.filter(q => q.st === 'jaws').length}|${Math.floor(m / 20)}`;
   const L = lsGet(LINES, {}), have = L.d === T && L.L?.[key];
   if (client && !asking && (!have || fresh) && Date.now() - lastAsk > (fresh ? 8e3 : 60e3)) {
     lastAsk = Date.now();
-    asking = ask(L.d === T ? L.recent || [] : []).then(t => { if (!t) return; const s = lsGet(LINES, {}); if (s.d !== T) { s.d = T; s.L = {}; s.recent = []; } s.L[key] = t; s.recent = [...(s.recent || []), t].slice(-6); lsSet(LINES, s); show(t); }).finally(() => { asking = null; });
+    const talk = fresh && aloud; aloud = false;
+    asking = ask(L.d === T ? L.recent || [] : []).then(t => { if (!t) { if (talk) voice.speak(client, el.say.textContent); return; } const s = lsGet(LINES, {}); if (s.d !== T) { s.d = T; s.L = {}; s.recent = []; } s.L[key] = t; s.recent = [...(s.recent || []), t].slice(-6); lsSet(LINES, s); show(t); if (talk) voice.speak(client, t); }).finally(() => { asking = null; });
   }
   show(have || base);
+  if (aloud) { aloud = false; voice.speak(client, el.say.textContent); } // no new line coming: say this one
 }
 function show(t) { if (el.say.textContent !== t) { el.say.textContent = t; el.say.parentElement.animate([{ opacity: 0.2, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: 300 }); } }
 function say() { line(false); }
-function poke() { said.n++; flinch = 0.6; line(true); }
+function poke() { said.n++; flinch = 0.6; aloud = true; line(true); }
 const ANGLES = ['gloat about something specific that happened', 'make a precise threat naming a quest and the minute it reaches your jaws', 'mock-sympathetic', 'a backhanded compliment', 'brag about your hoard', 'propose a cheeky wager', 'grumble like a sore loser', 'a two-line rhyming couplet', 'pretend to be bored and not watching (you are watching)', 'scheme out loud about the next quest you will eat', 'count coins out loud', 'a dramatic proclamation'];
 async function ask(recent) {
   const m = nowMin(), r = R.R.find(x => x.live) || R.R[2];
@@ -756,6 +762,20 @@ const COINS = Array.from({ length: 70 }, (_, i) => { const a = hash(i) * Math.PI
 // Points on the 1024 x 1536 paintings: the eye, the snout tip, the bottom of the closed jaw (which sits on the NOW line),
 // and the base of the neck he sways from.
 const ART = { w: 1024, h: 1536, eye: [536, 344], tip: [1000, 470], nose: [945, 452], jaw: 600, base: [330, 1536], lid: [44, 17] };
+// his lower jaw on the closed painting (from the rig map), swung from its hinge while he talks
+const JAW = { hinge: [442, 436], max: .11, poly: [[440, 398], [1012, 552], [1010, 575], [990, 640], [955, 688], [900, 665], [820, 640], [720, 612], [620, 598], [540, 595], [470, 560], [440, 470]] };
+const jawPath = typeof Path2D === 'undefined' ? null : (() => { const p = new Path2D(); JAW.poly.forEach(([x, y], i) => i ? p.lineTo(x, y) : p.moveTo(x, y)); p.closePath(); return p; })();
+function talkJaw(a, x0, y0, s) {
+  const [hx, hy] = JAW.hinge;
+  ctx.save(); ctx.translate(x0, y0); ctx.scale(s, s);
+  // the dark of his mouth, where the jaw was
+  ctx.save(); ctx.clip(jawPath);
+  const g = ctx.createLinearGradient(452, 0, 530, 0); g.addColorStop(0, 'rgba(34,6,8,0)'); g.addColorStop(1, '#2a0709'); // fades out at the hinge ctx.fillStyle = g; ctx.fillRect(420, 380, 620, 330);
+  ctx.restore();
+  // the jaw itself, cut from the painting and swung down
+  ctx.translate(hx, hy); ctx.rotate(a); ctx.translate(-hx, -hy); ctx.clip(jawPath); ctx.drawImage(art.closed, 0, 0);
+  ctx.restore();
+}
 const art = { ok: false, open: 0 };
 if (typeof Image !== 'undefined') {
   const load = src => new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
@@ -769,6 +789,8 @@ function painted(p, H, dt) {
   ctx.save(); ctx.filter = tint;
   ctx.translate(bx + p.lean, by + p.bob); ctx.rotate(p.tilt * .6); ctx.scale(1, 1 + Math.sin(performance.now() / 1300) * .004); ctx.translate(-bx, -by);
   ctx.drawImage(art.closed, x0, y0, ART.w * s, ART.h * s);
+  const talk = (p.talk || 0) * (1 - art.open);
+  if (talk > .02 && jawPath) talkJaw(talk * JAW.max, x0, y0, s);
   if (art.open > .01) { ctx.globalAlpha = art.open; ctx.drawImage(art.opened, x0, y0, ART.w * s, ART.h * s); ctx.globalAlpha = 1; }
   ctx.filter = 'none';
   const ex = x0 + ART.eye[0] * s, ey = y0 + ART.eye[1] * s; art.nose = [x0 + ART.nose[0] * s + p.lean, y0 + ART.nose[1] * s + p.bob];
@@ -859,7 +881,7 @@ function draw(p, time, dt) {
 let blinkT = 2, blink = 0, lastQuarter = null, lastRefresh = 0;
 function loop(ts) {
   raf = 0;
-  if (!root?.isConnected || document.hidden) return; // starts again on the next mount
+  if (!root?.isConnected || document.hidden) { voice.stop(); return; } // starts again on the next mount
   const dt = Math.min(.05, (ts - last) / 1000 || .016); last = ts;
   if (ts - lastRefresh > 5000) { lastRefresh = ts; refresh(); }
   const live = view === today() && !R.closed, m = nowF();
@@ -881,7 +903,7 @@ function loop(ts) {
     jaw: cough > 0 ? Math.max(open, Math.sin((1 - cough) * Math.PI) * .55) : snapT > .6 ? 0 : v === 'stuffed' ? .22 : v === 'starves' ? 0 : open * (1 - snapT * .8), heat: v ? (v === 'stuffed' ? .4 : 0) : danger,
     eye: glow ? 1 : v === 'starves' ? 0 : danger, flare: glow, look: danger, lean: v === 'driven' ? -24 : danger * 8 - flinch * 14 + Math.sin(cough * Math.PI) * 16, bob: Math.sin(time * .9) * 3 + (v === 'starves' ? 26 : 0),
     tilt: danger * .05 - (snapT > .6 ? .06 : 0) + (v === 'starves' ? .16 : 0) - flinch * .05, flicker: .8 + .12 * Math.sin(time * 9.3) + .08 * Math.sin(time * 23.7 + 1),
-    blink: v === 'starves' ? .8 : blink > .5 ? 1 : blink * 2
+    blink: v === 'starves' ? .8 : blink > .5 ? 1 : blink * 2, talk: voice.level(dt)
   };
   place(false);
   draw(pose, time, dt);

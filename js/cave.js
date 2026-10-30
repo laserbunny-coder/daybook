@@ -5,7 +5,7 @@
 // The same Sound on/off as the game's other sounds (sfx.js).
 import * as sfx from './sfx.js';
 
-let ac = null, out = null, verb = null, layers = null, T = 0, alive = 0, timer = 0, next = {};
+let ac = null, out = null, verb = null, layers = null, T = 0, alive = 0, timer = 0, next = {}, ducked = false;
 const now = () => ac.currentTime;
 function ctx() {
   if (!ac) { const A = window.AudioContext || window.webkitAudioContext; if (!A) return null; ac = new A(); }
@@ -73,7 +73,7 @@ function motif(t) {
 function tick() {
   if (!ac || !layers) return;
   const t = now(), live = Date.now() - alive < 3000 && sfx.on() && document.visibilityState === 'visible';
-  out.gain.setTargetAtTime(live ? .9 : 0, t, live ? .8 : .4);
+  out.gain.setTargetAtTime(live ? (ducked ? .35 : .9) : 0, t, live ? (ducked ? .15 : .8) : .4);
   if (!live) { if (Date.now() - alive > 8000) stop(); return; }
   const due = k => !next[k] || next[k] <= t + .12;
   if (due('crack')) { next.crack = t + .05 + Math.random() * (Math.random() < .3 ? .1 : .7); crackle(next.crack); }
@@ -91,6 +91,8 @@ export function tension(t) {
   if (!ctx()) return; if (!layers) build();
   next = {}; timer = setInterval(tick, 100); tick();
 }
+/** Quieter while he talks. */
+export function duck(d) { ducked = !!d; }
 /** A sudden swell: a chomp, a critical hit. */
 export function boom() {
   if (!ac || !layers || !sfx.on()) return;
