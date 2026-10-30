@@ -11,7 +11,7 @@ import * as store from './store.js';
 import { colorOf, isDone } from './tree.js';
 import { esc, fmtT, lsGet, lsSet, today, nowMin, add, pd, DAYL, MON } from './util.js';
 
-const NOW_Y = 250, PPM = 0.6, GAP = 48, HALF = 21, BW = 390;
+const NOW_Y = 250, PPM = 0.6, GAP = 48, HALF = 21, BW = 390, JAW_GAP = 64;
 const NAME = 'Gristlemaw';
 let client = null, onUpdate = () => {}, freeH = () => 10;
 let root = null, cv = null, ctx = null, el = {}, view = null, S = null, R = null, LH = 760, k = 1, raf = 0, last = 0, seen = null, pose = null;
@@ -170,11 +170,14 @@ function targets() {
   const live = view === today(), m = live ? nowF() : null, base = view > today() ? Math.min(...R.Qs.map(q => q.e), 24 * 60) : m;
   base0 = base; anchors = [];
   const L = [...cards.values()].filter(c => !c.leaving).sort((a, b) => a.q.e - b.q.e || a.q.s0 - b.q.s0);
-  let prev = -1e9;
+  let prev = -1e9, bitten = false;
   for (const c of L) {
     const q = c.q;
     let y = q.st === 'jaws' ? NOW_Y - 16 - Math.min(1, (m - q.e) / Math.max(1, q.by - q.e)) * 34 : NOW_Y + (q.e - base) * PPM - HALF; // its bottom edge is the minute it reaches his jaws
-    y = Math.max(y, prev + GAP); prev = y; c.ty = y;
+    y = Math.max(y, prev + GAP);
+    if (q.st === 'jaws') bitten = true;
+    else if (bitten) { y = Math.max(y, NOW_Y + JAW_GAP + HALF); bitten = false; } // the next one waits below his lower jaw, so only the bitten one reads as in his mouth
+    prev = y; c.ty = y;
     if (q.st !== 'jaws') anchors.push([q.e, y + HALF]);
   }
   return L;
