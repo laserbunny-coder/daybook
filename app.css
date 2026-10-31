@@ -613,6 +613,12 @@ body.quiet .qback{display:inline-flex;align-items:center;gap:4px;position:absolu
 body.quiet .qback svg{width:14px;height:14px}
 body.quiet .qback:hover{color:var(--fg);background:var(--sunk)}
 body.quiet.q-strip .qback{opacity:0;pointer-events:none}
+.qmode{display:none}
+body.quiet .qmode{display:inline-flex;gap:2px;position:absolute;top:6px;right:10px;z-index:31;transition:opacity .2s}
+body.quiet .qmode button{padding:8px 10px;border-radius:14px;font:500 10.5px/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);transition:color .2s,background .2s}
+body.quiet .qmode button:hover{color:var(--fg)}
+body.quiet .qmode button[aria-pressed="true"]{color:var(--fg);background:var(--sunk)}
+body.quiet.q-strip .qmode{opacity:0;pointer-events:none}
 /* The header becomes a frosted strip that drops from the day's name */
 body.quiet .main>.mh{position:absolute;top:8px;left:50%;z-index:30;width:max-content;max-width:calc(100% - 24px);justify-content:center;gap:8px 12px;padding:7px 10px;border:1px solid var(--edge);border-radius:22px;
   background:var(--pop);backdrop-filter:blur(24px) saturate(1.2);-webkit-backdrop-filter:blur(24px) saturate(1.2);box-shadow:0 20px 50px -20px rgba(0,0,0,.85);
@@ -2328,3 +2334,4 @@ body.td-shell .td-sbtns .td-pill,.td-sbtns .td-pill{top:auto;right:auto;left:aut
 .st-empty .hb-arch{text-align:left;margin-top:28px}
 .hbn-t{width:100%;font:500 22px/1.25 var(--f-display);background:none;border:0;border-bottom:1px solid var(--edge);padding:6px 0;color:var(--fg)}
 .hbn-k{flex-wrap:wrap}
+@media (max-width:860px){body.quiet .qmode{right:6px}body.quiet .qmode button{padding:8px 7px}}
