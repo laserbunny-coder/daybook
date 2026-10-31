@@ -868,13 +868,13 @@ function renderDetail() {
   if (n.k === 'block') { blockDetail(el, n, same); el.querySelector('.dt-body').scrollTop = prevSc; return; }
   if (n.k === 'area') { areaDetail(el, n, same); el.querySelectorAll('textarea').forEach(grow); el.querySelector('.dt-body').scrollTop = prevSc; return; }
   const anc = ancestors(n), kids = children(n.id), pr = progress(n.id), pct = pr.total ? Math.round(pr.done / pr.total * 100) : 0;
-  const up = anc[anc.length - 1]; const durs = [5, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 480];
+  const up = anc[anc.length - 1], fromB = S.fromBlk && node(S.fromBlk); const durs = [5, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 480];
   if (!durs.includes(n.m || 60)) durs.push(n.m || 60);
   const count = leaves(n.id).length - (kids.length ? 0 : 1);
   const ser = store.seriesOf(n)?.r ? store.seriesOf(n) : null, rp = !!ser || !!n.rs; // a repeating task, or one of its repeats
   setDetail(el, `<div class="dt-back" data-act="close"></div>
   <section class="dt${same ? ' still' : ''}" role="dialog" aria-modal="true" aria-label="${esc(n.t)}" style="--pc:${colorOf(n)}">
-    <div class="dt-top"><button class="dt-up" data-act="${up ? 'open' : 'close'}" data-id="${up ? up.id : ''}">${ICON.prev}<span>${up ? esc(up.t) : 'Back'}</span></button><button class="ib" data-act="close" aria-label="Close">${ICON.close}</button></div>
+    <div class="dt-top">${fromB ? `<span class="dt-nav"><button class="dt-up" data-act="open" data-id="${fromB.id}">${ICON.prev}<span>${esc(blockTitle(fromB))} time</span></button>${up ? `<button class="dt-up dt-par" data-act="open" data-id="${up.id}"><span>${esc(up.t)}</span></button>` : ''}</span>` : `<button class="dt-up" data-act="${up ? 'open' : 'close'}" data-id="${up ? up.id : ''}">${ICON.prev}<span>${up ? esc(up.t) : 'Back'}</span></button>`}<button class="ib" data-act="close" aria-label="Close">${ICON.close}</button></div>
     <div class="dt-body vscroll" data-id="${n.id}">
       ${anc.length > 1 ? `<div class="dt-crumbs">${anc.map(a => `<button data-act="open" data-id="${a.id}">${esc(a.t)}</button>`).join('<span>›</span>')}</div>` : ''}
       <div class="dt-head">${ckHTML(n)}<textarea id="dt-title" class="dt-title" rows="1" aria-label="Title" placeholder="Name it" enterkeyhint="done">${esc(n.t)}</textarea></div>
@@ -1039,6 +1039,9 @@ function saveLink() {
   renderDetail();
 }
 function openItem(id, focusTitle = false) {
+  // Opened from inside a block: remember the block, so the item can lead back to it (until the panel closes)
+  const cur = S.open && node(S.open), nx = node(id);
+  if (nx && isBlock(nx)) S.fromBlk = null; else if (cur && isBlock(cur)) S.fromBlk = cur.id; else if (!cur) S.fromBlk = null;
   if (S.open !== id) { S.scope = 'one'; S.rpEdit = false; S.blkFocus = null; S.blkSkip = []; S.blkView = 'next'; }
   S.open = id; S.tlEdit = null; S.dtpick = false; S.confirmDel = false; S.linkEdit = false; S.notesEdit = false; S.waitEdit = false; renderDetail();
   if (focusTitle) { const t = document.getElementById('dt-title'); t.focus(); t.select(); }
@@ -1394,7 +1397,7 @@ document.addEventListener('click', e => {
   const a = b.dataset.act, id = b.dataset.id;
   switch (a) {
     case 'open': openItem(id); break;
-    case 'close': S.open = null; S.confirmDel = false; S.linkEdit = false; renderDetail(); break;
+    case 'close': S.open = null; S.fromBlk = null; S.confirmDel = false; S.linkEdit = false; renderDetail(); break;
     case 'editnotes': {
       if (e.target.closest('a') || String(getSelection())) break; // links open in a new tab; selecting text shouldn't start editing
       S.notesEdit = true; renderDetail();
