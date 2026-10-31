@@ -14,8 +14,13 @@ export const PREFS = ['morning', 'afternoon', 'evening'];
 const MIN = 60000;
 export const keyOf = d => DAYS[pd(d).getDay()];
 export const areas = () => store.areas();
-export const targetOn = (a, d) => Math.max(0, +(a?.dg?.[keyOf(d)] || 0));
-export const weekTarget = a => a?.dg ? ORDER.reduce((t, k) => t + Math.max(0, +(a.dg[k] || 0)), 0) || null : null;
+// A date key (YYYY-MM-DD) in the same object overrides that weekday's target for that day only (0 = none that day)
+const pick = (o, d) => o && d in o ? o[d] : o?.[keyOf(d)];
+export const targetOn = (a, d) => Math.max(0, +(pick(a?.dg, d) || 0));
+export const isOverride = (o, d) => !!o && d in o;
+export const catchUpOn = (cu, d) => Math.max(0, +(pick(cu, d) || 0));
+/** The week's target from Monday w: each day's target, overrides included. Without w, the usual weekdays. */
+export const weekTarget = (a, w) => !a?.dg ? null : (w ? [0, 1, 2, 3, 4, 5, 6].reduce((t, i) => t + targetOn(a, add(w, i)), 0) : ORDER.reduce((t, k) => t + Math.max(0, +(a.dg[k] || 0)), 0)) || null;
 
 // Which area an item's time belongs to (a repeat counts where its series lives, a block where its area or project is)
 function areaOf(n) {
@@ -44,7 +49,7 @@ export function cardsOn(d, catchUp = {}) {
   const cards = areas().map(a => ({ a, target: targetOn(a, d), min: Math.round(L[a.id]?.min || 0) }))
     .filter(c => c.target > 0 || c.min > 0)
     .sort((x, y) => (x.target > 0 ? 0 : 1) - (y.target > 0 ? 0 : 1) || pr(x.a) - pr(y.a) || (x.a.o ?? 0) - (y.a.o ?? 0));
-  const cu = Math.max(0, +(catchUp?.[k] || 0));
+  const cu = catchUpOn(catchUp, d);
   const extra = Math.round(cards.reduce((t, c) => t + Math.max(0, c.min - c.target), 0));
   return { cards, catchUp: cu ? { target: cu, min: Math.min(extra, 24 * 60) } : null };
 }
