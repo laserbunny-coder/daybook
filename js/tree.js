@@ -27,10 +27,23 @@ export const look = () => document.documentElement.dataset.look === 'paper' ? 'p
 export const ink = c => { const g = glow(c || '#B9BCD0'); return INKS[look()][g.toUpperCase()] || g; };
 /* A project's colour is its own, or 'area' to wear its area's colour. Tasks wear their project's; a task right in an area wears the area's. */
 export const projColor = p => ink((p.c === 'area' || (!p.c && p.ar) ? store.get(p.ar)?.c : p.c) || '#B9BCD0');
-export const colorOf = n => projColor(rootOf(n));
+export const colorOf = n => n?.k === 'block' ? blockColor(n) : projColor(rootOf(n));
+/* Time blocks: a stretch of time for a whole area or project (fo names it). The block wears its colour. */
+export const isBlock = n => n?.k === 'block';
+export const targetOf = b => { const t = b?.fo && store.get(b.fo); return t && !t.x ? t : null; };
+export function blockColor(b) { const t = targetOf(b); return !t ? ink(null) : t.k === 'area' ? ink(t.c) : colorOf(t); }
+export const blockTitle = b => targetOf(b)?.t || 'Removed area';
+/** Whether an item's work belongs inside a block for target id: the area itself (its projects and loose tasks) or the project and its steps. */
+export function within(n, id) {
+  if (!n || !id) return false;
+  if (n.k === 'block') return n.fo === id;
+  if (n.id === id) return true;
+  const r = rootOf(n.rs ? store.get(n.rs) || n : n);
+  return r.id === id || r.ar === id || ancestors(n).some(a => a.id === id);
+}
 /* Order in a day's list (ds) is kept apart from order among a project's steps (o).
    A repeating task shows as its repeats on their days (store.occOn), never as itself. */
-export const dayItems = d => store.all().filter(n => n.d === d && !n.r).concat(store.occOn(d)).sort((a, b) => (a.ds ?? a.o) - (b.ds ?? b.o));
+export const dayItems = d => store.all().filter(n => n.d === d && !n.r).concat(store.occOn(d), store.blocksOn(d)).sort((a, b) => (a.ds ?? a.o) - (b.ds ?? b.o));
 /* A step with no day of its own rides along with the nearest scheduled project above it. */
 export const heldBy = n => { let p = n.p && node(n.p); while (p) { if (p.d) return p; p = p.p && node(p.p); } return null; };
 export const riders = id => children(id).filter(c => !c.d).flatMap(c => hasKids(c.id) ? riders(c.id) : [c]);

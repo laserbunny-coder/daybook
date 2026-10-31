@@ -40,6 +40,10 @@ export type Row = {
   /** A stored repeat of a series: the series' id, and the date it was due. */
   series_id?: string | null;
   occurs_on?: string | null;
+  /** Area time: on a block (kind 'block'), the area or project it's time for. */
+  focus_on?: string | null;
+  /** On an area: roughly how many minutes a week the person wants to give it. */
+  week_minutes?: number | null;
   deleted: boolean;
 };
 
@@ -88,12 +92,13 @@ export const INSTRUCTIONS = `Daybook is this person's own task and calendar app.
 - Any item can carry a link back to where its notes live, often a Thymer page. When you make a task from something in Thymer, set its link to that page and put a short summary in notes, so the person can glance at it and tap through for the rest. A Thymer page link looks like https://NAME.thymer.com/?open=WORKSPACE.PAGEID; if you can't tell the address, look at the links on existing tasks for the pattern, or ask.
 - Dates are the person's local dates as YYYY-MM-DD, and times are 24-hour HH:MM.
 - The Roadmap shows each top-level project as a bar from its start date to its due date (sub-projects as thinner bars under it). Set start and due on projects and sub-projects to place them. A task marked milestone shows as a diamond on its due date (or its day); hard_deadline marks a milestone whose date can't move. waiting_on links an item to another item it waits on, such as "List footage" waiting on "NAS live".
-- The Roadmap's top strip weighs each week's scheduled task hours against the person's free hours per week (get_free_hours / set_free_hours), so over-planned weeks stand out. When planning a week, keep its scheduled hours within that number.
+- The Roadmap's top strip weighs each week's scheduled task hours and area time against the person's free hours per week (get_free_hours / set_free_hours), so over-planned weeks stand out. When planning a week, keep its scheduled hours within that number.
 - Checking off a task records when (done_at, in the person's local time); reopening clears it. If they say they finished something earlier, pass done_at with update_item to backdate it. actual_minutes is how long a task really took, next to its planned duration_minutes; fill it in when they tell you, or when it was far off. list_tasks with done_since lists what was finished since a date, to see their real pace.
 - Time tracking: the person records time in the app with a ▶ on a task or project (one at a time). time_log lists each stretch really worked (start, end, minutes; end is "recording now" while it runs). Checking a task off moves its block (day, start_time, duration_minutes) to when it was really done, and planned keeps where and how long it was planned, so compare planned with the real block and actual_minutes (the recorded total) to learn their pace. A stretch marked guessed wasn't recorded: it was checked off without the timer, so the app assumed it ended then and took as long as planned; don't read its length as real. Time on a project's steps is recorded on the project as a whole.
 - A task can repeat (daily, weekdays, weekly on chosen days, every N weeks, or monthly), with an optional last day: pass repeat to add_task or update_item. The task is then a series that starts on its day. Each repeat shows on its own day and is checked off on its own. list_tasks with from and to lists the repeats in that range: each has its own id (series id~date) and a series_id. To change one day's repeat (move it, check it off, rename it), use its id; to change every repeat, use the series_id. A repeat moved off the plan (day null) is skipped. repeat: null stops a series repeating. Repeating tasks count in each week's scheduled hours but have no bar on the Roadmap.
 - Notes: post_note leaves the person a note they see in the app as a card the next time they open it (unread notes stack into one card), with a button back to the chat it came from, and it stays in their Notes history. Use it to tell them what a scheduled check changed, such as a morning plan check, with a short title, a few lines, the link to this chat, and the ids of the tasks you changed. list_notes reads back what you already told them, and whether they've read it.
 - Needs you: a line on the person's Plan lists what's waiting on them across all their Claude projects, grouped by project, oldest first. When this chat needs them (a decision only they can make, work blocked on them, or something ready for them to review or try), raise_needs_you with one short line, the kind, the Claude project's name, and the link to this chat. A chat has at most one open item: raising again from the same link updates it (blocked → review, say) instead of adding another. clear_needs_you as soon as it no longer needs them, such as once they've answered. list_needs_you shows what's open.
+- Area time: the person prefers to plan blocks of time for a whole area or a big project ("Filmmaking, 9 to 12", every Mon/Wed/Fri) over timing every task. In the app a block opens to the next step of each project in that area, so they pick what to do when they get there, and it fills with the time really worked. list_blocks shows them; add_block, update_block and remove_block change them (a block can repeat like a task). Areas can have rough hours a week (set_area_hours; list_projects shows them with this week's blocked hours). When planning their week, place area blocks around their calendar so each area gets about its hours, and only time single tasks that have a deadline or must happen at a set time. Blocks count as busy time.
 - Say what you changed in plain words, since the person sees your reply, not the tool calls.`;
 
 const str = (description: string) => ({ type: "string", description });
@@ -209,7 +214,7 @@ export const TOOLS = [
   {
     name: "get_free_hours",
     title: "Free hours per week",
-    description: "How many hours a week the person has for the tasks in Daybook. The Roadmap compares each week's scheduled task hours with this, so over-planned weeks stand out. Also gives the scheduled hours for this week and the next three.",
+    description: "How many hours a week the person has for the tasks in Daybook. The Roadmap compares each week's scheduled task hours and area time with this, so over-planned weeks stand out. Also gives the scheduled hours for this week and the next three.",
     inputSchema: { type: "object", properties: {} },
     annotations: { readOnlyHint: true },
   },
@@ -290,6 +295,47 @@ export const TOOLS = [
       },
     },
     annotations: { readOnlyHint: true },
+  },
+  {
+    name: "list_blocks",
+    title: "List area time",
+    description: "Lists the blocks of time for areas and projects (area time) between two days, a repeating block once on each day it falls on. Each has its id, what it's for, day, start time and length, and whether it repeats.",
+    inputSchema: { type: "object", properties: { from: str("First day, YYYY-MM-DD. Defaults to today."), to: str("Last day, YYYY-MM-DD. Defaults to two weeks after from.") } },
+  },
+  {
+    name: "add_block",
+    title: "Block time for an area or project",
+    description: "Adds a block of time for a whole area (by name) or a project (by id) on a day, optionally repeating, such as Filmmaking every Mon, Wed and Fri 9:00 to 12:00.",
+    inputSchema: {
+      type: "object",
+      required: ["day", "start_time"],
+      properties: {
+        area: str("The area it's time for, by name. Give this or project_id."),
+        project_id: str("The project or sub-project it's time for. Give this or area."),
+        day: str("Day, YYYY-MM-DD (the first day, for a repeating block)."),
+        start_time: str("Start time, HH:MM 24-hour."),
+        duration_minutes: { type: "integer", description: "How long, 15 to 720. Defaults to 90." },
+        repeat: REPEAT,
+      },
+    },
+  },
+  {
+    name: "update_block",
+    title: "Move or resize a block",
+    description: "Moves a block of area time to another day or time, or changes its length. On one repeat of a repeating block (an id with ~date) it changes that day only; on the series it changes every repeat still to come.",
+    inputSchema: { type: "object", required: ["id"], properties: { id: str("The block's id, from list_blocks."), day: str("New day, YYYY-MM-DD."), start_time: str("New start time, HH:MM 24-hour."), duration_minutes: { type: "integer", description: "New length, 15 to 720." } } },
+  },
+  {
+    name: "remove_block",
+    title: "Remove a block",
+    description: "Removes a block of area time. On one repeat of a repeating block it skips that day only; on the series it removes every repeat. Time already recorded stays with the work.",
+    inputSchema: { type: "object", required: ["id"], properties: { id: str("The block's id, from list_blocks.") } },
+  },
+  {
+    name: "set_area_hours",
+    title: "Set an area's hours a week",
+    description: "Sets roughly how many hours a week the person wants to give an area. The app shows each area's week as hours worked and still blocked against this. 0 clears it.",
+    inputSchema: { type: "object", required: ["area", "hours"], properties: { area: str("The area, by name."), hours: { type: "number", description: "Hours a week, 0 to 80, halves allowed. 0 clears it." } } },
   },
   {
     name: "update_item",
@@ -421,8 +467,8 @@ function repeatArg(v: unknown, start: string): Rule {
   return r;
 }
 // What a stored repeat shares with its series, and what a change to the series hands down to them
-const SHARED: (keyof Row)[] = ["parent_id", "title", "notes", "start_min", "after_min", "duration_min", "sort", "day_sort", "color", "link", "area_id", "waits_on"];
-const FOLLOW: (keyof Row)[] = ["parent_id", "title", "notes", "start_min", "duration_min", "color", "link", "waits_on", "area_id"];
+const SHARED: (keyof Row)[] = ["parent_id", "title", "notes", "start_min", "after_min", "duration_min", "sort", "day_sort", "color", "link", "area_id", "waits_on", "kind", "focus_on"];
+const FOLLOW: (keyof Row)[] = ["parent_id", "title", "notes", "start_min", "duration_min", "color", "link", "waits_on", "area_id", "focus_on"];
 
 /** The person's items as a tree, with the lookups the tools need. */
 class Tree {
@@ -437,8 +483,12 @@ class Tree {
   occLive = new Map<string, Row>();
   series: Row[] = [];
   raw: Row[];
+  /** Blocks of area time, kept apart from the items (see blockTree). */
+  blockRows: Row[];
   constructor(all: Row[]) {
     this.raw = all;
+    this.blockRows = all.filter((r) => r.kind === "block");
+    all = all.filter((r) => r.kind !== "block");
     this.areas = all.filter((r) => r.kind === "area" && !r.deleted).sort((a, b) => a.sort - b.sort);
     for (const r of all) if (r.series_id) {
       if (r.occurs_on) { const m = this.occ.get(r.series_id) ?? new Map(); m.set(r.occurs_on, r); this.occ.set(r.series_id, m); }
@@ -489,6 +539,8 @@ class Tree {
     t.tz = this.tz;
     return t;
   }
+  /** The blocks as a tree of their own, so repeating blocks work out their repeats the way tasks do. */
+  blockTree() { const b = new Tree(this.blockRows.map((r) => ({ ...r, kind: null }))); b.tz = this.tz; return b; }
   children = (id: string) => this.kids.get(id) ?? [];
   areaOf = (r: Row) => (r.parent_id == null && r.area_id ? this.areas.find((a) => a.id === r.area_id) : undefined);
   area(v: unknown): Row {
@@ -554,7 +606,7 @@ class Tree {
 }
 
 function newRow(fields: Partial<Row>): Row {
-  return { id: crypto.randomUUID(), parent_id: null, title: "", notes: null, done: false, day: null, start_min: null, after_min: null, duration_min: 60, sort: now(), color: null, due: null, link: null, kind: null, area_id: null, start: null, milestone: false, hard_deadline: false, waits_on: null, deleted: false, ...fields };
+  return { id: crypto.randomUUID(), parent_id: null, title: "", notes: null, done: false, day: null, start_min: null, after_min: null, duration_min: 60, sort: now(), color: null, due: null, link: null, kind: null, area_id: null, start: null, milestone: false, hard_deadline: false, waits_on: null, focus_on: null, deleted: false, ...fields };
 }
 
 /** true or false, also written as the text "true" or "false" (some clients send flags as text). */
@@ -631,7 +683,7 @@ function hoursArg(v: unknown): number {
   return n;
 }
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
-/** Scheduled task hours in each of the next weeks (Monday first), as the Roadmap counts them: every repeat counts. */
+/** Scheduled task hours (and area time) in each of the next weeks (Monday first), as the Roadmap counts them: every repeat counts. */
 function weekLoad(t: Tree, free: number, today = new Date(), weeks = 4) {
   const rows = [...t.byId.values()].filter((r) => !r.repeat_rule);
   const mon = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
@@ -640,7 +692,8 @@ function weekLoad(t: Tree, free: number, today = new Date(), weeks = 4) {
     const a = new Date(mon); a.setUTCDate(a.getUTCDate() + i * 7);
     const b = new Date(a); b.setUTCDate(b.getUTCDate() + 6);
     const from = ymd(a), to = ymd(b);
-    const h = [...rows.filter((r) => r.day && r.day >= from && r.day <= to), ...t.occBetween(from, to)].reduce((s, r) => s + (r.duration_min || 60) / 60, 0);
+    const bt = t.blockTree(), blocks = [...bt.byId.values()].filter((r) => !r.repeat_rule && !r.done && r.day && r.day >= from && r.day <= to).concat(bt.occBetween(from, to).filter((r) => !r.done)); // area time counts too
+    const h = [...rows.filter((r) => r.day && r.day >= from && r.day <= to), ...t.occBetween(from, to), ...blocks].reduce((s, r) => s + (r.duration_min || 60) / 60, 0);
     const hours = Math.round(h * 2) / 2;
     return { week_of: from, scheduled_hours: hours, ...(hours > free ? { over_by: Math.round((hours - free) * 2) / 2 } : {}) };
   });
@@ -815,6 +868,8 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       await db.save(rows);
       return { added: rows.map((r) => ({ id: r.id, title: r.title })), under: p.title };
     }
+    case "list_blocks": case "add_block": case "update_block": case "remove_block": case "set_area_hours":
+      return runBlocks(name, args, t, db, today());
     case "update_item": {
       const r = { ...t.get(args.id) };
       const changed: Row[] = [];
@@ -922,6 +977,74 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
 
 /** Answers one JSON-RPC message. Returns null for notifications. */
+/* Area time: blocks of time for a whole area or project (rows of kind 'block'; focus_on names the area or project) */
+async function runBlocks(name: string, args: Record<string, unknown>, t: Tree, db: Db, todayStr: string): Promise<unknown> {
+  const bt = t.blockTree();
+  const forOf = (r: Row) => { const a = t.areas.find((x) => x.id === r.focus_on); if (a) return { area: a.title }; const p = r.focus_on ? t.byId.get(r.focus_on) : undefined; return p ? { project: p.title, project_id: p.id } : { removed: true }; };
+  const out = (r: Row, day: string) => {
+    const o: Record<string, unknown> = { id: r.id, ...forOf(r), day, ...(r.start_min != null ? { start_time: hhmm(r.start_min) } : { start_time: null }), duration_minutes: r.duration_min };
+    const s = r.series_id ? bt.byId.get(r.series_id) : r.repeat_rule ? r : undefined;
+    if (s?.repeat_rule && s.day) { o.repeats = ruleText(s.repeat_rule, s.day); o.series_id = s.id; }
+    if (r.done) o.skipped_or_answered = true;
+    const mins = (r.time_log ?? []).reduce((a, e) => a + Math.max(0, Math.round(((e.end ? Date.parse(e.end) : Date.now()) - Date.parse(e.start)) / 60000)), 0);
+    if (mins) o.recorded_on_block_minutes = mins;
+    return o;
+  };
+  const len = (v: unknown) => { if (typeof v !== "number" || !Number.isInteger(v) || v < 15 || v > 720) throw new Bad("duration_minutes must be a whole number from 15 to 720."); return v; };
+  const save = (rows: Row[]) => db.save(rows.map((r) => ({ ...r, kind: "block" })));
+  switch (name) {
+    case "list_blocks": {
+      const from = has(args, "from") ? dayArg(args.from, "from") : todayStr, to = has(args, "to") ? dayArg(args.to, "to") : addDays(from, 13);
+      if (to < from || to > addDays(from, 92)) throw new Bad("to must be on or after from, and at most 92 days later.");
+      const rows = [...bt.byId.values()].filter((r) => !r.repeat_rule && r.day && r.day >= from && r.day <= to).concat(bt.occBetween(from, to));
+      rows.sort((a, b) => (a.day ?? "").localeCompare(b.day ?? "") || (a.start_min ?? 0) - (b.start_min ?? 0));
+      const areas = t.areas.map((a) => ({ area: a.title, ...(a.week_minutes ? { hours_a_week: Math.round(a.week_minutes / 6) / 10 } : {}) }));
+      return { blocks: rows.map((r) => out(r, r.day!)), areas, ...(rows.length ? {} : { note: "No area time planned in those days." }) };
+    }
+    case "add_block": {
+      let focus: string;
+      if (has(args, "area") && has(args, "project_id")) throw new Bad("Give either area or project_id, not both.");
+      if (has(args, "area")) focus = t.area(args.area).id;
+      else if (has(args, "project_id")) { const p = t.get(args.project_id); if (!t.isProject(p)) throw new Bad(`${p.title} is a task, not a project. Block time for its project or area instead.`); focus = p.id; }
+      else throw new Bad("Say what the time is for: area (by name) or project_id.");
+      const day = dayArg(args.day, "day"), start = timeArg(args.start_time), dur = has(args, "duration_minutes") ? len(args.duration_minutes) : 90;
+      const title = t.areas.find((a) => a.id === focus)?.title ?? t.byId.get(focus)!.title;
+      const r = newRow({ kind: "block", focus_on: focus, title, day, start_min: start, duration_min: dur, day_sort: now(), ...(has(args, "repeat") ? { repeat_rule: repeatArg(args.repeat, day) } : {}) });
+      await save([r]);
+      return { added: out(r, day) };
+    }
+    case "update_block": {
+      const id = String(args.id ?? "");
+      const r = { ...(bt.byId.get(id) ?? bt.occLive.get(id) ?? bt.ghost(id) ?? (() => { throw new Bad(`No block with id ${JSON.stringify(args.id)}. Use list_blocks to find ids.`); })()) };
+      if (has(args, "day")) { if (r.repeat_rule) throw new Bad("That's the repeating series: move one day's repeat by its id (with ~date), or remove the series and add it again on new days."); r.day = dayArg(args.day, "day"); }
+      if (has(args, "start_time")) r.start_min = timeArg(args.start_time);
+      if (has(args, "duration_minutes")) r.duration_min = len(args.duration_minutes);
+      const rows = [r];
+      if (r.repeat_rule) { const old = bt.byId.get(r.id)!; for (const o of bt.occ.get(r.id)?.values() ?? []) if (!o.deleted && !o.done && o.day && o.day >= todayStr && o.start_min === old.start_min && o.duration_min === old.duration_min) rows.push({ ...o, start_min: r.start_min, duration_min: r.duration_min }); }
+      await save(rows);
+      return { changed: out(r, r.day ?? todayStr) };
+    }
+    case "remove_block": {
+      const id = String(args.id ?? "");
+      const r = bt.byId.get(id) ?? bt.occLive.get(id) ?? bt.ghost(id);
+      if (!r) throw new Bad(`No block with id ${JSON.stringify(args.id)}. Use list_blocks to find ids.`);
+      const rows = [{ ...r, deleted: true }];
+      if (r.repeat_rule) for (const o of bt.occ.get(r.id)?.values() ?? []) if (!o.deleted) rows.push({ ...o, deleted: true, occurs_on: null });
+      await save(rows);
+      return { removed: { id: r.id, ...forOf(r), ...(r.series_id ? { day: r.occurs_on, note: "Just this day; the rest of the series stays." } : r.repeat_rule ? { note: "Every repeat." } : { day: r.day }) } };
+    }
+    case "set_area_hours": {
+      const a = { ...t.area(args.area) };
+      const h = typeof args.hours === "string" ? Number(args.hours) : args.hours;
+      if (typeof h !== "number" || !isFinite(h) || h < 0 || h > 80) throw new Bad("hours must be a number from 0 to 80.");
+      a.week_minutes = h ? Math.round(h * 2) * 30 : null;
+      await db.save([a]);
+      return { area: a.title, hours_a_week: a.week_minutes ? a.week_minutes / 60 : null };
+    }
+  }
+  throw new Bad(`Unknown tool ${name}`);
+}
+
 export async function handle(msg: Rpc, db: Db): Promise<unknown | null> {
   if (!msg || typeof msg !== "object" || typeof msg.method !== "string") {
     return msg && "id" in msg ? { jsonrpc: "2.0", id: msg.id ?? null, error: { code: -32600, message: "Invalid request" } } : null;

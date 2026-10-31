@@ -7,7 +7,7 @@
 import * as store from './store.js';
 import * as track from './track.js';
 import { add, DAYL, daysBetween, esc, fd, fmtShort, MON, nowMin, pd, today, weekStart } from './util.js';
-import { children, hasKids, ink, leaves, projColor, rootOf } from './tree.js';
+import { children, hasKids, ink, leaves, projColor, rootOf, targetOf } from './tree.js';
 
 let C = null; // what the app hands over: { S, render }
 export function init(ctx) { C = ctx; }
@@ -35,7 +35,8 @@ const pct = (v, t) => t ? Math.round(v / t * 100) : 0;
 function pieces() {
   const out = [], now = Date.now();
   for (const n of store.logged()) {
-    const host = n.rs ? (store.get(n.rs) || n) : n; // a repeat counts where its series lives
+    let host = n.rs ? (store.get(n.rs) || n) : n; // a repeat counts where its series lives
+    if (host.k === 'block') { const t = targetOf(host); if (t) host = t; } // time in an area or project block counts for that area or project
     const root = rootOf(host);
     for (const e of n.tl) {
       let a = Date.parse(e.start); const b = e.end ? Date.parse(e.end) : now;
@@ -49,7 +50,7 @@ function pieces() {
   }
   return out;
 }
-const areaKey = r => (r.ar && store.get(r.ar)?.k === 'area' ? r.ar : '~'); // ~ stands for no area
+const areaKey = r => (r.k === 'area' ? r.id : r.ar && store.get(r.ar)?.k === 'area' ? r.ar : '~'); // ~ stands for no area
 
 /* The range on show: the period around S.stAt, or the custom days */
 export function range() {
@@ -98,14 +99,14 @@ function model() {
   const grp = (p, k) => {
     let g = G.get(k); if (g) return g;
     if (area == null) { const a = k !== '~' && store.get(k); g = { key: k, name: a ? a.t || 'Untitled area' : 'No area', base: a ? ink(a.c) : ink(), act: 'st-area', id: k }; }
-    else g = { key: k, name: p.root.t || 'Untitled', base: projColor(p.root), act: 'open', id: p.root.id };
+    else g = { key: k, name: p.root.k === 'area' ? 'Area time' : p.root.t || 'Untitled', base: projColor(p.root), act: 'open', id: p.root.id };
     Object.assign(g, { m: 0, pm: 0, gm: 0, subs: new Map() }); G.set(k, g); return g;
   };
   const inR = [];
   for (const p of mine) {
     if (p.d >= R.a && p.d <= R.b) {
       const g = grp(p, gKey(p)); g.m += p.m; if (p.g) g.gm += p.m; inR.push(p);
-      if (area == null) { let s = g.subs.get(p.root.id); if (!s) g.subs.set(p.root.id, s = { id: p.root.id, name: p.root.t || 'Untitled', base: projColor(p.root), m: 0 }); s.m += p.m; }
+      if (area == null) { let s = g.subs.get(p.root.id); if (!s) g.subs.set(p.root.id, s = { id: p.root.id, name: p.root.k === 'area' ? 'Area time' : p.root.t || 'Untitled', base: projColor(p.root), m: 0 }); s.m += p.m; }
     } else if (p.d >= pa && p.d <= pb && prevPart(p) > 0) grp(p, gKey(p)).pm += prevPart(p);
   }
   const groups = [...G.values()].filter(g => g.m > 0 || g.pm > 0).sort((x, y) => y.m - x.m || y.pm - x.pm);
