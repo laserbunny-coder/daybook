@@ -44,7 +44,7 @@ export function mounted(d) {
   root.querySelector('.td-nyslot').replaceChildren(...host.querySelectorAll(':scope > .td-ny'));
   root.querySelector('.td-addslot').replaceChildren(...host.querySelectorAll(':scope > .td-add'));
   if (view !== d) { view = d; seen = null; cards.forEach(c => c.el.remove()); cards.clear(); }
-  fit(); el.nowLine.style.top = NOW_Y + 'px'; el.say.parentElement.style.top = LANE_Y + 8 + 'px'; el.chip.style.top = NOW_Y - 6 + 'px'; voice.prepare(client); refresh(true);
+  fit(); el.nowLine.style.top = NOW_Y + 'px'; el.say.parentElement.style.top = LANE_Y + 8 + 'px'; el.chip.style.top = NOW_Y - 100 + 'px'; voice.prepare(client); refresh(true);
   if (!raf) { last = performance.now(); raf = requestAnimationFrame(loop); }
 }
 
@@ -224,12 +224,15 @@ function targets() {
   const live = view === today(), m = live ? nowF() : null, base = view > today() ? Math.min(...R.Qs.map(q => q.e), 24 * 60) : m;
   base0 = base; anchors = [];
   const L = [...cards.values()].filter(c => !c.leaving).sort((a, b) => a.q.e - b.q.e || a.q.s0 - b.q.s0);
-  let prev = -1e9;
+  let prev = -1e9, prevJaws = false;
   for (const c of L) {
-    const q = c.q;
-    let y = q.st === 'jaws' ? NOW_Y - 6 - Math.min(1, (m - q.e) / Math.max(1, q.by - q.e)) * 10 : LANE_Y + (q.e - base) * PPM - HALF; // its bottom edge is the minute it reaches his jaws
-    y = Math.max(y, prev + GAP); prev = y; c.ty = y;
-    if (q.st !== 'jaws') anchors.push([q.e, y + HALF]);
+    const q = c.q, jaws = q.st === 'jaws';
+    // in his jaws: up in his mouth, above the NOW line; two at once pile up a few pixels apart instead of spilling into the timeline
+    // the rest sit below the line, their top edge on the minute they reach his jaws
+    let y = jaws ? (prevJaws ? prev + 7 : NOW_Y - 6 - Math.min(1, (m - q.e) / Math.max(1, q.by - q.e)) * 10) : LANE_Y + 6 + HALF + (q.e - base) * PPM;
+    if (!jaws) y = Math.max(y, prev + GAP, LANE_Y + 6 + HALF);
+    prev = y; prevJaws = jaws; c.ty = y;
+    if (!jaws) anchors.push([q.e, y - HALF]);
   }
   return L;
 }
@@ -246,7 +249,7 @@ function place(snap) {
     if (c.y == null || snap && Math.abs(c.y - c.ty) > 300) c.y = c.ty;
     c.y += (c.ty - c.y) * (snap ? 1 : 0.12);
     const sh = c.q.st === 'jaws' && !reduce ? (Math.random() - 0.5) * 3 : 0;
-    c.el.style.transform = `translate(${sh}px,${(c.y - HALF + off).toFixed(1)}px)`;
+    c.el.style.transform = `translate(${sh}px,${(c.y - HALF + off).toFixed(1)}px)`; c.el.style.zIndex = c.q.st === 'jaws' ? 2 : '';
   }
   el.nowLine.style.transform = `translateY(${(LANE_Y - NOW_Y - scroll.y).toFixed(1)}px)`;
   el.back.hidden = scroll.to < 20;
@@ -254,12 +257,12 @@ function place(snap) {
 }
 /** Where minute t of the day sits on the lane: steady time, stretched wherever quests are packed closer than a card apart. */
 function laneY(t) {
-  const A = [[base0, LANE_Y], ...anchors.filter(a => a[0] > base0)];
+  const A = [[base0, LANE_Y + 6], ...anchors.filter(a => a[0] > base0)];
   for (let i = A.length - 1; i >= 0; i--) if (t >= A[i][0]) {
     const a = A[i], b = A[i + 1]; if (!b) return a[1] + (t - a[0]) * PPM;
     return a[1] + (b[1] - a[1]) * (t - a[0]) / Math.max(1, b[0] - a[0]);
   }
-  return LANE_Y + (t - base0) * PPM;
+  return LANE_Y + 6 + (t - base0) * PPM;
 }
 /** The time behind the quests: a line every half hour, the hours named, noon and 5pm marked as round ends, bedtime last. */
 const ticks = new Map();
