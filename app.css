@@ -597,6 +597,11 @@ body.quiet .qh{display:flex;align-items:center;justify-content:center;gap:7px;fl
 body.quiet .qh::after{content:"";width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.8}
 body.quiet .qh:hover,body.quiet.q-strip .qh{color:var(--muted)}
 body.quiet .q-only{display:grid}
+.qback{display:none}
+body.quiet .qback{display:inline-flex;align-items:center;gap:4px;position:absolute;top:6px;left:10px;z-index:31;padding:8px 12px 8px 8px;border-radius:14px;font:500 10.5px/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);transition:color .2s,background .2s,opacity .2s}
+body.quiet .qback svg{width:14px;height:14px}
+body.quiet .qback:hover{color:var(--fg);background:var(--sunk)}
+body.quiet.q-strip .qback{opacity:0;pointer-events:none}
 /* The header becomes a frosted strip that drops from the day's name */
 body.quiet .main>.mh{position:absolute;top:8px;left:50%;z-index:30;width:max-content;max-width:calc(100% - 24px);justify-content:center;gap:8px 12px;padding:7px 10px;border:1px solid var(--edge);border-radius:22px;
   background:var(--pop);backdrop-filter:blur(24px) saturate(1.2);-webkit-backdrop-filter:blur(24px) saturate(1.2);box-shadow:0 20px 50px -20px rgba(0,0,0,.85);
@@ -637,9 +642,9 @@ body.quiet:not(.ai-off) .ai{transform:none;visibility:visible;transition:transfo
 @media (max-width:860px){
   body.quiet:not([data-tab="projects"]) .side{display:none!important}
   body.quiet .main{display:flex}
-  /* The strip on a phone, in three calm rows: the day and its arrows; Day/Week and List/Time blocks; undo, the quiet tools and Ask Claude */
+  /* The strip on a phone, in calm rows: the day and its arrows; Day/Week and List/Time blocks; the quiet tools (Roadmap and Stats among them); undo and Ask Claude */
   body.quiet .main>.mh{left:10px;right:10px;width:auto;max-width:none;transform:translateY(-10px);
-    display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"t t n" "r l l" "u i a";align-items:center;gap:12px 10px;padding:12px}
+    display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"t t n" "r l l" "i i i" "u . a";align-items:center;gap:12px 10px;padding:12px}
   body.quiet .mh-l,body.quiet .mh-r{display:contents}
   body.quiet .mh h1{grid-area:t;padding-left:6px;font-size:16px;overflow:hidden;text-overflow:ellipsis}
   body.quiet .mh .nav{grid-area:n;justify-self:end}
@@ -774,7 +779,7 @@ body.rm-dragging,body.rm-dragging *{cursor:grabbing!important;user-select:none;-
   .rm-mh .rm-free{padding:6px 10px}
   .rm-tray{padding:8px 12px 10px}
   /* Quiet on a phone: the strip's rows hold the zoom and the free hours instead of Day/Week and List/Time blocks */
-  body.quiet .main>.mh.rm-mh{grid-template-areas:"t t n" "r r l" "u i a"}
+  body.quiet .main>.mh.rm-mh{grid-template-areas:"t t n" "r r l" "i i i" "u . a"}
   body.quiet .mh .rm-zoom{grid-area:r;justify-self:start}
   body.quiet .mh .rm-free{grid-area:l;justify-self:end}
   body.quiet[data-tab="roadmap"] .main{display:flex}
@@ -1045,7 +1050,7 @@ body.quiet[data-page="stats"] .side{visibility:visible}
   .st-spark{width:44px}
   .st-months{gap:12px 12px}
   .st-facts{gap:4px 16px}
-  body.quiet .main>.mh.st-mh{grid-template-areas:"t t n" "r r r" "u i a"}
+  body.quiet .main>.mh.st-mh{grid-template-areas:"t t n" "r r r" "i i i" "u . a"}
   body.quiet .mh .st-kinds{grid-area:r}
   body.quiet[data-tab="stats"] .main{display:flex}
 }
