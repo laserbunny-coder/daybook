@@ -109,8 +109,8 @@ export const INSTRUCTIONS = `Daybook is this person's own task and calendar app.
 - Needs you: a line on the person's Plan lists what's waiting on them across all their Claude projects, grouped by project, oldest first. When this chat needs them (a decision only they can make, work blocked on them, or something ready for them to review or try), raise_needs_you with one short line, the kind, the Claude project's name, and the link to this chat. A chat has at most one open item: raising again from the same link updates it (blocked → review, say) instead of adding another. clear_needs_you as soon as it no longer needs them, such as once they've answered. list_needs_you shows what's open.
 - Area time: the person prefers to plan blocks of time for a whole area or a big project ("Filmmaking, 9 to 12", every Mon/Wed/Fri) over timing every task. In the app a block opens to the next step of each project in that area, so they pick what to do when they get there, and it fills with the time really worked. list_blocks shows them; add_block, update_block and remove_block change them (a block can repeat like a task). Areas can have rough hours a week (set_area_hours; list_projects shows them with this week's blocked hours). When planning their week, place area blocks around their calendar so each area gets about its hours, and only time single tasks that have a deadline or must happen at a set time. Blocks count as busy time.
 - Daily area targets: each area can have target hours for each day of the week (get_area_targets / set_area_targets), such as Business 3 h on weekdays and Personal 0 on Wednesday, plus a catch-up of hours for any area on some days (such as Saturday 2 h). The app shows a card per area at the top of each day's List with the target and the hours logged so far; the person starts and stops the area's own timer as often as they like, and time on any task, project or block in the area counts too. time_pref (morning, afternoon, evening) is only a hint for when it fits. get_area_progress shows, per day and area, the target, the hours logged and which tasks the time went to: use it to see how the days really went before planning.
-- Order: every item has a place among its siblings (a project's steps; the projects and standalone tasks of an area; the inbox). position is its place, from 1, and sort is the number that keeps it there; the app's lists show the same order. Lists under a project or area come back in that order. reorder_items puts a project's steps or an area's items in a new order; update_item's position moves one item (first, last, or after another). A top-level project's priority is its rank among the projects of its area (1 is first); set_project_priority changes it, and it's the order the person sees when dragging projects in the app.
-- get_next_task gives what to work on next in an area or project: the first open step in order that isn't waiting on something unfinished or planned for a later day (for an area: its projects in priority order, then its standalone tasks), and the two after it. The app shows the same next task on each area block in List view.
+- Order: every item has a place among its siblings (a project's steps; the projects and standalone tasks of an area; the inbox). position is its place, from 1, and sort is the number that keeps it there; the app's lists show the same order. Lists under a project or area come back in that order. reorder_items puts a project's steps or an area's items in a new order; update_item's position moves one item (first, last, or after another). Priority is an item's rank in its area, counting its projects and standalone tasks together (1 is first), so a standalone task can come before a project; set_project_priority changes it, and it's the order the person sees when dragging in the app's area lists.
+- get_next_task gives what to work on next in an area or project: the first open step in order that isn't waiting on something unfinished or planned for a later day (for an area: its projects and standalone tasks in priority order). A project waiting on something unfinished is skipped as a whole, and the two after it. The app shows the same next task on each area block in List view.
 - A task marked habit (usually a repeating one, such as a daily walk) still shows on its days, but its time doesn't count toward the week's scheduled hours or get_free_hours.
 - Say what you changed in plain words, since the person sees your reply, not the tool calls.`;
 
@@ -140,7 +140,7 @@ export const TOOLS = [
         to: str("Last day to include, YYYY-MM-DD."),
         unscheduled: { type: "boolean", description: "Only tasks with no day of their own and no scheduled project above them (steps of a scheduled project are worked on with it)." },
         project_id: str("Only tasks anywhere under this project. Without dates they come back in the project's order."),
-        area: str("Only tasks in this area, by name (its projects' steps and its standalone tasks). Without dates they come back in order: projects by priority, then standalone tasks."),
+        area: str("Only tasks in this area, by name (its projects' steps and its standalone tasks). Without dates they come back in priority order (projects and standalone tasks ranked together)."),
         query: str("Only tasks whose title contains these words."),
         include_done: { type: "boolean", description: "Include tasks already checked off." },
         done_since: str("Only tasks checked off on or after this local date, YYYY-MM-DD (includes done tasks)."),
@@ -151,7 +151,7 @@ export const TOOLS = [
   {
     name: "list_projects",
     title: "List projects",
-    description: "Lists the person's areas, and their projects and sub-projects with area, progress, start and due dates, what they wait on, and link. Projects come in order: area by area, each area's projects by priority (a top-level project's priority is its rank in its area, 1 first), each followed by its sub-projects in order. position is an item's place among its siblings.",
+    description: "Lists the person's areas, and their projects and sub-projects with area, progress, start and due dates, what they wait on, and link. Projects come in order: area by area, each area's projects by priority (an item's priority is its rank in its area, 1 first), each followed by its sub-projects in order. position is an item's place among its siblings.",
     inputSchema: { type: "object", properties: { include_done: { type: "boolean", description: "Include finished projects." } } },
     annotations: { readOnlyHint: true },
   },
@@ -424,21 +424,21 @@ export const TOOLS = [
   },
   {
     name: "set_project_priority",
-    title: "Set project priority in an area",
-    description: "Sets the priority order of an area's top-level projects: the first id is its top priority. Projects you leave out keep their order after the ones you list; the area's standalone tasks stay where they are. get_next_task and the app's lists follow this order.",
+    title: "Set priority in an area",
+    description: "Sets the priority order of an area's projects and standalone tasks, ranked together: the first id is its top priority, so a standalone task can come before a project. Items you leave out keep their order after the ones you list. get_next_task and the app's lists follow this order.",
     inputSchema: {
       type: "object",
       required: ["area", "project_ids"],
       properties: {
         area: str("The area, by name, such as Business."),
-        project_ids: { type: "array", items: { type: "string" }, description: "Top-level project ids of that area, most important first." },
+        project_ids: { type: "array", items: { type: "string" }, description: "Ids of that area's top-level projects and standalone tasks, most important first." },
       },
     },
   },
   {
     name: "get_next_task",
     title: "Next task in an area or project",
-    description: "What to work on next in an area or project: the first open task in order that isn't done, isn't waiting on something unfinished, and isn't planned for a later day. For an area it looks through its projects in priority order, then its standalone tasks. Returns that task, its project, and the next two after it. The app shows the same next task on each area block in List view.",
+    description: "What to work on next in an area or project: the first open task in order that isn't done, isn't waiting on something unfinished, and isn't planned for a later day. For an area it looks through its projects and standalone tasks in priority order (ranked together), and skips a whole project that is waiting on something unfinished. Returns that task, its project, and the next two after it. The app shows the same next task on each area block in List view.",
     inputSchema: {
       type: "object",
       properties: {
@@ -648,18 +648,15 @@ class Tree {
     return [...this.byId.values()].filter((r) => r.parent_id == null && this.groupOf(r) === key).sort(bySort);
   }
   position = (r: Row) => this.group(this.groupOf(r)).findIndex((x) => x.id === r.id) + 1;
-  /** A top-level project's priority: its rank among its area's projects, 1 first. */
+  /** Priority: a top-level project's or standalone task's rank in its area (both ranked together), 1 first. */
   priority(r: Row): number | null {
-    if (r.parent_id || !this.isProject(r) || !this.areaOf(r)) return null;
-    return this.group(this.groupOf(r)).filter((x) => this.isProject(x)).findIndex((x) => x.id === r.id) + 1;
+    if (r.parent_id || !this.areaOf(r)) return null;
+    return this.position(r);
   }
   /** These items and everything under them, depth first, in order. */
   flat(rows: Row[]): Row[] { return rows.flatMap((r) => [r, ...this.flat(this.children(r.id))]); }
-  /** An area's items in order: its projects by priority, then its standalone tasks. */
-  areaItems(a: Row): Row[] {
-    const g = this.group("a:" + a.id);
-    return [...g.filter((r) => this.isProject(r)), ...g.filter((r) => !this.isProject(r))];
-  }
+  /** An area's projects and standalone tasks in priority order. */
+  areaItems = (a: Row): Row[] => this.group("a:" + a.id);
   /** A habit: on the item, or on the series a repeat belongs to. */
   isHabit = (r: Row) => !!(r.habit || (r.series_id && this.byId.get(r.series_id)?.habit));
   /** What to work on next under these items, in order: open tasks that aren't waiting on something unfinished or
@@ -1031,20 +1028,18 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
     }
     case "set_project_priority": {
       const a = t.area(args.area), key = "a:" + a.id, ids = idList(args.project_ids, "project_ids");
-      const list = t.group(key), projs = list.filter((x) => t.isProject(x));
+      // Projects and standalone tasks are ranked together: the listed ones first, the rest after in their order
+      const list = t.group(key);
       const picked = ids.map((id) => {
-        const r = projs.find((x) => x.id === id);
-        if (!r) throw new Bad(`${JSON.stringify(id)} isn't a top-level project in ${a.title}. Its projects are: ${projs.map((x) => `${x.title} (${x.id})`).join(", ") || "none"}.`);
+        const r = list.find((x) => x.id === id);
+        if (!r) throw new Bad(`${JSON.stringify(id)} isn't a top-level project or standalone task in ${a.title}. Its items are: ${list.map((x) => `${x.title} (${x.id})`).join(", ") || "none"}.`);
         return r;
       });
-      // The projects take the places projects had, in the new order; the area's standalone tasks stay put
-      const ranked = [...picked, ...projs.filter((x) => !ids.includes(x.id))];
-      let k = 0;
-      const order = list.map((x) => (t.isProject(x) ? ranked[k++] : x));
+      const order = [...picked, ...list.filter((x) => !ids.includes(x.id))];
       const changed = order.map((x, j) => ({ ...x, sort: j })).filter((x, j) => list[j].id !== x.id || list[j].sort !== j);
       if (changed.length) await db.save(changed);
       const after = t.with(changed);
-      return { area: a.title, projects: after.group(key).filter((x) => after.isProject(x)).map((x) => ({ priority: after.priority(x), id: x.id, title: x.title })) };
+      return { area: a.title, priority: after.group(key).map((x) => ({ priority: after.priority(x), id: x.id, title: x.title, kind: after.isProject(x) ? "project" : "task" })) };
     }
     case "get_next_task": {
       if (has(args, "area") === has(args, "project_id")) throw new Bad("Give either area or project_id.");
