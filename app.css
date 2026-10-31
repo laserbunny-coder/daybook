@@ -2144,3 +2144,5 @@ body.td-shell .td-sbtns .td-pill,.td-sbtns .td-pill{top:auto;right:auto;left:aut
 .bcol .wk-bar{margin:0 10px 8px}
 .area-h[data-drag]{cursor:grab}
 .dt.blk #blk-s{font:inherit;color:inherit;background:transparent;border:0;padding:0;width:auto;min-width:0}
+/* The undo pill floats over cards of nearly the same colour: lift it so it reads as its own thing */
+.toast{background:color-mix(in srgb,var(--pop) 80%,var(--fg));border-color:color-mix(in srgb,var(--fg) 20%,transparent);box-shadow:0 10px 32px rgba(0,0,0,.55);font-size:14px}
