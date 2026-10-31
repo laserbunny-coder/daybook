@@ -244,6 +244,7 @@ function targets() {
   return L;
 }
 let crank = 0;
+const JAWS_TILT = 13;
 // two or more in his jaws pile up; the count on the pile spreads them out for a few seconds so you can pick one
 let jawsOpen = false, jawsT = 0;
 function spreadJaws(on) { jawsOpen = on; clearTimeout(jawsT); if (on) jawsT = setTimeout(() => { jawsOpen = false; place(); }, 10000); place(); }
@@ -259,7 +260,9 @@ function place(snap) {
     if (c.y == null || snap && Math.abs(c.y - c.ty) > 300) c.y = c.ty;
     c.y += (c.ty - c.y) * (snap ? 1 : 0.12);
     const sh = c.q.st === 'jaws' && !reduce ? (Math.random() - 0.5) * 3 : 0;
-    c.el.style.transform = `translate(${sh}px,${(c.y - HALF + off).toFixed(1)}px)`; c.el.style.zIndex = c.q.st === 'jaws' ? 9 - Math.min(6, ji++) : ''; // the soonest eaten sits on top of the pile
+    // in his jaws it tilts along his mouth line (about 15° on the paintings), level again while the pile is spread out
+    const tilt = c.q.st === 'jaws' && !jawsOpen ? JAWS_TILT : 0;
+    c.el.style.transform = `translate(${sh}px,${(c.y - HALF + off).toFixed(1)}px)${tilt ? ` rotate(${tilt}deg)` : ''}`; c.el.style.zIndex = c.q.st === 'jaws' ? 9 - Math.min(6, ji++) : ''; // the soonest eaten sits on top of the pile
   }
   el.nowLine.style.transform = `translateY(${(LANE_Y - NOW_Y - scroll.y).toFixed(1)}px)`;
   const J = L.filter(c => c.q.st === 'jaws');
