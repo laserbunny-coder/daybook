@@ -57,6 +57,7 @@ function build() {
     <div class="td-hud"><button class="td-help" data-td="help" aria-label="How the Fight works">?</button><div class="td-hl"><div class="td-date"><button data-act="prev" aria-label="Previous day">‹</button><button class="td-dt" data-act="today"></button><button data-act="next" aria-label="Next day">›</button></div></div><div class="td-hr"><button class="td-snd" data-td="sound" aria-label="Sound"></button><div class="td-purse" title="Your gold"><i></i><b></b></div></div></div>
     <div class="td-side"><div class="td-pips" aria-label="The rounds"></div><div class="td-rnd"></div><div class="td-sbtns"><button class="td-pill" data-td="dawn" hidden></button><button class="td-drg" data-td="lair" aria-label="Dragons" title="Dragons">${ICON.drg}</button><span class="td-nyslot"></span><button class="td-gutb" data-td="gut" aria-label="In his gut" title="In his gut: finish one to make him cough up half" hidden>${ICON.gut}<b></b></button><span class="td-addslot"></span></div></div>
     <div class="td-lane" aria-label="Your quests, in order"><div class="td-ruler" aria-hidden="true"></div></div>
+    <button class="td-jp" data-td="jaws" hidden></button>
     <button class="td-back2" data-td="now" hidden>Back to now</button>
     <div class="td-now"><span></span></div>
     <div class="td-saybg" hidden></div><button class="td-say" data-td="say-x" aria-label="Close" hidden><small>${NAME.toUpperCase()}</small><span></span><em>Tap to close · tap the chip to hear it again</em></button>
@@ -70,7 +71,7 @@ function build() {
     <div class="td-hit" hidden></div><div class="td-combo" hidden></div>
     <div class="td-flash"></div></div>`;
   const $ = s => root.querySelector(s);
-  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), pips: $('.td-pips'), side: $('.td-side'), foot: $('.td-foot'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small'), sayb: $('.td-say'), saybg: $('.td-saybg'), chip: $('.td-chip'), gutb: $('.td-gutb'), ruler: $('.td-ruler'), back: $('.td-back2'), hit: $('.td-hit'), combo: $('.td-combo'), fanbg: $('.td-fanbg'), rooms: $('.td-rooms'), dt: $('.td-dt') };
+  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), pips: $('.td-pips'), side: $('.td-side'), foot: $('.td-foot'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small'), sayb: $('.td-say'), saybg: $('.td-saybg'), chip: $('.td-chip'), jp: $('.td-jp'), gutb: $('.td-gutb'), ruler: $('.td-ruler'), back: $('.td-back2'), hit: $('.td-hit'), combo: $('.td-combo'), fanbg: $('.td-fanbg'), rooms: $('.td-rooms'), dt: $('.td-dt') };
   swipeRooms();
   cv = $('.td-cv'); ctx = cv.getContext('2d');
   // while a card is picked, tapping a quest plays it there instead of opening or finishing it
@@ -88,6 +89,7 @@ function build() {
     if (b.dataset.td === 'poke') { poke(); }
     else if (b.dataset.td === 'replay') { if (bub.open) bubble(false); else { bubble(true, 8); hear(); } }
     else if (b.dataset.td === 'say-x') bubble(false);
+    else if (b.dataset.td === 'jaws') spreadJaws(!jawsOpen);
     else if (b.dataset.td === 'gut') { gutOpen = !gutOpen; foot(); }
     else if (b.dataset.td === 'card') { if (fan) { fan = false; pickCard(b.dataset.c); hand(); } else { fan = true; hand(); } }
     else if (b.dataset.td === 'fan-x') { fan = false; hand(); }
@@ -120,7 +122,7 @@ function build() {
   hitEvents();
   addEventListener('resize', () => { if (root?.isConnected) fit(); });
   // drag (or wheel) the lane to look further ahead; a drag never counts as a tap on a quest
-  const inLane = e => { if (e.target.closest('.td-hit,.td-foot,.td-fanbg,.td-dawn,.td-verdict,.td-hud,.td-pill,.td-drg,.td-help,.td-banner,.td-say,.td-chip,.td-poke,.td-back2,.td-add,.td-side')) return false; const r = el.stage.getBoundingClientRect(); return (e.clientX - r.left) / k > 84; };
+  const inLane = e => { if (e.target.closest('.td-hit,.td-foot,.td-fanbg,.td-dawn,.td-verdict,.td-hud,.td-pill,.td-drg,.td-help,.td-banner,.td-say,.td-chip,.td-poke,.td-back2,.td-add,.td-side,.td-jp')) return false; const r = el.stage.getBoundingClientRect(); return (e.clientX - r.left) / k > 84; };
   el.stage.addEventListener('pointerdown', e => { if (!inLane(e) || aim) return; scroll.drag = { y0: e.clientY, s0: scroll.to, id: e.pointerId, moved: false }; });
   el.stage.addEventListener('pointermove', e => { const d = scroll.drag; if (!d || d.id !== e.pointerId) return; const dy = (d.y0 - e.clientY) / k;
     if (!d.moved && Math.abs(dy) > 6) { d.moved = true; el.stage.setPointerCapture?.(e.pointerId); }
@@ -229,7 +231,7 @@ function targets() {
     const q = c.q, jaws = q.st === 'jaws';
     // in his jaws: up in his mouth, above the NOW line; two at once pile up a few pixels apart instead of spilling into the timeline
     // the rest sit below the line, their top edge on the minute they reach his jaws
-    let y = jaws ? (prevJaws ? prev + 7 : NOW_Y - 6 - Math.min(1, (m - q.e) / Math.max(1, q.by - q.e)) * 10) : LANE_Y + 6 + HALF + (q.e - base) * PPM;
+    let y = jaws ? (prevJaws ? prev + (jawsOpen ? GAP : 7) : NOW_Y - 6 - Math.min(1, (m - q.e) / Math.max(1, q.by - q.e)) * 10) : LANE_Y + 6 + HALF + (q.e - base) * PPM;
     if (!jaws) y = Math.max(y, prev + GAP, LANE_Y + 6 + HALF);
     prev = y; prevJaws = jaws; c.ty = y;
     if (!jaws) anchors.push([q.e, y - HALF]);
@@ -237,6 +239,9 @@ function targets() {
   return L;
 }
 let crank = 0;
+// two or more in his jaws pile up; the count on the pile spreads them out for a few seconds so you can pick one
+let jawsOpen = false, jawsT = 0;
+function spreadJaws(on) { jawsOpen = on; clearTimeout(jawsT); if (on) jawsT = setTimeout(() => { jawsOpen = false; place(); }, 10000); place(); }
 function place(snap) {
   const L = targets();
   // scrolling ahead: drag or wheel the lane; it drifts back to now after a while
@@ -244,14 +249,19 @@ function place(snap) {
   if (!scroll.drag && Date.now() - scroll.at > 15000) scroll.to = 0;
   scroll.to = Math.min(max, Math.max(0, scroll.to));
   scroll.y += (scroll.to - scroll.y) * (snap || scroll.drag ? 1 : 0.18);
-  const off = crank - scroll.y;
+  const off = crank - scroll.y; let ji = 0;
   for (const c of L) {
     if (c.y == null || snap && Math.abs(c.y - c.ty) > 300) c.y = c.ty;
     c.y += (c.ty - c.y) * (snap ? 1 : 0.12);
     const sh = c.q.st === 'jaws' && !reduce ? (Math.random() - 0.5) * 3 : 0;
-    c.el.style.transform = `translate(${sh}px,${(c.y - HALF + off).toFixed(1)}px)`; c.el.style.zIndex = c.q.st === 'jaws' ? 2 : '';
+    c.el.style.transform = `translate(${sh}px,${(c.y - HALF + off).toFixed(1)}px)`; c.el.style.zIndex = c.q.st === 'jaws' ? 9 - Math.min(6, ji++) : ''; // the soonest eaten sits on top of the pile
   }
   el.nowLine.style.transform = `translateY(${(LANE_Y - NOW_Y - scroll.y).toFixed(1)}px)`;
+  const J = L.filter(c => c.q.st === 'jaws');
+  if (J.length < 2 && jawsOpen) { jawsOpen = false; clearTimeout(jawsT); }
+  el.jp.hidden = J.length < 2 || !!aim;
+  if (J.length >= 2) { el.jp.style.transform = `translate(0,${(J[0].y - HALF - 9 + off).toFixed(1)}px)`; el.jp.textContent = jawsOpen ? '▴' : '×' + J.length;
+    el.jp.setAttribute('aria-label', jawsOpen ? 'Pile them back up' : `${J.length} quests in his jaws: spread them out`); el.jp.classList.toggle('on', jawsOpen); }
   el.back.hidden = scroll.to < 20;
   ruler(off);
 }
