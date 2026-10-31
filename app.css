@@ -2021,3 +2021,4 @@ body.td-shell .td-sbtns .td-pill,.td-sbtns .td-pill{top:auto;right:auto;left:aut
 .td-side .td-pips i b{font-size:9px}
 .td-belly{left:78px}
 .td-host .td-sbtns .td-addslot .td-add:has(form){position:absolute;left:0;top:auto;bottom:0;width:340px;z-index:9}
+.td-say::before{right:70px}
