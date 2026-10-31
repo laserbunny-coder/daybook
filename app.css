@@ -2039,3 +2039,87 @@ body.td-shell .td-sbtns .td-pill,.td-sbtns .td-pill{top:auto;right:auto;left:aut
 .td-banner.cu b{color:#d8b4ff}
 .td-banner.cu span{font-size:14px;line-height:1.3}.td-banner.cu em{font-style:normal;font-weight:700;color:#fff}
 .td-banner.cu small{font-size:12px;color:#b8a0d0;line-height:1.3}
+
+/* Area time (js/blocks.js): a block of time for a whole area or project. On the plan it's an outlined frame in the
+   area's colour, shaded from the top as far as the time worked in it; a task block is a solid card, so they read apart. */
+.block.zone{background:linear-gradient(to bottom,color-mix(in srgb,var(--pc) 24%,var(--card)) 0 calc(var(--f,0)*100%),color-mix(in srgb,var(--pc) 6%,var(--bg)) 0);border:1.5px solid color-mix(in srgb,var(--pc) 70%,transparent);border-left-width:1.5px;border-radius:8px;padding:0 7px}
+.block.zone.live{border-color:color-mix(in srgb,var(--danger) 70%,var(--pc));box-shadow:0 6px 22px -14px color-mix(in srgb,var(--danger) 70%,transparent)}
+.block.zone.skipped{opacity:.5;border-style:dashed}
+.z-in{min-width:0;flex:1;padding:4px 0;display:flex;flex-direction:column;gap:1px}
+.z-k{font:600 9px/1.2 var(--f-body);letter-spacing:.11em;text-transform:uppercase;color:var(--pc);display:flex;gap:4px;align-items:center}
+.z-k .ni{width:10px;height:10px}
+.block.zone .b-t{font:500 14px/1.2 var(--f-display)}
+.z-l{display:flex;flex-direction:column;gap:1px;margin-top:4px;font-size:11px;color:var(--muted)}
+.z-l span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.z-l span::before{content:"○ ";color:var(--pc)}
+.z-l span.d{text-decoration:line-through;opacity:.75}
+.z-l span.d::before{content:"● "}
+.z-ask{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+.z-ask button{font-size:11px;font-weight:500;padding:3px 8px;border-radius:7px;border:1px solid var(--line2);background:var(--card);color:var(--fg)}
+.z-ask button:hover{border-color:var(--pc)}
+@container blk (max-height:60px){.z-l{display:none}}
+@container blk (max-height:38px){.z-k{display:none}.block.zone .b-time{display:none}}
+/* In the List and the Any time row: a framed row, its left edge filling with time worked */
+.item.zone-i{background:color-mix(in srgb,var(--pc) 5%,var(--bg));border:1.5px solid color-mix(in srgb,var(--pc) 65%,transparent)}
+.zfr{flex:none;width:6px;align-self:stretch;border-radius:4px;background:linear-gradient(to top,var(--pc) 0 calc(var(--f,0)*100%),color-mix(in srgb,var(--pc) 22%,transparent) 0);margin:2px 0}
+.item.zone-i .it-t{font:500 15px/1.25 var(--f-display)}
+
+/* Inside a block */
+.dt.blk .dt-kind{display:flex;align-items:center;gap:7px;color:var(--pc)}
+.dt.blk .pdot{background:var(--pc)}
+.bk-title{font:500 26px/1.15 var(--f-display);text-align:left;color:var(--fg)}
+.bk-title:hover{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px}
+.bk-when{color:var(--muted);font-size:13px;margin-top:4px}
+.bk-fill{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;font-size:13px;color:var(--muted)}
+.bk-bar{flex:1 1 120px;height:6px;border-radius:6px;background:var(--line);overflow:hidden}
+.bk-bar i{display:block;height:100%;width:calc(var(--f,0)*100%);background:var(--pc)}
+.dt.blk .z-ask{margin-top:12px}
+.bk-sec{align-items:center}
+.bk-seg{margin-left:auto;text-transform:none;letter-spacing:0;display:flex}
+.bk-seg button{font:500 12px/1 var(--f-body);padding:5px 9px}
+.bk-sug,.bk-card,.bk-now{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:8px;background:var(--card)}
+.bk-sug{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));background:var(--accent-soft)}
+.bk-sug small{display:block;color:var(--muted);font-size:12px;margin:0 0 2px 32px}
+.bk-lab{font:600 10px/1 var(--f-body);letter-spacing:.11em;text-transform:uppercase;color:var(--faint);margin:2px 0 4px}
+.bk-h{display:flex;align-items:center;gap:8px;min-width:0}
+.bk-h .pdot{background:var(--pc);flex:none}
+.bk-name{font-weight:600;font-size:13.5px;text-align:left;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bk-h small{color:var(--faint);font-size:11.5px;white-space:nowrap;margin-left:auto}
+.bk-f{font-size:11.5px;font-weight:500;color:var(--accent);padding:3px 7px;border-radius:6px;flex:none}
+.bk-f:hover{background:var(--accent-soft)}
+.bk-card.loose .bk-name{font-weight:500;color:var(--muted)}
+.bk-card.loose .bk-f{margin-left:auto}
+.bk-step{display:flex;align-items:center;gap:10px;padding:5px 0;min-width:0}
+.bk-step .ck,.bk-step .ring{flex:none}
+.bk-t{flex:1;min-width:0;text-align:left;font-size:14px;display:flex;align-items:center;gap:6px}
+.bk-step.done .bk-t{text-decoration:line-through;color:var(--muted)}
+.bk-step .rec-b{width:26px;height:26px}
+.bk-more{font-size:12px;color:var(--faint);padding:2px 0 2px 32px}
+.bk-more:hover{color:var(--fg)}
+.bk-pick{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.bk-pick button{font-size:12px;padding:5px 10px;border-radius:8px;border:1px solid var(--line2);color:var(--muted)}
+.bk-pick button[aria-pressed="true"]{color:var(--fg);border-color:var(--pc);background:color-mix(in srgb,var(--pc) 14%,transparent)}
+.bk-pick .bk-all{border-style:dashed}
+.bk-now{border:1.5px solid var(--pc);background:color-mix(in srgb,var(--pc) 9%,var(--card));padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.bk-step.big .bk-t{font:500 20px/1.25 var(--f-display)}
+.bk-step.big .ck{width:22px;height:22px}
+.bk-notes{font-size:13px;color:var(--muted);white-space:pre-line}
+.bk-acts{display:flex;gap:8px}
+.tb.pri{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.bk-then{display:flex;flex-direction:column;gap:4px;margin:10px 0 0 2px;font-size:13px;color:var(--muted)}
+.bk-then button{text-align:left}
+.bk-then button:hover{color:var(--fg)}
+.bk-all-tree{margin:0 -6px}
+
+/* An area's week: hours worked (solid), blocks still to come (dotted), the rough target (a tick) */
+.wk-bar{display:flex;align-items:center;gap:8px;margin:0 8px 6px 30px;font:500 11px/1 var(--f-body);color:var(--muted)}
+.wk-bar.lo span{color:var(--warn)}
+.wk-bar.met span{color:var(--pc)}
+.wk-t{position:relative;flex:1;height:4px;border-radius:4px;background:var(--line);overflow:hidden}
+.wk-t i{position:absolute;left:0;top:0;bottom:0;background:var(--pc);border-radius:4px}
+.wk-t u{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(90deg,color-mix(in srgb,var(--pc) 55%,transparent) 0 2px,transparent 2px 4px)}
+.wk-t b{position:absolute;top:-2px;bottom:-2px;width:1.5px;background:var(--fg);opacity:.5}
+.dt .wk-bar{margin:12px 0 0}
+.bcol .wk-bar{margin:0 10px 8px}
+.area-h[data-drag]{cursor:grab}
+.dt.blk #blk-s{font:inherit;color:inherit;background:transparent;border:0;padding:0;width:auto;min-width:0}

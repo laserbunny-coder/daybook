@@ -17,7 +17,7 @@ const saved = new Map();          // id -> server updated_at of the newest versi
 let flushTimer = null, retryTimer = null;
 export const sync = { state: 'local', pending: 0 }; // local | syncing | saved | offline | error
 
-const ROW = { p: 'parent_id', t: 'title', notes: 'notes', done: 'done', d: 'day', s: 'start_min', m: 'duration_min', o: 'sort', c: 'color', due: 'due', link: 'link', a: 'after_min', ds: 'day_sort', k: 'kind', ar: 'area_id', st: 'start', ms: 'milestone', hd: 'hard_deadline', w: 'waits_on', am: 'actual_minutes', tl: 'time_log', pl: 'planned', r: 'repeat_rule', rs: 'series_id', oc: 'occurs_on', x: 'deleted' };
+const ROW = { p: 'parent_id', t: 'title', notes: 'notes', done: 'done', d: 'day', s: 'start_min', m: 'duration_min', o: 'sort', c: 'color', due: 'due', link: 'link', a: 'after_min', ds: 'day_sort', k: 'kind', ar: 'area_id', st: 'start', ms: 'milestone', hd: 'hard_deadline', w: 'waits_on', am: 'actual_minutes', tl: 'time_log', pl: 'planned', r: 'repeat_rule', rs: 'series_id', oc: 'occurs_on', fo: 'focus_on', wk: 'week_minutes', x: 'deleted' };
 const toRow = n => { const r = { id: n.id }; for (const [k, col] of Object.entries(ROW)) r[col] = n[k] ?? (k === 'done' || k === 'x' || k === 'ms' || k === 'hd' ? false : k === 'm' ? 60 : k === 'o' ? 0 : null); return r; };
 const fromRow = r => { const n = { id: r.id }; for (const [k, col] of Object.entries(ROW)) n[k] = r[col]; return n; };
 
@@ -27,8 +27,11 @@ function setSync(state) { sync.state = state; sync.pending = dirty.size; for (co
 
 export function onChange(f) { listeners.add(f); return () => listeners.delete(f); }
 // A repeating task's stored occurrences are left out: they show on their days (occOn), not in the project tree
-export const all = () => [...nodes.values()].filter(n => !n.x && n.k !== 'area' && !n.rs);
+// Time blocks for an area or project (kind 'block') aren't part of the tree either: blocks() and blocksOn() list them
+export const all = () => [...nodes.values()].filter(n => !n.x && n.k !== 'area' && n.k !== 'block' && !n.rs);
 export const areas = () => [...nodes.values()].filter(n => !n.x && n.k === 'area').sort((a, b) => a.o - b.o);
+/** Every time block (a series counts once, as itself). */
+export const blocks = () => [...nodes.values()].filter(n => !n.x && n.k === 'block' && !n.rs);
 /** Whatever is recording right now (see track.js): at most one item has a stretch of time with no end. */
 export const recording = () => { for (const n of nodes.values()) if (!n.x && n.tl?.some(e => !e.end)) return n; return null; };
 /** Everything with recorded time, repeats included, to draw those stretches in Time blocks. */
@@ -54,7 +57,7 @@ function index() {
   return IX;
 }
 // What a repeat shares with its series
-const SHARED = ['p', 't', 'notes', 's', 'o', 'c', 'link', 'a', 'ds', 'ar', 'w'];
+const SHARED = ['p', 't', 'notes', 's', 'o', 'c', 'link', 'a', 'ds', 'ar', 'w', 'k', 'fo'];
 function virt(s, d) {
   const v = { id: occId(s.id, d), rs: s.id, oc: d, d, done: false, m: s.m ?? 60, k: null, r: null, due: null, st: null, ms: false, hd: false, am: null, x: false, v: true };
   for (const k of SHARED) v[k] = s[k] ?? null;
@@ -67,12 +70,15 @@ function ghost(id) {
   if (!s || s.x || !s.r || !repeatsOn(s.r, s.d, p[1]) || index().bySeries.get(s.id)?.has(p[1])) return null;
   return virt(s, p[1]);
 }
-/** Every repeat on day d: the stored ones that sit on it, and the worked-out ones due that day. */
-export function occOn(d) {
+function repeatsOnDay(d) {
   const I = index(), out = (I.byDay.get(d) || []).slice();
   for (const s of I.series) if (repeatsOn(s.r, s.d, d) && !I.bySeries.get(s.id)?.has(d)) out.push(virt(s, d));
   return out;
 }
+/** Every repeat on day d: the stored ones that sit on it, and the worked-out ones due that day. Repeating blocks are in blocksOn. */
+export const occOn = d => repeatsOnDay(d).filter(n => n.k !== 'block');
+/** The time blocks on day d: one-off ones and the repeats of repeating ones. */
+export const blocksOn = d => [...nodes.values()].filter(n => !n.x && n.k === 'block' && !n.rs && !n.r && n.d === d).concat(repeatsOnDay(d).filter(n => n.k === 'block'));
 /** The series a repeat belongs to (or the series itself). */
 export const seriesOf = n => (n?.rs ? get(n.rs) : n?.r ? n : null);
 const occRows = sid => [...(index().bySeries.get(sid)?.values() || [])];
@@ -86,7 +92,7 @@ function own(id) {
 // Changing one of these on a single repeat can be carried over to the whole series
 const EDIT = ['t', 'notes', 'm', 's', 'd', 'link', 'w'];
 // What a change to the series hands down to its stored repeats (those still the same as the series was)
-const FOLLOW = ['p', 't', 'notes', 's', 'm', 'c', 'link', 'w', 'ar'];
+const FOLLOW = ['p', 't', 'notes', 's', 'm', 'c', 'link', 'w', 'ar', 'fo'];
 function setOcc(n, patch) {
   if ('d' in patch && !patch.d) patch = { ...patch, x: true }; // a repeat taken off the plan is skipped
   mark(n.id); Object.assign(n, patch); touch(n);
@@ -349,5 +355,11 @@ export function sampleData() {
     const t0 = pd(D(k)), t1 = pd(D(k)); t0.setMinutes(s); t1.setMinutes(s + took);
     mk(t, null, { ar, done: true, d: D(k), s, m: took, am: took, pl: { day: D(k), start_min: s, duration_min: plan }, tl: [{ start: t0.toISOString(), end: t1.toISOString() }] });
   });
+  // Area time: a block for Filmmaking this morning (worked in), and Business every weekday afternoon
+  const at = (k, m) => { const x = pd(D(k)); x.setMinutes(m); return x.toISOString(); };
+  N.push({ id: 's-blk1', k: 'block', fo: film, t: 'Filmmaking', p: null, notes: null, done: false, d: D(0), s: 540, m: 180, o: 0, c: null, due: null, ar: null, x: false });
+  byId(f).tl = (byId(f).tl || []).concat(new Date(at(0, 600)).getTime() < now ? [{ start: at(0, 545), end: at(0, 600) }] : []);
+  N.push({ id: 's-blk2', k: 'block', fo: biz, t: 'Business', p: null, notes: null, done: false, d: D(0), s: 840, m: 120, o: 0, c: null, due: null, ar: null, x: false, r: { every: 'weekday' } });
+  N.find(n => n.id === biz).wk = 600; N.find(n => n.id === film).wk = 480;
   return N;
 }

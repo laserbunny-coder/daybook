@@ -14,9 +14,10 @@ import * as sfx from './sfx.js';
 import * as remind from './remind.js';
 import * as routine from './routine.js';
 import * as kingdom from './kingdom.js';
+import * as blocks from './blocks.js';
 import { cleanRule, ruleText, splitOcc, WEEK } from './repeat.js';
 import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fd, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
-import { ancestors, children, colorOf, dayItems, glow, hasKids, ink, look, isDone, isProj, leaves, node, PALETTE, progress, rootOf } from './tree.js';
+import { ancestors, blockTitle, children, colorOf, dayItems, glow, hasKids, ink, isBlock, look, isDone, isProj, leaves, node, PALETTE, progress, rootOf, targetOf, within } from './tree.js';
 
 const H0 = 6, H1 = 23;
 const HP = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hp')) || 48;
@@ -119,6 +120,7 @@ function recTag(n) {
   return last === t ? fmtDur(t) : `<span class="sw-l">${fmtDur(last)} of </span>${fmtDur(t)}`;
 }
 function chipHTML(n, o = {}) {
+  if (isBlock(n)) return blockChip(n, o);
   const crumbs = ancestors(n).map(a => a.t); const meta = []; const kids = hasKids(n.id);
   if (!o.min) { // minimal list shows just the title
     if (n.rs) meta.push(ICON.repS);
@@ -132,6 +134,107 @@ function chipHTML(n, o = {}) {
     const rt = recTag(n); if (rt) meta.push(`<span class="it-rec" title="Recorded time">${ICON.watch}${rt}</span>`);
   }
   return `<div class="item${isDone(n) ? ' done' : ''}${overdue(n) ? ' overdue' : ''}${track.isRec(n) ? ' recording' : ''}${o.compact ? ' compact' : ''}" data-drag data-id="${n.id}" style="--pc:${colorOf(n)}">${ckHTML(n)}<div class="it-body"><div class="it-t">${esc(n.t || 'Untitled')}</div>${meta.length ? `<div class="it-m">${meta.join('<span>·</span>')}</div>` : ''}</div>${o.compact ? '' : recBtn(n)}</div>`;
+}
+/* Area time (blocks.js): a block of time for a whole area or project. On the plan it's a frame in the area's colour that
+   fills up with the time really worked in it; before it starts it shows what's waiting inside. It's never checked off.
+   Once it's over with nothing recorded, it asks whether it happened. */
+const fillOf = b => { const w = blocks.worked(b), len = b.s == null ? null : b.m || 60; return { w, len, f: len ? Math.min(1, w / len) : 0 }; };
+const blockKind = b => targetOf(b)?.k === 'area' ? 'Area' : 'Project';
+const askHTML = b => `<div class="z-ask" role="group" aria-label="Did you get to it?"><button data-act="blk-ans" data-v="all" data-id="${b.id}">Did it</button><button data-act="blk-ans" data-v="part" data-id="${b.id}">Part of it</button><button data-act="blk-ans" data-v="skip" data-id="${b.id}">Skipped</button></div>`;
+function zoneHTML(b, pos, tm) {
+  const { w, f } = fillOf(b), past = blocks.isPast(b), ask = blocks.asks(b), skipped = b.done && !w, done = blocks.doneIn(b);
+  let sub, lines = '';
+  if (ask) sub = `${tm} · did you get to it?`;
+  else if (skipped) sub = `${tm} · skipped`;
+  else if (w || past) { sub = `${fmtDur(w)} worked${done.length ? ` · ${done.length} done` : ''}`; lines = done.slice(0, 4).map(n => `<span class="d">${esc(n.t || 'Untitled')}</span>`).join(''); }
+  else { const { cards, loose } = blocks.inside(b), next = cards.map(c => c.open[0]).concat(loose); sub = tm + (next.length ? ` · ${cards.reduce((a, c) => a + c.open.length, 0) + loose.length} open` : ''); lines = next.slice(0, 4).map(n => `<span>${esc(n.t || 'Untitled')}</span>`).join(''); }
+  return `<div class="block zone${skipped ? ' skipped' : ''}${blocks.live(b) ? ' live' : ''}" data-drag data-id="${b.id}" style="${pos};--pc:${colorOf(b)};--f:${f}" title="${blockKind(b)} time. Tap to open it and pick what to work on.">
+    <div class="z-in"><div class="z-k">${b.rs ? ICON.repS : ''}${blockKind(b)}</div><div class="b-t">${esc(blockTitle(b))}</div><div class="b-time">${sub}</div>${lines ? `<div class="z-l">${lines}</div>` : ''}${ask ? askHTML(b) : ''}</div>
+    ${past ? '' : recBtn(b)}<div class="rs"></div></div>`;
+}
+function blockChip(b, o = {}) {
+  const { w, f } = fillOf(b), past = blocks.isPast(b), skipped = b.done && !w, ask = blocks.asks(b);
+  const meta = o.min ? '' : `<div class="it-m">${b.rs ? ICON.repS : ''}<span>${blockKind(b)} time</span>${b.s != null ? `<span>·</span><span class="tm">${fmtT(b.s)} – ${fmtT(b.s + (b.m || 60))}</span>` : ''}${w || past ? `<span>·</span><span>${skipped ? 'Skipped' : fmtDur(w) + ' worked'}</span>` : ''}</div>`;
+  return `<div class="item zone-i${skipped ? ' done' : ''}${blocks.live(b) ? ' recording' : ''}${o.compact ? ' compact' : ''}" data-drag data-id="${b.id}" style="--pc:${colorOf(b)};--f:${f}"><span class="zfr" aria-hidden="true"></span><div class="it-body"><div class="it-t">${esc(blockTitle(b))}</div>${meta}${ask && !o.compact ? askHTML(b) : ''}</div>${o.compact || past ? '' : recBtn(b)}</div>`;
+}
+/** A new block for an area or project: on a day (today unless given), at a time (the next half hour today, else 9am), 90 minutes. */
+function newBlock(tid, d = today(), s, m = 90) {
+  const t = node(tid); if (!t) return null;
+  if (s === undefined) s = d === today() ? Math.min(Math.ceil(nowMin() / 30) * 30, H1 * 60 - m) : 9 * 60;
+  return store.create({ k: 'block', fo: tid, t: t.t || '', d, s, m, ds: Date.now() / 1000 });
+}
+const agoText = ms => { if (!ms) return 'not worked on yet'; const d = daysBetween(fd(new Date(ms)), today()); return d <= 0 ? 'worked on today' : d === 1 ? 'yesterday' : d < 14 ? `${d} days ago` : d < 60 ? `${Math.round(d / 7)} weeks ago` : 'a while ago'; };
+// One step inside a block: check it off, open it, or record time (a step's time goes to its project)
+function blkStep(n, big = false) {
+  const r = rootOf(n), on = track.isRec(r);
+  return `<div class="bk-step${n.done ? ' done' : ''}${big ? ' big' : ''}" style="--pc:${colorOf(n)}">${ckHTML(n)}<button class="bk-t" data-act="open" data-id="${n.id}">${esc(n.t || 'Untitled')}${n.notes ? ICON.note : ''}</button>${n.d ? `<span class="when set">${whenLabel(n)}</span>` : ''}<button class="rec-b${on ? ' on' : ''}" data-act="rec" data-id="${r.id}" aria-label="${on ? 'Stop recording' : 'Record time on'} ${esc(r.t || 'this')}" title="${on ? 'Stop' : `Record time on ${esc(r.t || 'this')}`}">${on ? ICON.stop : ICON.play}</button></div>`;
+}
+function blockDetail(el, b, same) {
+  const t = targetOf(b), ser = store.seriesOf(b)?.r ? store.seriesOf(b) : null, { w, len, f } = fillOf(b);
+  const rec = track.isRec(b), past = blocks.isPast(b), ask = blocks.asks(b), r = track.running();
+  const { cards, loose } = blocks.inside(b), sug = !past && blocks.suggest(b), day = blocks.dayOf(b);
+  const durs = [30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 480]; if (!durs.includes(b.m || 60)) durs.push(b.m || 60);
+  const more = S.blkMore || (S.blkMore = {}), skip = S.blkSkip || (S.blkSkip = []);
+  const focus = S.blkFocus && (cards.find(c => c.g.id === S.blkFocus) || (S.blkFocus === 'loose' && loose.length ? { g: null, open: loose } : null));
+  let work;
+  if (!t) work = `<div class="dt-note">The area or project this block was for is gone. You can delete the block.</div>`;
+  else if (S.blkView === 'all') {
+    // Everything: the whole area (or project) as in Projects, to plan in: add steps, reorder, schedule
+    const projs = t.k === 'area' ? areaGroups().groups.find(g => g.a?.id === t.id)?.projs || [] : [t];
+    work = `<div class="bk-all-tree">${projs.map(p => isProj(p) ? projHTML(p) : treeRows(p, 0)).join('') || '<div class="empty-note">No projects here yet.</div>'}</div>`
+      + (t.k === 'area' ? `<form class="dt-add" data-form="area-project" data-area="${t.id}"><span class="plus-i" aria-hidden="true">+</span><input id="dt-add-in" placeholder="Add a project" autocomplete="off" aria-label="Add a project" enterkeyhint="enter"></form>` : '');
+  }
+  else if (focus) {
+    const open = focus.open.filter(n => !skip.includes(n.id)), list = open.length ? open : focus.open, now = list[0];
+    work = `<div class="bk-pick" role="group" aria-label="Project">${cards.map(c => `<button data-act="blk-focus" data-id="${c.g.id}" aria-pressed="${focus.g?.id === c.g.id}">${esc(c.g.t || 'Untitled')}</button>`).join('')}${loose.length ? `<button data-act="blk-focus" data-id="loose" aria-pressed="${!focus.g}">Loose tasks</button>` : ''}<button class="bk-all" data-act="blk-focus" data-id="">Show all</button></div>
+      <div class="bk-now" style="--pc:${colorOf(now)}"><div class="bk-lab">Now</div>${blkStep(now, true)}${now.notes ? `<div class="bk-notes">${linkify(now.notes.split('\n').slice(0, 3).join('\n'))}</div>` : ''}${now.link && safeLink(now.link) ? `<a class="chip set" href="${esc(safeLink(now.link))}" target="_blank" rel="noopener">${ICON.link}<span>${esc(linkLabel(safeLink(now.link)))}</span></a>` : ''}
+        <div class="bk-acts"><button class="tb pri" data-act="toggle" data-id="${now.id}">Done, next</button>${list.length > 1 ? `<button class="tb" data-act="blk-skip" data-id="${now.id}">Not now</button>` : ''}</div></div>
+      ${list.length > 1 ? `<div class="bk-then"><div class="bk-lab">Then</div>${list.slice(1, 4).map(n => `<button data-act="open" data-id="${n.id}">${esc(n.t || 'Untitled')}</button>`).join('')}${list.length > 4 ? `<span>+ ${list.length - 4} more</span>` : ''}</div>` : ''}`;
+  } else {
+    const card = c => { const rest = c.open.slice(1), m = more[c.g.id];
+      return `<div class="bk-card" style="--pc:${colorOf(c.g)}"><div class="bk-h"><span class="pdot"></span><button class="bk-name" data-act="open" data-id="${c.g.id}">${esc(c.g.t || 'Untitled')}</button><small>${agoText(c.last)}</small><button class="bk-f" data-act="blk-focus" data-id="${c.g.id}" title="Just this, one step at a time">Focus</button></div>
+        ${blkStep(c.open[0])}${m ? rest.map(n => blkStep(n)).join('') : ''}${rest.length ? `<button class="bk-more" data-act="blk-more" data-id="${c.g.id}">${m ? 'Show less' : `+ ${rest.length} more`}</button>` : ''}</div>`; };
+    work = (sug ? `<div class="bk-sug"><div class="bk-lab">Start here</div>${blkStep(sug.n)}<small>${esc(rootOf(sug.n).id !== sug.n.id ? rootOf(sug.n).t + ' · ' : '')}${sug.why || (sug.due ? 'due ' + (sug.due === today() ? 'today' : dayShort(sug.due)) : '')}</small></div>` : '')
+      + cards.map(card).join('')
+      + (loose.length ? `<div class="bk-card loose"><div class="bk-h"><span class="bk-name">Loose in ${esc(t.t || 'this area')}</span>${loose.length > 1 ? `<button class="bk-f" data-act="blk-focus" data-id="loose">Focus</button>` : ''}</div>${loose.map(n => blkStep(n)).join('')}</div>` : '')
+      || `<div class="dt-note">Nothing open in ${esc(t.t || 'here')}. Add tasks in Projects, or use this time to plan what's next.</div>`;
+  }
+  const busy = r && r.id !== b.id && within(r, b.fo) ? r : null;
+  setDetail(el, `<div class="dt-back" data-act="close"></div>
+  <section class="dt blk${same ? ' still' : ''}" role="dialog" aria-modal="true" aria-label="${esc(blockTitle(b))} time" style="--pc:${colorOf(b)};--f:${f}">
+    <div class="dt-top"><button class="dt-up" data-act="close">${ICON.prev}<span>Back</span></button><button class="ib" data-act="close" aria-label="Close">${ICON.close}</button></div>
+    <div class="dt-body vscroll" data-id="${b.id}">
+      <div class="dt-kind"><span class="pdot"></span>${blockKind(b)} time${b.rs || b.r ? ' · repeats' : ''}</div>
+      <div class="dt-head"><button class="bk-title" data-act="open" data-id="${t?.id || ''}">${esc(blockTitle(b))}</button></div>
+      <div class="bk-when">${day === today() ? 'Today' : `${DAYL[pd(day).getDay()]} ${fmtShort(day)}`}${b.s != null ? ` · ${fmtT(b.s)} – ${fmtT(b.s + (b.m || 60))}` : ' · any time'}</div>
+      ${ser && b.rs ? `<div class="rp-scope" role="group" aria-label="Changes apply to"><span>Changes apply to</span><button data-act="scope" data-v="one" aria-pressed="${S.scope !== 'all'}">This one</button><button data-act="scope" data-v="all" aria-pressed="${S.scope === 'all'}">All repeats</button></div>` : ''}
+      <div class="bk-fill"><div class="bk-bar"><i></i></div><span>${b.done && !w ? 'Skipped' : `${fmtDur(w)} worked${len ? ` of ${fmtDur(len)}` : ''}`}</span>
+        ${past ? '' : `<button class="chip rec-chip${rec ? ' on' : ''}" data-act="rec" data-id="${b.id}">${rec ? ICON.stop : ICON.play}<span>${rec ? 'Recording · Stop' : busy ? 'Recording ' + esc(short(busy.t)) : 'Start'}</span></button>`}</div>
+      ${ask ? askHTML(b) : ''}
+      ${b.r ? '<div class="dt-note rp-note">This is the repeating block itself. Open one of its days on the plan to work in it.</div>' : `<div class="dt-sec bk-sec">${S.blkView === 'all' ? 'Everything' : focus ? 'One thing at a time' : 'What to work on'}${t ? `<span class="seg bk-seg" role="group" aria-label="Show"><button data-act="blk-view" data-v="next" aria-pressed="${S.blkView !== 'all'}">Next steps</button><button data-act="blk-view" data-v="all" aria-pressed="${S.blkView === 'all'}">Everything</button></span>` : ''}</div>${work}`}
+      <div class="dt-sec">When</div>
+      <div class="dt-meta">
+        ${b.r ? '' : `<button class="chip set" data-act="dtpick">${ICON.cal}<span>${day === today() ? 'Today' : dayShort(day)}</span></button>`}
+        <label class="chip set"><span class="k">From</span><input type="time" id="blk-s" value="${b.s != null ? hhmm(b.s) : ''}" step="900" aria-label="Starts at"></label>
+        <label class="chip"><span class="k">For</span><select id="dt-dur">${durs.sort((a, c) => a - c).map(m => `<option value="${m}"${(b.m || 60) === m ? ' selected' : ''}>${fmtDur(m)}</option>`).join('')}</select></label>
+        <button class="chip rp-chip${ser ? ' set' : ''}" data-act="rpedit" aria-expanded="${S.rpEdit}">${ICON.rep}<span>${ser ? esc(ruleText(ser.r, ser.d)) : 'Repeat'}</span></button>
+      </div>
+      ${S.dtpick && !b.r ? pickerHTML(b, 0) : ''}
+      ${S.rpEdit ? repeatHTML(b) : ''}
+      ${b.r ? '' : timeHTML(b)}
+      <div class="dt-foot"><span></span>
+        ${!S.confirmDel ? `<button class="dt-del" data-act="askdelete">Remove block</button>`
+          : ser && b.rs ? `<div class="confirm"><span>Remove this block?</span><button class="danger" data-act="delete">Just this one</button><button class="danger" data-act="delete-all">Every repeat</button><button data-act="nodelete">Cancel</button></div>`
+          : `<div class="confirm"><span>Remove this block${b.r ? ' and all its repeats' : ''}? Recorded time stays with the work.</span><button class="danger" data-act="delete">Remove</button><button data-act="nodelete">Cancel</button></div>`}
+      </div>
+    </div></section>`);
+}
+/* An area's week: a thin bar of hours worked (solid) and blocks still to come (dotted), against its rough target */
+function weekBar(a) {
+  const { done, ahead, target } = blocks.week(a.id); if (!done && !ahead && !target) return '';
+  const full = Math.max(target || 0, done + ahead, 1), h = m => { const v = Math.round(m / 60 * 2) / 2; return v % 1 ? `${Math.floor(v) || ''}½` : String(v); };
+  const lo = target && done + ahead < target * .5, met = target && done >= target;
+  return `<div class="wk-bar${lo ? ' lo' : ''}${met ? ' met' : ''}" style="--pc:${ink(a.c)}" title="This week: ${fmtDur(done)} worked${ahead ? `, ${fmtDur(ahead)} still planned` : ''}${target ? `, aiming for about ${fmtDur(target)}` : ''}"><div class="wk-t"><i style="width:${done / full * 100}%"></i><u style="left:${done / full * 100}%;width:${ahead / full * 100}%"></u>${target && target < full ? `<b style="left:${target / full * 100}%"></b>` : ''}</div><span>${h(done)}${target ? ` of ~${h(target)}` : ''} h${met ? ' ✓' : ''}</span></div>`;
 }
 const whenLabel = n => n.r ? ruleText(n.r, n.d, false) + (n.s != null ? ' ' + fmtT(n.s) : '') : dayShort(n.d) + (n.s != null ? ' ' + fmtT(n.s) : '');
 function pickerHTML(n, dep) {
@@ -206,10 +309,11 @@ function areaGroups() {
 }
 function areaHTML({ a, projs }, board = false) {
   const id = a ? a.id : '', key = 'area:' + id, shut = !board && S.col[key], label = a ? esc(a.t || 'Untitled area') : 'No area';
-  const name = a ? `<span class="pdot" style="--pc:${ink(a.c)}"></span><button class="area-t" data-act="open" data-id="${id}" title="Rename or delete this area">${label}</button>` : `<span class="area-t">${label}</span>`;
+  const name = a ? `<span class="pdot" style="--pc:${ink(a.c)}"></span><button class="area-t" data-act="open" data-id="${id}" data-dragok title="Open this area. Drag it onto your plan to block time for it.">${label}</button>` : `<span class="area-t">${label}</span>`;
   const list = (projs.length ? projs.map(p => isProj(p) ? projHTML(p) : treeRows(p, 0)).join('') : '<div class="empty-note">No projects here yet.</div>') + (board ? `<button class="bcol-add" data-act="new-project" data-area="${id}">+ New project</button>` : '');
   return `<section class="area${board ? ' bcol' : ''}" data-drop="area" data-area="${id}">
-    <div class="area-h">${board ? '' : `<button class="caret${shut ? ' shut' : ''}" data-act="fold" data-id="${key}" aria-label="Show or hide ${label}"></button>`}${name}<span class="area-n">${projs.length}</span><button class="plus" data-act="new-project" data-area="${id}" aria-label="New project in ${label}" title="New project">+</button></div>
+    <div class="area-h"${a ? ` data-drag data-id="${id}"` : ''}>${board ? '' : `<button class="caret${shut ? ' shut' : ''}" data-act="fold" data-id="${key}" aria-label="Show or hide ${label}"></button>`}${name}<span class="area-n">${projs.length}</span><button class="plus" data-act="new-project" data-area="${id}" aria-label="New project in ${label}" title="New project">+</button></div>
+    ${a ? weekBar(a) : ''}
     ${shut ? '' : board ? `<div class="bcol-b vscroll">${list}</div>` : list}</section>`;
 }
 function renderSide() {
@@ -230,7 +334,7 @@ function renderSide() {
   el.querySelector('.side-b').scrollTop = sc;
 }
 function loadHTML(d) {
-  const tasks = dayItems(d).filter(n => !isDone(n) && !hasKids(n.id)).reduce((a, n) => a + (n.m || 60), 0);
+  const tasks = dayItems(d).filter(n => !isDone(n) && !hasKids(n.id) && !isBlock(n)).reduce((a, n) => a + (n.m || 60), 0);
   const meet = timedOn(d).reduce((a, e) => a + e.m, 0);
   if (!tasks && !meet) return '';
   return `<div class="load${tasks + meet > 540 ? ' heavy' : ''}">${tasks ? fmtDur(tasks) + ' of tasks' : ''}${tasks && meet ? ' · ' : ''}${meet ? fmtDur(meet) + ' booked' : ''}</div>`;
@@ -429,8 +533,10 @@ function layout(items) {
    A finished task's block already sits on its last stretch, so that one isn't drawn twice; guesses only place the block. */
 function sessionsOn(d) {
   const out = [], now = track.local(Date.now());
+  const B = store.blocksOn(d).filter(b => b.s != null).map(b => ({ b, w: blocks.windowOf(b) }));
+  const inBlock = (n, e) => { const t = Date.parse(e.start); return B.some(({ b, w }) => (n.id === b.id || (!isBlock(n) && within(n, b.fo))) && t >= w[0] - 5 * 60000 && t < w[1]); };
   for (const n of store.logged()) n.tl.forEach((e, i) => {
-    if (e.guess) return;
+    if (e.guess || inBlock(n, e)) return;
     const a = track.local(e.start); if (a.d !== d) return;
     const b = e.end ? track.local(e.end) : now, end = b.d === d ? b.m : 1440;
     if (e.end && isDone(n) && n.d === d && n.s === a.m) return; // a finished task's own block already sits on this stretch
@@ -452,6 +558,7 @@ function blocksHTML(d) {
     if (it.sess) { const n = it.sess, live = !it.e.end;
       // A recorded stretch is a hollow outline with a stopwatch: time spent, not something to check off. Drag it to move it, or its bottom edge to change when it ended.
       return `<div class="block sess${live ? ' live' : ''}${isDone(n) ? ' done' : ''}" data-act="open" data-id="${n.id}"${live ? '' : ` data-drag data-sess="${it.i}" data-s="${it.s}" data-m="${it.m}"`} style="${pos};--pc:${colorOf(n)}" title="${live ? 'Recording now' : 'Time you worked on this. Drag to move it.'}">${ICON.watch}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${fmtT(it.s)} – ${live ? 'now' : fmtT(it.s + it.m)}</div></div><span class="sw-len">${fmtDur(Math.max(1, track.mins(it.e)))}</span>${live ? '' : '<div class="rs"></div>'}</div>`; }
+    if (isBlock(it.n)) return zoneHTML(it.n, pos, tm);
     const n = it.n, pr = hasKids(n.id) && progress(n.id); // a whole project in a block is a work session: show how far along it is
     return `<div class="block${isDone(n) ? ' done' : ''}${overdue(n) ? ' overdue' : ''}${track.isRec(n) ? ' planned' : ''}" data-drag data-id="${n.id}" style="${pos};--pc:${colorOf(n)}">${ckHTML(n)}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${n.rs ? ICON.repS : ''}${tm}${pr ? ` · ${pr.done}/${pr.total}` : ''}</div></div>${(rt => rt ? `<span class="sw-len" title="Recorded time">${rt}</span>` : '')(recTag(n))}${recBtn(n)}<div class="rs"></div></div>`;
   }).join('');
@@ -743,6 +850,7 @@ function renderDetail() {
   if (!el.hidden && el.contains(ae) && ae.matches('textarea,input') && el.querySelector('.dt-body')?.dataset.id === n.id && ae.id !== 'dt-add-in') return; // don't interrupt typing
   const body = el.querySelector('.dt-body'); const same = !el.hidden && body?.dataset.id === n.id; const prevSc = same ? body.scrollTop : 0;
   el.hidden = false;
+  if (n.k === 'block') { blockDetail(el, n, same); el.querySelector('.dt-body').scrollTop = prevSc; return; }
   if (n.k === 'area') { areaDetail(el, n, same); el.querySelectorAll('textarea').forEach(grow); el.querySelector('.dt-body').scrollTop = prevSc; return; }
   const anc = ancestors(n), kids = children(n.id), pr = progress(n.id), pct = pr.total ? Math.round(pr.done / pr.total * 100) : 0;
   const up = anc[anc.length - 1]; const durs = [5, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 480];
@@ -768,6 +876,7 @@ function renderDetail() {
         ${kids.length || n.c || n.due || n.ms ? `<label class="chip${n.due ? ' set' : ''}"><span class="k">Due</span><input type="date" id="dt-due" value="${n.due || ''}"${n.st ? ` min="${n.st}"` : ''}></label>` : ''}
         ${kids.length || n.c || rp ? '' : `<button class="chip ms-chip${n.ms ? ' set' : ''}" data-act="ms" aria-pressed="${!!n.ms}">${ICON.ms}<span>Milestone</span></button>`}
         ${n.ms && !kids.length && !n.c && !rp ? `<button class="chip hd-chip${n.hd ? ' set' : ''}" data-act="hd" aria-pressed="${!!n.hd}" title="A date that can't move">Hard deadline</button>` : ''}
+        ${isProj(n) && !n.rs ? `<button class="chip" data-act="blk-new" data-id="${n.id}" title="A block of time to work on this whole ${n.p ? 'part' : 'project'}">${ICON.cal}<span>Block time</span></button>` : ''}
         ${waitHTML(n)}
         ${linkHTML(n)}
         ${n.p == null && !n.rs ? `<label class="chip"><span class="k">Area</span><select id="dt-area">${store.areas().map(a => `<option value="${a.id}"${areaOf(n) === a.id ? ' selected' : ''}>${esc(a.t || 'Untitled area')}</option>`).join('')}<option value=""${areaOf(n) ? '' : ' selected'}>No area</option></select></label>` : ''}
@@ -866,6 +975,11 @@ function areaDetail(el, n, same) {
       <div class="dt-head"><textarea id="dt-title" class="dt-title" rows="1" aria-label="Area name" placeholder="Name this area" enterkeyhint="done">${esc(n.t)}</textarea></div>
       <div class="dt-note">Projects in this area wear its colour, unless you give one its own.</div>
       ${swatchesHTML(n)}
+      <div class="dt-sec">Time</div>
+      <div class="dt-meta"><button class="chip" data-act="blk-new" data-id="${n.id}">${ICON.cal}<span>Block time for it today</span></button>
+        <label class="chip${n.wk ? ' set' : ''}"><span class="k">About</span><select id="dt-wk" aria-label="Hours a week">${[0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30, 40].map(h => `<option value="${h * 60}"${(n.wk || 0) === h * 60 ? ' selected' : ''}>${h ? h + ' h' : 'No goal'}</option>`).join('')}${n.wk && n.wk % 60 ? `<option value="${n.wk}" selected>${fmtDur(n.wk)}</option>` : ''}</select><span class="k">a week</span></label></div>
+      <div class="dt-note">Drag the area's name onto your plan to block time for it. Its bar in Projects shows the week's hours.</div>
+      ${weekBar(n)}
       <div class="dt-sec">${projs.some(p => !isProj(p)) ? 'Projects and tasks' : 'Projects'}<small>${projs.length}</small></div>
       <div class="dt-steps" data-drop="area" data-area="${n.id}">${projs.map(stepHTML).join('')}
         <form class="dt-add" data-form="area-project" data-area="${n.id}"><span class="plus-i" aria-hidden="true">+</span><input id="dt-add-in" placeholder="Add a project" autocomplete="off" aria-label="Add a project" enterkeyhint="enter"></form></div>
@@ -910,7 +1024,7 @@ function saveLink() {
   renderDetail();
 }
 function openItem(id, focusTitle = false) {
-  if (S.open !== id) { S.scope = 'one'; S.rpEdit = false; }
+  if (S.open !== id) { S.scope = 'one'; S.rpEdit = false; S.blkFocus = null; S.blkSkip = []; S.blkView = 'next'; }
   S.open = id; S.tlEdit = null; S.dtpick = false; S.confirmDel = false; S.linkEdit = false; S.notesEdit = false; S.waitEdit = false; renderDetail();
   if (focusTitle) { const t = document.getElementById('dt-title'); t.focus(); t.select(); }
 }
@@ -944,8 +1058,8 @@ function renderRec() {
   recEl.hidden = false; recEl.style.setProperty('--pc', colorOf(r));
   if (recAsk(e)) { recEl.dataset.ask = 1; recEl.innerHTML = `<div class="rec-p ask"><span class="dot"></span><span class="rec-q">Still on ${esc(short(r.t))}?</span><button class="rec-w" data-act="rec-yes">Yes</button><button class="rec-w" data-act="rec-stop">Stop</button></div>`; return; }
   delete recEl.dataset.ask;
-  const proj = hasKids(r.id) || !!r.c; document.body.classList.toggle('rec-open', !!S.recOpen);
-  recEl.innerHTML = `<div class="rec-p"><button class="rec-main" data-act="rec-open" aria-expanded="${!!S.recOpen}" title="Started earlier? Tap to change"><span class="dot"></span><span class="rec-s"><span class="rec-t">${esc(r.t || 'Untitled')}</span><span class="rec-c" id="rec-c">${recClock(e)}</span></span></button><button class="rec-i stop" data-act="rec-stop" aria-label="Stop recording" title="Stop">${ICON.stop}</button>${proj ? '' : `<button class="rec-i ok" data-act="rec-done" aria-label="Check off ${esc(r.t)}" title="Done">${ICON_OK}</button>`}</div>`
+  const proj = hasKids(r.id) || !!r.c || isBlock(r); document.body.classList.toggle('rec-open', !!S.recOpen);
+  recEl.innerHTML = `<div class="rec-p"><button class="rec-main" data-act="rec-open" aria-expanded="${!!S.recOpen}" title="Started earlier? Tap to change"><span class="dot"></span><span class="rec-s"><span class="rec-t">${esc(isBlock(r) ? blockTitle(r) + ' time' : r.t || 'Untitled')}</span><span class="rec-c" id="rec-c">${recClock(e)}</span></span></button><button class="rec-i stop" data-act="rec-stop" aria-label="Stop recording" title="Stop">${ICON.stop}</button>${proj ? '' : `<button class="rec-i ok" data-act="rec-done" aria-label="Check off ${esc(r.t)}" title="Done">${ICON_OK}</button>`}</div>`
     + (S.recOpen ? `<div class="rec-x"><span>Started ${fmtT(track.local(e.start).m)}</span><button data-act="rec-nudge" data-v="-15">−15</button><button data-act="rec-nudge" data-v="-5">−5</button><button data-act="rec-nudge" data-v="5">+5</button><button data-act="rec-task">Open</button></div>` : '');
 }
 setInterval(() => {
@@ -1236,7 +1350,7 @@ function placeAmong(n, t, at, patch) {
   list.splice(i < 0 ? list.length : i, 0, n);
   store.updateMany(list.map((x, j) => [x.id, x.id === n.id ? { ...patch, o: j } : { o: j }]).filter(([id, p]) => id === n.id || node(id).o !== p.o));
 }
-function setDay(id, d) { const n = node(id); const patch = { d: d || null, ds: Date.now() / 1000 }; if (n.d !== d) { patch.s = null; patch.a = null; } S.pick = null; S.dtpick = false; edit(id, patch); if (d) toast(`${n.t} → ${d === today() ? 'today' : DAYL[pd(d).getDay()] + ' ' + fmtShort(d)}`); }
+function setDay(id, d) { const n = node(id); const patch = { d: d || null, ds: Date.now() / 1000 }; if (n.d !== d && !isBlock(n)) { patch.s = null; patch.a = null; } S.pick = null; S.dtpick = false; edit(id, patch); if (d) toast(`${n.t} → ${d === today() ? 'today' : DAYL[pd(d).getDay()] + ' ' + fmtShort(d)}`); }
 function makeProject(t, ar) {
   // In an area a new project wears the area's colour; with no area it gets a colour of its own
   const used = new Set(store.all().filter(n => n.p == null && n.c && n.c !== 'area').map(n => glow(n.c)));
@@ -1302,6 +1416,12 @@ document.addEventListener('click', e => {
     case 'delete-all': { const s = store.seriesOf(node(S.open)); S.open = null; S.confirmDel = false; if (s) { store.remove(s.id); toast(`Deleted ${s.t || 'item'} and all its repeats`); } break; }
     case 'color': store.update(S.open, { c: b.dataset.c }); break;
     case 'toggle': toggle(id); break;
+    case 'blk-ans': { const n = node(id); if (n) { blocks.answer(n, b.dataset.v); toast(b.dataset.v === 'skip' ? `Skipped ${short(blockTitle(n))} time` : `Counted ${b.dataset.v === 'part' ? 'half' : 'all'} of ${short(blockTitle(n))} time as worked`); } break; }
+    case 'blk-more': (S.blkMore || (S.blkMore = {}))[id] = !S.blkMore[id]; renderDetail(); break;
+    case 'blk-view': S.blkView = b.dataset.v; S.blkFocus = null; renderDetail(); break;
+    case 'blk-focus': S.blkView = 'next'; S.blkFocus = id || null; S.blkSkip = []; renderDetail(); break;
+    case 'blk-skip': (S.blkSkip || (S.blkSkip = [])).push(id); renderDetail(); break;
+    case 'blk-new': { const t = node(id); const n = t && newBlock(id); if (n) { openItem(n.id); toast(`${short(t.t)} time added today. Drag it on the plan to move it.`); } break; }
     case 'q-routine': routine.open(); break;
     case 'q-kingdom': kingdom.open(); break;
     case 'q-bonus': quest.claim(b.dataset.d, +b.dataset.i); render(); break;
@@ -1485,6 +1605,8 @@ document.addEventListener('change', e => {
   if (t.id === 'dt-area') store.update(n.id, { ar: t.value || null });
   if (t.id === 'dt-notes') store.updateMany([]);
   if (t.id === 'dt-dur') edit(n.id, { m: +t.value });
+  if (t.id === 'blk-s') { const [h, m] = (t.value || '').split(':').map(Number); edit(n.id, { s: t.value ? Math.min(h * 60 + m, 1439) : null }); }
+  if (t.id === 'dt-wk') store.update(n.id, { wk: +t.value || null });
   if (t.id === 'rp-int') setRepeat({ interval: +t.value });
   if (t.id === 'rp-until') { const s = store.seriesOf(n); if (s?.r && (!t.value || t.value >= s.d)) setRepeat({ until: t.value || null }); else renderDetail(); }
   if (t.id === 'rp-start') { const s = store.seriesOf(n); if (s?.r && t.value && (!s.r.until || t.value <= s.r.until)) store.update(s.id, { d: t.value }); else renderDetail(); }
@@ -1526,17 +1648,18 @@ function moveDrag(x, y) {
   // Over the pinned day names or hours of Time blocks (where it scrolls), the time just inside the grid takes it, so the outline stays in view
   if (!t) { const g = gridEdge(x, y); if (g) t = document.elementFromPoint(g.x, g.y)?.closest('[data-drop="col"], [data-drop="tray"]'); }
   // The nearest list that holds this item's siblings takes it at a new place among them
-  if (!D.fromDr) for (let s = t; s && (s.dataset.drop === 'sib' || s.dataset.drop === 'area'); s = s.parentElement.closest('[data-drop]')) if (holds(s, n)) return markAmong(s, n, y);
+  const asBlk = n.k === 'area' || (D.list && isProj(n) && !isBlock(n));
+  if (!D.fromDr && n.k !== 'area') for (let s = t; s && (s.dataset.drop === 'sib' || s.dataset.drop === 'area'); s = s.parentElement.closest('[data-drop]')) if (holds(s, n)) return markAmong(s, n, y);
   while (t && t.dataset.drop === 'sib') t = t.parentElement.closest('[data-drop]');
   if (t && D.list && t.closest('.side, .board, .dt, .drawer')) t = null; // somewhere else among the projects: nothing to do there
   D.t = t || null; if (!t) return;
   const type = t.dataset.drop;
   if (type === 'col') {
-    const r = t.getBoundingClientRect(); const dur = D.sm ?? (node(D.id).m || 60);
+    const r = t.getBoundingClientRect(); const dur = D.sm ?? (asBlk ? 90 : node(D.id).m || 60);
     let min = H0 * 60 + Math.round((y - (D.timed ? D.offY : 12) - r.top) / hp * 60 / 15) * 15; min = Math.max(H0 * 60, Math.min(min, H1 * 60 - dur)); D.min = min;
     ind.style.top = ((min - H0 * 60) / 60 * hp) + 'px'; ind.style.height = (dur / 60 * hp - 2) + 'px'; t.appendChild(ind);
     // Over the time grid the dashed outline stands in for the item, so the floating copy hides
-    ind.innerHTML = `<div class="ind-t">${esc(node(D.id).t || 'Untitled')}</div><div class="ind-time">${fmtT(min)} – ${fmtT(min + dur)}</div>`; D.g.classList.add('off');
+    ind.innerHTML = `<div class="ind-t">${esc(node(D.id).t || 'Untitled')}${asBlk ? ' time' : ''}</div><div class="ind-time">${fmtT(min)} – ${fmtT(min + dur)}</div>`; D.g.classList.add('off');
   } else if (type === 'list') {
     // Rows are tasks and calendar events; count how many of each come before the drop point
     const rows = [...t.querySelectorAll(':scope > .item:not(.dragging), :scope > .evr')]; let i = rows.findIndex(it => { const r = it.getBoundingClientRect(); return y < r.top + r.height / 2; }); if (i < 0) i = rows.length;
@@ -1565,6 +1688,14 @@ function endDrag() {
   if (d.si != null) return dropStretch(d, n);
   if (d.kind === 'resize') { if (d.newM) store.update(n.id, { m: d.newM }); else render(); return; }
   if (!d.t) return render();
+  const onPlan = ['col', 'tray', 'list'].includes(d.t.dataset.drop);
+  if (n.k === 'area' || (d.list && isProj(n) && !isBlock(n) && onPlan)) {
+    if (!onPlan) return render();
+    const b = newBlock(n.id, d.t.dataset.date, d.t.dataset.drop === 'col' ? d.min : null);
+    if (b) toast(`${short(n.t)} time ${b.d === today() ? 'today' : 'on ' + DAYL[pd(b.d).getDay()]}${b.s != null ? ' at ' + fmtT(b.s) : ''}. Tap it to pick what to work on.`);
+    return;
+  }
+  if (isBlock(n) && !onPlan) { store.remove(n.id); toast(`Took ${short(blockTitle(n))} time off the plan`, urActs()); return; }
   if (n.r && ['col', 'tray', 'list'].includes(d.t.dataset.drop)) { toast(`${short(n.t)} is already on your plan, ${lower(ruleText(n.r, n.d))}`); return render(); }
   if (d.at) return placeAmong(n, d.t, d.at, d.list ? {} : { d: null, s: null, a: null }); // dragged back here from the plan, it comes off the plan
   const type = d.t.dataset.drop, date = d.t.dataset.date || null;
