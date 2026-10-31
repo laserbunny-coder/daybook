@@ -2151,3 +2151,9 @@ body.td-shell .td-sbtns .td-pill,.td-sbtns .td-pill{top:auto;right:auto;left:aut
 .dt.blk #blk-s{font:inherit;color:inherit;background:transparent;border:0;padding:0;width:auto;min-width:0}
 /* The undo pill floats over cards of nearly the same colour: lift it so it reads as its own thing */
 .toast{background:color-mix(in srgb,var(--pop) 80%,var(--fg));border-color:color-mix(in srgb,var(--fg) 20%,transparent);box-shadow:0 10px 32px rgba(0,0,0,.55);font-size:14px}
+/* Opened from an area block: back to the block, and the item's project beside it */
+.dt-nav{display:flex;align-items:center;gap:2px;min-width:0}
+.dt-nav .dt-up span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dt-nav .dt-up:first-child{color:var(--fg);flex:none;max-width:60%}
+.dt-par{font-size:13px;min-width:0}
+.dt-par::before{content:"·";margin-right:6px;color:var(--faint)}
