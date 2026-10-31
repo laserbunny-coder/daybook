@@ -882,7 +882,7 @@ body.rec-open .toast{bottom:calc(146px + env(safe-area-inset-bottom,0px))}
   body.quiet.recording .toast{bottom:calc(108px + env(safe-area-inset-bottom,0px))}
   body.rec-open .toast{bottom:calc(226px + env(safe-area-inset-bottom,0px))}
   body.quiet.rec-open .toast{bottom:calc(152px + env(safe-area-inset-bottom,0px))}
-  body[data-tab="ask"] .rec,body.dr-on .rec{display:none}
+  body[data-tab="ask"] .rec{display:none}
 }
 .rec-p{display:flex;align-items:center;gap:6px;max-width:100%;background:var(--pop);border:1px solid color-mix(in srgb,var(--danger) 35%,var(--edge));border-radius:999px;padding:6px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:0 12px 36px -12px rgba(0,0,0,.85),0 0 24px -10px color-mix(in srgb,var(--danger) 60%,transparent)}
 .rec .dot{width:10px;height:10px;border-radius:50%;background:var(--danger);flex:none;animation:recpulse 1.4s ease-in-out infinite}
@@ -924,7 +924,12 @@ body.rec-open .toast{bottom:calc(146px + env(safe-area-inset-bottom,0px))}
 .tl-ed .tl-now{color:var(--danger)}
 .tl-add{justify-self:start;padding:8px 10px;font-size:13px;color:var(--faint)}
 @media (hover:hover){.tl-add:hover{color:var(--fg)}}
-@media (max-width:860px){.detail:not([hidden]) ~ .rec{display:none}}
+/* A running timer always shows, also over an open item on a phone: it docks at the bottom and the panel leaves room for it */
+@media (max-width:860px){
+  .detail:not([hidden]) ~ .rec{bottom:calc(14px + env(safe-area-inset-bottom,0px))}
+  body.recording .detail .dt-body{padding-bottom:calc(120px + env(safe-area-inset-bottom,0px))}
+  body.recording:has(.detail:not([hidden])) .toast{bottom:calc(96px + env(safe-area-inset-bottom,0px))}
+}
 /* Once its task is checked off, a recorded stretch fades and is crossed out like the task's own block */
 .block.sess.done{opacity:.55}
 
