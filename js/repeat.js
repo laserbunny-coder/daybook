@@ -3,9 +3,13 @@
 // changed, checked off or skipped does it become an item of its own: id "<series id>~<date>",
 // rs = the series' id, oc = the date it was due. A stored one with no day of its own is skipped.
 // The connector (supabase/functions/mcp/tools.ts) follows the same rules.
-//   r = { every: 'day' | 'weekday' | 'week' | 'month', days: [0-6, Sunday is 0] (week),
-//         interval: weeks between repeats (week), dom: day of the month (month), until: 'YYYY-MM-DD' }
-import { add, daysBetween, DAYN, fmtShort, pd, weekStart } from './util.js';
+//   r = { every: 'day' | 'weekday' | 'week' | 'month' | 'days' | 'times', days: [0-6, Sunday is 0] (week),
+//         interval: weeks between repeats (week) or days between repeats (days), dom: day of the month (month),
+//         n + per: 'week' | 'month' (times: n times in each week or month, on any days), until: 'YYYY-MM-DD',
+//         off: [['YYYY-MM-DD', 'YYYY-MM-DD'], ...] stretches it was put away (archived) and doesn't repeat,
+//         mins: for a habit, the minutes each tick counts toward its area's hours (none when left out) }
+// A "times" series is due every day until the week (or month) has its n done; the other days aren't missed.
+import { add, daysBetween, DAYN, fd, fmtShort, pd, weekStart } from './util.js';
 
 export const occId = (sid, d) => sid + '~' + d;
 /** [series id, date] for an occurrence's id, or null for any other id. */
@@ -18,9 +22,11 @@ const lastDay = x => new Date(x.getFullYear(), x.getMonth() + 1, 0).getDate();
 /** Does a series with rule r that starts on start repeat on day d? */
 export function repeatsOn(r, start, d) {
   if (!r || !start || d < start || (r.until && d > r.until)) return false;
+  if (r.off?.some(([a, b]) => d >= a && d <= b)) return false;
   const x = pd(d), dow = x.getDay();
   switch (r.every) {
-    case 'day': return true;
+    case 'day': case 'times': return true;
+    case 'days': return daysBetween(start, d) % Math.max(1, r.interval || 1) === 0;
     case 'weekday': return dow >= 1 && dow <= 5;
     case 'week': {
       if (!(r.days?.length ? r.days : [pd(start).getDay()]).includes(dow)) return false;
@@ -46,7 +52,11 @@ export function cleanRule(r, start) {
     o.interval = Math.max(1, Math.min(12, Math.round(r.interval || 1)));
   }
   if (r.every === 'month') o.dom = Math.max(1, Math.min(31, Math.round(r.dom || pd(start).getDate())));
+  if (r.every === 'days') o.interval = Math.max(2, Math.min(90, Math.round(r.interval || 2)));
+  if (r.every === 'times') { o.per = r.per === 'month' ? 'month' : 'week'; o.n = Math.max(1, Math.min(o.per === 'month' ? 30 : 6, Math.round(r.n || 2))); }
   if (r.until) o.until = r.until;
+  if (r.mins > 0) o.mins = Math.min(600, Math.round(r.mins)); // a habit: how long each tick counts toward its area
+  const off = (r.off || []).filter(x => Array.isArray(x) && x[0] && x[1] && x[0] <= x[1]); if (off.length) o.off = off;
   return o;
 }
 /** A repeat moved from one day to another, for the whole series: the weekday or day of the month moves with it.
@@ -73,6 +83,15 @@ export function ruleText(r, start, withEnd = true) {
     const names = days.length === 7 ? 'every day' : WEEK.filter(d => days.includes(d)).map(d => DAYN[d]).join(', ');
     t = n > 1 ? `Every ${n} weeks on ${names}` : days.length === 7 ? 'Every day' : `Every ${names}`;
   } else if (r.every === 'month') t = `Monthly on the ${nth(r.dom || pd(start).getDate())}`;
+  else if (r.every === 'days') t = `Every ${Math.max(1, r.interval || 2)} days`;
+  else if (r.every === 'times') { const n = r.n || 1; t = `${n === 1 ? 'Once' : n === 2 ? 'Twice' : n + ' times'} a ${r.per === 'month' ? 'month' : 'week'}`; }
   return t + (withEnd && r.until ? ` until ${fmtShort(r.until)}` : '');
+}
+/** A "times" rule: n times in each week or month, on any days. */
+export const isQuota = r => r?.every === 'times';
+/** The week (Monday first) or month a "times" rule counts in, around day d: [first, last]. */
+export function periodOf(r, d) {
+  if (r?.per === 'month') { const x = pd(d); return [fd(new Date(x.getFullYear(), x.getMonth(), 1)), fd(new Date(x.getFullYear(), x.getMonth() + 1, 0))]; }
+  const a = weekStart(d); return [a, add(a, 6)];
 }
 export { WEEK };

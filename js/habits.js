@@ -5,37 +5,77 @@
 // panel) and the Habits view in Stats. Both of the last two use the same charts: Weeks, Weekdays, Time of day,
 // Trend, and the year in squares.
 import * as store from './store.js';
-import { occId, repeatsOn, ruleText } from './repeat.js';
+import { cleanRule, isQuota, occId, periodOf, repeatsOn, ruleText } from './repeat.js';
 import { add, esc, fd, fmtShort, fmtT, pd, today, weekStart } from './util.js';
 import { colorOf } from './tree.js';
 
-/** Every habit (the series), in sidebar order. */
-export const list = () => store.all().filter(n => n.r && n.hb && !n.x).sort((a, b) => (a.o ?? 0) - (b.o ?? 0));
+/** A habit that was put away (archived): its repeats ended before today. Its record stays. */
+export const archived = s => !!(s.r?.until && s.r.until < today());
+/** Every habit in use (the series), in sidebar order. */
+export const list = () => store.all().filter(n => n.r && n.hb && !n.x && !archived(n)).sort((a, b) => (a.o ?? 0) - (b.o ?? 0));
+/** Habits that were put away, most recent first. */
+export const listArchived = () => store.all().filter(n => n.r && n.hb && !n.x && archived(n)).sort((a, b) => b.r.until.localeCompare(a.r.until));
 /** Whether an item is a habit or one of a habit's repeats. */
 export const isHabit = n => !!(n && store.seriesOf(n)?.hb);
+/** Puts a habit away: it stops repeating after today if today's is done (else after yesterday), keeping every day it was kept. */
+export function archive(s) {
+  const T = today(), o = occ(s, T), until = o?.done ? T : add(T, -1);
+  store.update(s.id, { r: cleanRule({ ...s.r, until: until < s.d ? s.d : until }, s.d) });
+}
+/** Brings a habit back from today. The days it was put away don't count as missed. */
+export function restore(s) {
+  const T = today(), from = add(s.r.until, 1), to = add(T, -1), off = [...(s.r.off || [])];
+  if (from <= to) off.push([from, to]);
+  const r = { ...s.r, off }; delete r.until;
+  store.update(s.id, { r: cleanRule(r, s.d) });
+}
+/** "n times a week" or month: done that many times in each week (or month), on any days. */
+export const quota = s => isQuota(s.r);
+const unit = s => s.r.per === 'month' ? 'month' : 'week';
 /** The habit's repeat due on day d (stored or worked out); null when it isn't due that day, or that day was skipped. */
 export function occ(s, d) {
   if (!repeatsOn(s.r, s.d, d)) return null;
   const o = store.get(occId(s.id, d));
   return o && !o.x ? o : null;
 }
-/** The days from a to b (never past today) the habit was due: [{ d, done, o }]. Today counts only once it's done. */
+/** The days from a to b (never past today) the habit was due: [{ d, done, o }]. Today counts only once it's done.
+ *  For an "n times a week" habit only the days it was done are listed (no day of its own is ever missed). */
 export function days(s, a, b) {
   const T = today(); if (b > T) b = T; if (a < s.d) a = s.d;
-  const out = [];
-  for (let d = a; d <= b; d = add(d, 1)) { const o = occ(s, d); if (!o || (d === T && !o.done)) continue; out.push({ d, done: !!o.done, o }); }
+  const out = [], q = quota(s);
+  for (let d = a; d <= b; d = add(d, 1)) { const o = occ(s, d); if (!o || ((d === T || q) && !o.done)) continue; out.push({ d, done: !!o.done, o }); }
   return out;
 }
-/** How often it was kept from a to b: { kept, due, r } (r is null when it wasn't due at all). */
-export function rate(s, a, b) { const D = days(s, a, b), kept = D.filter(x => x.done).length; return { kept, due: D.length, r: D.length ? kept / D.length : null }; }
+/** The weeks (or months) of an "n times" habit from a to b: [{ a, b, done, hit, over }] (over = it has ended). */
+export function periods(s, a, b) {
+  const T = today(); if (b > T) b = T; if (a < s.d) a = s.d; const out = [];
+  for (let d = a; d <= b;) {
+    const [p, q] = periodOf(s.r, d), on = [];
+    for (let x = p < s.d ? s.d : p; x <= q && x <= T; x = add(x, 1)) { const o = occ(s, x); if (o) on.push(o); }
+    if (on.length) { const done = on.filter(o => o.done).length; out.push({ a: p, b: q, done, hit: done >= (s.r.n || 1), over: q < T }); }
+    d = add(q, 1);
+  }
+  return out;
+}
+/** How often it was kept from a to b: { kept, due, r } (r is null when it wasn't due at all).
+ *  An "n times" habit counts weeks (or months): kept when one has its n; one still going only counts once it's hit. */
+export function rate(s, a, b) {
+  if (quota(s)) { const P = periods(s, a, b).filter(p => p.hit || p.over), kept = P.filter(p => p.hit).length; return { kept, due: P.length, r: P.length ? kept / P.length : null }; }
+  const D = days(s, a, b), kept = D.filter(x => x.done).length; return { kept, due: D.length, r: D.length ? kept / D.length : null };
+}
 /** Every habit together, a to b */
 export function rateAll(hs, a, b) { let kept = 0, due = 0; for (const s of hs) { const r = rate(s, a, b); kept += r.kept; due += r.due; } return { kept, due, r: due ? kept / due : null }; }
-/** The longest run of kept days over the last year, and the one going now (today counts once it's done). */
+/** The longest run kept over the last year, and the one going now (today, or this week, counts once it's done).
+ *  Counted in days, or in weeks (months) for an "n times" habit; u names the unit. */
 export function runs(s) {
-  const D = days(s, add(today(), -365), today()); let run = 0, best = 0;
-  for (const x of D) { run = x.done ? run + 1 : 0; best = Math.max(best, run); }
-  return { best, now: run, kept: D.filter(x => x.done).length, due: D.length };
+  const q = quota(s), L = q ? periods(s, add(today(), -365), today()).filter(p => p.hit || p.over).map(p => ({ done: p.hit })) : days(s, add(today(), -365), today());
+  let run = 0, best = 0;
+  for (const x of L) { run = x.done ? run + 1 : 0; best = Math.max(best, run); }
+  const kept = q ? days(s, add(today(), -365), today()).length : L.filter(x => x.done).length;
+  return { best, now: run, kept, due: L.length, u: q ? unit(s) : 'day' };
 }
+/** Done so far in the week (or month) around day d, for an "n times" habit. */
+export const doneIn = (s, d) => store.doneInPeriod(s, d, false);
 /** The minute of the day it was ticked off: when it was checked (done_at), else when its timer last stopped. Only on its own day. */
 export function tickMin(o) {
   if (!o?.done) return null;
@@ -63,6 +103,7 @@ export function weeksHTML(hs, one = false) {
 /** How often each habit is kept on each weekday, a to b: the weak days stand out. */
 export function weekdaysHTML(hs, a, b) {
   const cell = (s, wd) => { let k = 0, t = 0; for (const x of days(s, a, b)) if (pd(x.d).getDay() === wd) { t++; if (x.done) k++; }
+    if (quota(s)) return `<span class="hb-c" style="${tint(col(s), Math.min(1, k / 6))};color:${k > 3 ? 'var(--bg)' : 'var(--muted)'}" title="Done ${k} times on this day">${k}×</span>`; // any day counts: how many times each weekday
     const r = t ? k / t : null; return `<span class="hb-c" style="${tint(col(s), r)};color:${r != null && r > .55 ? 'var(--bg)' : 'var(--muted)'}" title="${t ? `${k} of ${t}` : 'Not due'}">${pct(r)}</span>`; };
   return `<p class="hb-cap">How often it's kept on each weekday, ${fmtShort(a)} to ${fmtShort(b > today() ? today() : b)}.</p>
   <div class="hb-mat${hs.length === 1 ? ' one' : ''}"><span></span>${WD.map(([, l]) => `<span class="hb-h">${l}</span>`).join('')}
@@ -89,7 +130,7 @@ export function trendHTML(hs, all = hs) {
 }
 /** Twelve months of squares for one habit: done, missed, or not due. */
 export function yearHTML(s) {
-  const T = today(), t = pd(T), R = runs(s), MN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const T = today(), t = pd(T), R = runs(s), q = quota(s), Y = rate(s, add(T, -364), T), MN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   let months = '';
   const st = pd(s.d), back = Math.min(11, Math.max(0, (t.getFullYear() - st.getFullYear()) * 12 + t.getMonth() - st.getMonth()));
   for (let m = back; m >= 0; m--) {
@@ -98,14 +139,14 @@ export function yearHTML(s) {
     for (let d = fd(f); d <= fd(last); d = add(d, 1)) {
       if (d > T || d < s.d) { g += '<i class="e"></i>'; continue; }
       const o = occ(s, d);
-      g += !o ? '<i class="n"></i>' : o.done ? `<i class="y" title="${fmtShort(d)}: kept"></i>` : d === T ? '<i class="t" title="Today, still open"></i>' : `<i title="${fmtShort(d)}: missed"></i>`;
+      g += !o || (q && !o.done) ? '<i class="n"></i>' : o.done ? `<i class="y" title="${fmtShort(d)}: kept"></i>` : d === T ? '<i class="t" title="Today, still open"></i>' : `<i title="${fmtShort(d)}: missed"></i>`;
     }
     months += `<div class="hb-mo"><h4>${MN[f.getMonth()]}${f.getMonth() === 0 || m === back ? ' ' + f.getFullYear() : ''}</h4><div class="hb-g">${g}</div></div>`;
   }
-  return `<div class="hb-yh"><div class="hb-yt"><span class="hb-k">${back === 11 ? '12 months' : 'Since ' + fmtShort(s.d)} to ${fmtShort(T)}</span><b>${R.due ? `Kept ${pct(R.kept / R.due)} of the time` : 'Nothing yet'}</b></div>
-    <div class="hb-f"><b>${plural(R.best, 'day')}</b><span>longest run</span></div><div class="hb-f"><b>${plural(R.now, 'day')}</b><span>running now</span></div><div class="hb-f"><b>${R.kept}</b><span>days kept</span></div></div>
+  return `<div class="hb-yh"><div class="hb-yt"><span class="hb-k">${back === 11 ? '12 months' : 'Since ' + fmtShort(s.d)} to ${fmtShort(T)}</span><b>${Y.due ? `Kept ${pct(Y.r)} of the ${q ? unit(s) + 's' : 'time'}` : 'Nothing yet'}</b></div>
+    <div class="hb-f"><b>${plural(R.best, R.u)}</b><span>longest run</span></div><div class="hb-f"><b>${plural(R.now, R.u)}</b><span>running now</span></div><div class="hb-f"><b>${R.kept}</b><span>days done</span></div></div>
   <div class="hb-months" style="--hc:${col(s)}">${months}</div>
-  <div class="hb-leg" style="--hc:${col(s)}"><span><i class="y"></i>Kept</span><span><i></i>Missed</span><span><i class="n"></i>Not due</span></div>`;
+  <div class="hb-leg" style="--hc:${col(s)}"><span><i class="y"></i>${q ? 'Done' : 'Kept'}</span>${q ? '' : '<span><i></i>Missed</span>'}<span><i class="n"></i>${q ? 'Not done' : 'Not due'}</span></div>`;
 }
 
 /** The four charts with tabs (Stats and a habit's own page share it). k is the open tab. */
@@ -122,15 +163,23 @@ export function detailHTML(s, k) {
   const ch = r.r != null && p.r != null ? Math.round((r.r - p.r) * 100) : null;
   return `<div class="dt-sec">Habit</div>
   <div class="hb-dt" style="--hc:${col(s)}">
-    <div class="hb-top"><div><span class="hb-big">${pct(r.r)}</span><span class="hb-sub">kept, last 30 days${ch ? ` · <span class="${ch > 0 ? 'up' : 'dn'}">${ch > 0 ? 'up' : 'down'} ${Math.abs(ch)}%</span>` : ''}</span></div>
-      <div class="hb-f"><b>${plural(R.now, 'day')}</b><span>running now</span></div><div class="hb-f"><b>${plural(R.best, 'day')}</b><span>longest run</span></div></div>
-    <div class="hb-note">${esc(ruleText(s.r, s.d))}. Never overdue: a missed day just stays empty.${weakDay(s)}</div>
+    <div class="hb-top"><div><span class="hb-big">${pct(r.r)}</span><span class="hb-sub">${quota(s) ? `of ${unit(s)}s hit` : 'kept'}, last 30 days${ch ? ` · <span class="${ch > 0 ? 'up' : 'dn'}">${ch > 0 ? 'up' : 'down'} ${Math.abs(ch)}%</span>` : ''}</span></div>
+      <div class="hb-f"><b>${plural(R.now, R.u)}</b><span>running now</span></div><div class="hb-f"><b>${plural(R.best, R.u)}</b><span>longest run</span></div></div>
+    <div class="hb-note">${archived(s) ? `Put away since ${fmtShort(add(s.r.until, 1))}. Its record stays here.` : quota(s) ? `${esc(ruleText(s.r, s.d))}, on any days: it shows every day until it's done ${s.r.n || 1} time${(s.r.n || 1) === 1 ? '' : 's'} that ${unit(s)}, and the other days aren't missed.` : `${esc(ruleText(s.r, s.d))}. Never overdue: a missed day just stays empty.`}${weakDay(s)}</div>
+    <div class="dt-meta">${minSelect(s)}${archived(s) ? `<button class="chip" data-act="hb-restore" data-id="${s.id}">Bring it back</button>` : `<button class="chip" data-act="hb-archive" data-id="${s.id}" title="Stops showing it from tomorrow. Every day it was kept stays.">Put away</button>`}</div>
     ${chartsHTML([s], k, add(T, -90), T, 'hb-tab')}
     ${yearHTML(s)}
   </div>`;
 }
+/** How long a tick counts toward the habit's area (r.mins, minutes). None leaves the area's hours alone. Never work hours. */
+export const MINS = [5, 10, 15, 20, 30, 45, 60, 90, 120];
+export function minSelect(s, id = 'dt-hm') {
+  const a = s.ar && store.get(s.ar), v = s.r?.mins || 0, opts = v && !MINS.includes(v) ? [...MINS, v].sort((x, y) => x - y) : MINS;
+  return `<label class="chip${v ? ' set' : ''}" title="Each time you tick it, this much time counts in ${a ? esc(a.t) : 'its area'}'s hours for the day (never in work hours on the Roadmap)"><span class="k">Counts</span><select id="${id}" aria-label="Time it counts toward its area"><option value="0"${v ? '' : ' selected'}>no time</option>${opts.map(m => `<option value="${m}"${v === m ? ' selected' : ''}>${m < 60 ? m + 'm' : m % 60 ? Math.floor(m / 60) + 'h ' + (m % 60) + 'm' : m / 60 + 'h'}</option>`).join('')}</select><span class="k">${a ? 'in ' + esc(a.t) : 'in its area'}</span></label>`;
+}
 // "Mostly missed on Fridays" when one weekday clearly slips
 function weakDay(s) {
+  if (quota(s)) return '';
   const m = [0, 0, 0, 0, 0, 0, 0], t = [0, 0, 0, 0, 0, 0, 0];
   for (const x of days(s, add(today(), -90), today())) { const w = pd(x.d).getDay(); t[w]++; if (!x.done) m[w]++; }
   const tot = m.reduce((p, q) => p + q, 0); if (tot < 3) return '';
@@ -140,7 +189,8 @@ function weakDay(s) {
 /** The Habits view in Stats: every habit ranked for the range, the charts, and one habit's year. sel narrows to one. */
 export function statsHTML({ a, b, label, prevA, prevB, prevLabel, sel, card, year }) {
   const hs = list();
-  if (!hs.length) return `<div class="st-empty"><b>No habits yet</b><p>Open a repeating task and tap Habit. It then shows in the Habits card at the top of each day, and its record builds up here.</p></div>`;
+  const arch = listArchived(), archHTML = arch.length ? `<div class="hb-arch"><span class="hb-k">Put away</span>${arch.map(s => `<div class="hb-ar" style="--hc:${col(s)}"><i class="pdot"></i><button class="hb-t" data-act="open" data-id="${s.id}">${name(s)} <small>until ${fmtShort(s.r.until)}</small></button><button class="chip" data-act="hb-restore" data-id="${s.id}">Bring back</button></div>`).join('')}</div>` : '';
+  if (!hs.length) return `<div class="st-empty"><b>No habits yet</b><p>Add one here, or open any repeating task and tap Habit. It then shows in the Habits card at the top of each day, and its record builds up here.</p><p><button class="chip" data-act="hb-new">+ Add a habit</button></p>${archHTML}</div>`;
   const rows = hs.map(s => ({ s, r: rate(s, a, b), p: rate(s, prevA, prevB) })).sort((x, y) => (y.r.r ?? -1) - (x.r.r ?? -1));
   const all = rateAll(hs, a, b), prev = rateAll(hs, prevA, prevB), ch = all.r != null && prev.r != null ? Math.round((all.r - prev.r) * 100) : null;
   const rated = rows.filter(x => x.r.r != null), top = rated[0], low = rated.length > 1 ? rated[rated.length - 1] : null;
@@ -158,7 +208,8 @@ export function statsHTML({ a, b, label, prevA, prevB, prevLabel, sel, card, yea
       <div class="hb-lh"><span></span><span>Habit</span><span class="hb-spk">12 weeks</span><span>Kept</span><span>Change</span></div>
       ${rows.map(({ s, r, p }) => { const d = r.r != null && p.r != null ? Math.round((r.r - p.r) * 100) : null;
         return `<button class="hb-lr${sel === s.id ? ' sel' : ''}" data-act="hb-sel" data-id="${s.id}" style="--hc:${col(s)}" aria-pressed="${sel === s.id}"><i class="pdot"></i><span class="hb-n"><b>${name(s)}</b><small>${esc(ruleText(s.r, s.d))}</small></span>${spark(s)}<span class="hb-p">${pct(r.r)}</span><span class="hb-d ${d == null ? '' : d >= 0 ? 'up' : 'dn'}">${d == null ? '' : (d >= 0 ? '+' : '−') + Math.abs(d) + '%'}</span></button>`; }).join('')}
-      ${one ? `<div class="hb-acts"><button class="chip" data-act="hb-sel" data-id="">Show every habit</button><button class="chip" data-act="open" data-id="${one.id}">Open ${name(one)}</button></div>` : ''}
+      <div class="hb-acts">${one ? `<button class="chip" data-act="hb-sel" data-id="">Show every habit</button><button class="chip" data-act="open" data-id="${one.id}">Open ${name(one)}</button>` : '<button class="chip" data-act="hb-new">+ Add a habit</button>'}</div>
+      ${archHTML}
     </div></section>
     <section class="st-car st-box">${chartsHTML(show, card, a, b, 'hb-card')}</section>
     <section class="st-year st-box"><div class="hb-chips">${hs.map(s => `<button class="chip${s.id === ys.id ? ' set' : ''}" data-act="hb-year" data-id="${s.id}">${name(s)}</button>`).join('')}</div>${yearHTML(ys)}</section>
@@ -168,13 +219,14 @@ export function statsHTML({ a, b, label, prevA, prevB, prevLabel, sel, card, yea
 /** The Habits card at the top of a day's List: the day's habits, one tap each, with the last 7 days as dots.
  *  Once every habit that day is done it folds to one line (tap to open it again). */
 export function cardHTML(d, open, fold = false) { // fold: show one line until opened (other days in Week view)
-  const hs = list().map(s => ({ s, o: occ(s, d) })).filter(x => x.o); if (!hs.length) return '';
+  const hs = list().map(s => ({ s, o: occ(s, d) })).filter(x => x.o && (x.o.done || !store.quotaMet(x.s, d))); if (!hs.length) return '';
   const done = hs.filter(x => x.o.done).length, n = hs.length, f = done / n;
   if ((done === n || fold) && !open) return `<div class="ad-card hb-cardl${done === n ? ' met' : ''}" style="--pc:var(--hb);--f:${f}"><button class="ad-main" data-act="hb-open" data-d="${d}" aria-expanded="false"><span class="ad-t">Habits</span><span class="ad-s">${done === n ? `<b>All ${n}</b> done` : `<b>${done}</b> of ${n}`} ${d === today() ? 'today' : 'that day'}</span></button></div>`;
-  const dots = s => [...Array(7)].map((_, i) => { const day = add(d, i - 6), o = day >= s.d ? occ(s, day) : null; return `<i class="${!o ? 'n' : o.done ? 'y' : day === today() ? 't' : ''}"></i>`; }).join('');
+  const dots = s => [...Array(7)].map((_, i) => { const day = add(d, i - 6), o = day >= s.d ? occ(s, day) : null; return `<i class="${!o || (quota(s) && !o.done && day !== today()) ? 'n' : o.done ? 'y' : day === today() ? 't' : ''}"></i>`; }).join('');
+  const sub = s => quota(s) ? ` <small>${doneIn(s, d)} of ${s.r.n || 1} this ${unit(s)}</small>` : '';
   return `<div class="ad-card hb-cardl${done === n ? ' met' : ''}" style="--pc:var(--hb);--f:${f}"><div class="ad-main">
     <span class="ad-t">Habits</span><span class="ad-s"><b>${done}</b> of ${n} ${d === today() ? 'today' : 'that day'}</span>
-    <div class="hb-list">${hs.map(({ s, o }) => `<div class="hb-row${o.done ? ' on' : ''}" style="--hc:${col(s)}"><button class="hb-ck" data-act="hb-tick" data-id="${o.id}" aria-pressed="${!!o.done}" aria-label="${o.done ? 'Undo' : 'Mark'} ${name(s)}"></button><button class="hb-t" data-act="open" data-id="${o.id}">${name(s)}${o.s != null ? ` <small>${fmtT(o.s)}</small>` : ''}</button><span class="hb-wk" title="The last 7 days">${dots(s)}</span></div>`).join('')}</div>
-    ${done === n || fold ? `<button class="hb-fold" data-act="hb-open" data-d="${d}">Fold away</button>` : ''}
+    <div class="hb-list">${hs.map(({ s, o }) => `<div class="hb-row${o.done ? ' on' : ''}" style="--hc:${col(s)}"><button class="hb-ck" data-act="hb-tick" data-id="${o.id}" aria-pressed="${!!o.done}" aria-label="${o.done ? 'Undo' : 'Mark'} ${name(s)}"></button><button class="hb-t" data-act="open" data-id="${o.id}">${name(s)}${sub(s)}${o.s != null ? ` <small>${fmtT(o.s)}</small>` : ''}</button><span class="hb-wk" title="The last 7 days">${dots(s)}</span></div>`).join('')}</div>
+    <div class="hb-foot"><button class="hb-fold" data-act="hb-new">+ Habit</button>${done === n || fold ? `<button class="hb-fold" data-act="hb-open" data-d="${d}">Fold away</button>` : ''}</div>
   </div></div>`;
 }

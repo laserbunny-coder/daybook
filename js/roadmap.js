@@ -7,6 +7,7 @@
 // Drag a bar to shift it, drag its ends to change its dates; projects with no dates at all
 // wait in a tray at the bottom and can be dragged onto the timeline.
 import * as store from './store.js';
+import { isQuota, periodOf, repeatsOn } from './repeat.js';
 import { add, daysBetween, esc, fmtShort, MON, pd, today, weekStart } from './util.js';
 import { colorOf, hasKids, ink, isDone, isProj, progress, projColor } from './tree.js';
 
@@ -37,9 +38,15 @@ const rootOf = n => { let r = n; while (r.p && store.get(r.p)) r = store.get(r.p
 /* Hours of scheduled tasks and area time in each week (Monday first). A repeating task counts each of its repeats; it has no bar.
    Habits (hb, on the task or its series) still show on their days but don't count here. */
 function weekHours(from, weeks) {
-  const h = new Array(weeks).fill(0), count = n => { if (n.hb || store.seriesOf(n)?.hb) return; const w = Math.floor(daysBetween(from, n.d) / 7); if (w < weeks) h[w] += (n.m || 60) / 60; };
+  const h = new Array(weeks).fill(0), quota = n => isQuota(store.seriesOf(n)?.r);
+  const count = n => { if (n.hb || store.seriesOf(n)?.hb || quota(n)) return; const w = Math.floor(daysBetween(from, n.d) / 7); if (w < weeks) h[w] += (n.m || 60) / 60; };
   for (const n of store.all()) if (n.d && n.d >= from && !n.r) count(n);
   for (let i = 0, d = from; i < weeks * 7; i++, d = add(d, 1)) { store.occOn(d).forEach(count); store.blocksOn(d).filter(b => !b.done).forEach(count); } // area time counts too
+  // "n times a week" (or month) counts n spread over the days of its week (or month), so a full week counts n
+  for (const s of store.all()) if (isQuota(s.r) && !s.hb) for (let w = 0; w < weeks; w++) for (let i = 0; i < 7; i++) {
+    const d = add(from, w * 7 + i); if (!repeatsOn(s.r, s.d, d)) continue;
+    const [a, b] = periodOf(s.r, d); h[w] += (s.m || 60) / 60 * (s.r.n || 1) / (daysBetween(a, b) + 1);
+  }
   return h;
 }
 

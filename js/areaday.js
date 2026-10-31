@@ -31,26 +31,27 @@ function areaOf(n) {
 }
 const overlap = (e, a, z) => { const s = Date.parse(e.start), f = e.end ? Date.parse(e.end) : Date.now(); return Math.max(0, Math.min(f, z) - Math.max(s, a)) / MIN; };
 
-/** Time logged on a day, by area: { [areaId]: { min, items: Map(itemId -> min) } }. Guessed stretches count. */
+/** Time logged on a day, by area: { [areaId]: { min, hb (habits' share), items: Map(itemId -> min) } }. Guessed stretches count. */
 export function loggedOn(d) {
   const a = pd(d).getTime(), z = pd(add(d, 1)).getTime(), out = {};
   for (const n of store.logged()) {
     const id = areaOf(n); if (!id) continue;
     let m = 0; for (const e of n.tl) m += overlap(e, a, z);
     if (m <= 0) continue;
-    const o = out[id] || (out[id] = { min: 0, items: new Map() });
-    o.min += m; const host = n.rs ? n.rs : n.id; o.items.set(host, (o.items.get(host) || 0) + m);
+    const o = out[id] || (out[id] = { min: 0, hb: 0, items: new Map() });
+    o.min += m; if ((n.rs ? store.get(n.rs) : n)?.hb) o.hb += m; // habit time counts in its area, never toward catch-up (work) hours
+    const host = n.rs ? n.rs : n.id; o.items.set(host, (o.items.get(host) || 0) + m);
   }
   return out;
 }
 /** A day's area cards: every area with a target that day or time logged, morning ones first. */
 export function cardsOn(d, catchUp = {}) {
   const L = loggedOn(d), k = keyOf(d), pr = a => a.tp ? PREFS.indexOf(a.tp) : 1;
-  const cards = areas().map(a => ({ a, target: targetOn(a, d), min: Math.round(L[a.id]?.min || 0) }))
+  const cards = areas().map(a => ({ a, target: targetOn(a, d), min: Math.round(L[a.id]?.min || 0), hb: Math.round(L[a.id]?.hb || 0) }))
     .filter(c => c.target > 0 || c.min > 0)
     .sort((x, y) => (x.target > 0 ? 0 : 1) - (y.target > 0 ? 0 : 1) || pr(x.a) - pr(y.a) || (x.a.o ?? 0) - (y.a.o ?? 0));
   const cu = catchUpOn(catchUp, d);
-  const extra = Math.round(cards.reduce((t, c) => t + Math.max(0, c.min - c.target), 0));
+  const extra = Math.round(cards.reduce((t, c) => t + Math.max(0, c.min - c.hb - c.target), 0));
   return { cards, catchUp: cu ? { target: cu, min: Math.min(extra, 24 * 60) } : null };
 }
 /** Whether the area's own timer is running (as opposed to a task in it). */

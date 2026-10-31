@@ -54,7 +54,7 @@ export type Row = {
 };
 
 /** How a series repeats. days: 0 is Sunday. dom: day of the month. until: its last day. */
-export type Rule = { every: "day" | "weekday" | "week" | "month"; days?: number[]; interval?: number; dom?: number; until?: string };
+export type Rule = { every: "day" | "weekday" | "week" | "month" | "days" | "times"; days?: number[]; interval?: number; dom?: number; n?: number; per?: "week" | "month"; until?: string; off?: [string, string][]; mins?: number };
 
 export type Db = {
   /** Every item this person has that isn't deleted, plus skipped repeats (deleted, with occurs_on). */
@@ -117,11 +117,13 @@ export const INSTRUCTIONS = `Daybook is this person's own task and calendar app.
 const str = (description: string) => ({ type: "string", description });
 const REPEAT = {
   type: "object",
-  description: "Makes it a repeating task that starts on its day (today if it has none). every: day, weekday (Monday to Friday), week or month. For week: days, such as [\"mon\", \"thu\"] (defaults to the start day's weekday), and interval for every 2, 3… weeks. A monthly task repeats on its start day's date. until: its last day, YYYY-MM-DD (optional).",
+  description: "Makes it a repeating task that starts on its day (today if it has none). every: day, weekday (Monday to Friday), week, month, days or times. For week: days, such as [\"mon\", \"thu\"] (defaults to the start day's weekday), and interval for every 2, 3… weeks. A monthly task repeats on its start day's date. days: every interval days (2 to 90). times: times (a number) per week or month on any days, such as a workout twice a week; it shows every day until that many are done. until: its last day, YYYY-MM-DD (optional).",
   properties: {
-    every: { type: "string", enum: ["day", "weekday", "week", "month"] },
+    every: { type: "string", enum: ["day", "weekday", "week", "month", "days", "times"] },
+    times: { type: "integer", description: "For every: times, how many times each week or month." },
+    per: { type: "string", enum: ["week", "month"], description: "For every: times, counted per week (default) or month." },
     days: { type: "array", items: { type: "string", enum: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] } },
-    interval: { type: "integer", description: "Weeks between repeats, 1 to 12. Defaults to 1." },
+    interval: { type: "integer", description: "Weeks between repeats for week (1 to 12, default 1), or days between repeats for days (2 to 90)." },
     until: { type: ["string", "null"], description: "Last day it repeats, YYYY-MM-DD." },
   },
   required: ["every"],
@@ -495,9 +497,11 @@ const DAY_NAMES = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 const DAY_TEXT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 export function repeatsOn(r: Rule | null | undefined, start: string | null, d: string): boolean {
   if (!r || !start || d < start || (r.until && d > r.until)) return false;
+  if (r.off?.some(([a, b]) => d >= a && d <= b)) return false; // put away (archived) for a while
   const w = dow(d);
   switch (r.every) {
-    case "day": return true;
+    case "day": case "times": return true; // "times": due any day until the week (or month) has its n done
+    case "days": return between(start, d) % Math.max(1, r.interval || 1) === 0;
     case "weekday": return w >= 1 && w <= 5;
     case "week": {
       if (!(r.days?.length ? r.days : [dow(start)]).includes(w)) return false;
@@ -519,7 +523,9 @@ function ruleText(r: Rule, start: string): string {
     const days = r.days?.length ? r.days : [dow(start)], n = r.interval || 1;
     const names = [1, 2, 3, 4, 5, 6, 0].filter((d) => days.includes(d)).map((d) => DAY_TEXT[d]).join(", ");
     t = n > 1 ? `every ${n} weeks on ${names}` : `every ${names}`;
-  } else t = `monthly on day ${r.dom || utc(start).getUTCDate()}`;
+  } else if (r.every === "days") t = `every ${r.interval || 2} days`;
+  else if (r.every === "times") t = `${r.n || 1} times a ${r.per === "month" ? "month" : "week"}, on any days`;
+  else t = `monthly on day ${r.dom || utc(start).getUTCDate()}`;
   return t + (r.until ? ` until ${r.until}` : "");
 }
 /** A repeat rule from Claude: an object (or the same as JSON text). */
@@ -529,7 +535,7 @@ function repeatArg(v: unknown, start: string): Rule {
   if (!o || typeof o !== "object") throw new Bad("repeat must be an object such as {\"every\": \"week\", \"days\": [\"mon\"]}.");
   const a = o as Record<string, unknown>;
   const every = String(a.every ?? "").trim().toLowerCase().replace(/^(daily|days)$/, "day").replace(/^(weekdays)$/, "weekday").replace(/^(weekly|weeks)$/, "week").replace(/^(monthly|months)$/, "month");
-  if (!["day", "weekday", "week", "month"].includes(every)) throw new Bad("repeat.every must be day, weekday, week or month.");
+  if (!["day", "weekday", "week", "month", "days", "times"].includes(every)) throw new Bad("repeat.every must be day, weekday, week, month, days or times.");
   const r: Rule = { every: every as Rule["every"] };
   if (every === "week") {
     const raw = a.days == null ? [] : Array.isArray(a.days) ? a.days : [a.days];
@@ -542,7 +548,15 @@ function repeatArg(v: unknown, start: string): Rule {
     const n = a.interval == null ? 1 : Number(a.interval);
     if (!Number.isInteger(n) || n < 1 || n > 12) throw new Bad("repeat.interval must be a whole number of weeks from 1 to 12.");
     r.interval = n;
-  } else if (a.days != null || (a.interval != null && Number(a.interval) !== 1)) throw new Bad("repeat.days and repeat.interval are only for every: week.");
+  } else if (every === "days") {
+    const n = Number(a.interval ?? 2);
+    if (!Number.isInteger(n) || n < 2 || n > 90) throw new Bad("repeat.interval must be a whole number of days from 2 to 90 for every: days.");
+    r.interval = n;
+  } else if (every === "times") {
+    const per = String(a.per ?? "week").toLowerCase() === "month" ? "month" : "week", n = Number(a.times ?? a.n ?? 2);
+    if (!Number.isInteger(n) || n < 1 || n > (per === "month" ? 30 : 6)) throw new Bad(`repeat.times must be a whole number from 1 to ${per === "month" ? 30 : 6}.`);
+    r.per = per; r.n = n;
+  } else if (a.days != null || (a.interval != null && Number(a.interval) !== 1)) throw new Bad("repeat.days are only for every: week, and interval for week or days.");
   if (every === "month") r.dom = utc(start).getUTCDate();
   if (a.until != null && a.until !== "") {
     r.until = dayArg(a.until, "repeat.until");
