@@ -100,5 +100,5 @@ export function week(id, at = today()) {
   for (const n of store.logged()) if (inArea(n.rs ? store.get(n.rs) || n : n, id)) for (const e of n.tl) done += overlap(e, w0, w1);
   for (let i = 0, d = w; i < 7; i++, d = add(d, 1)) for (const b of store.blocksOn(d)) if (b.s != null && !b.done && inArea(b, id)) { const [a, z] = windowOf(b); if (z > now) ahead += (z - Math.max(a, now)) / MIN; }
   const a = store.get(id); // hours per day, added up for the week; else the older rough weekly number
-  return { done: Math.round(done), ahead: Math.round(ahead), target: weekTarget(a) || a?.wk || null };
+  return { done: Math.round(done), ahead: Math.round(ahead), target: weekTarget(a, w) || a?.wk || null };
 }

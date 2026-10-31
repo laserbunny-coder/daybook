@@ -193,7 +193,8 @@ function areaDayFoot(b) {
   const a = node(b.fo), L = aday.loggedOn(b.d)[b.fo];
   return `<div class="dt-sec">Where the time went</div>${timeSplitHTML(L?.items || [])}
     <div class="dt-sec">Target</div>
-    <div class="dt-note">${b.m ? `${esc(a.t)} aims for ${fmtDur(b.m)} on ${DAYL[pd(b.d).getDay()]}s.` : `${esc(a.t)} has no target on ${DAYL[pd(b.d).getDay()]}s.`} Time counts whenever it's logged that day, in as many sittings as you like.</div>
+    <div class="dt-note">${aday.isOverride(a.dg, b.d) ? `Just this day: ${b.m ? fmtDur(b.m) : 'no target'} (usually ${fmtDur(+(a.dg[aday.keyOf(b.d)] || 0)) || 'none'} on ${DAYL[pd(b.d).getDay()]}s).` : b.m ? `${esc(a.t)} aims for ${fmtDur(b.m)} on ${DAYL[pd(b.d).getDay()]}s.` : `${esc(a.t)} has no target on ${DAYL[pd(b.d).getDay()]}s.`} Time counts whenever it's logged that day, in as many sittings as you like.</div>
+    <div class="dt-meta">${oneDaySelect('ado', a.dg, b.d)}</div>
     <div class="dt-meta"><button class="chip" data-act="open" data-id="${a.id}">${ICON.cal}<span>Change ${esc(a.t)}'s hours</span></button></div>`;
 }
 // The catch-up for any area: time beyond each area's own target that day counts toward it
@@ -211,11 +212,19 @@ function catchDetail(el, d, same) {
       <div class="dt-note">Time in any area beyond its own target for the day counts here. Pick an area to start its timer.</div>
       <div class="ad-pick">${aday.areas().map(a => { const on = track.isRec(a); const c = cards.find(x => x.a.id === a.id);
         return `<div class="ad-row" style="--pc:${colorOf(a)}"><span class="pdot"></span><button class="ad-n" data-act="open" data-id="day:${a.id}:${d}">${esc(a.t || 'Untitled area')}</button><span class="ad-m">${c ? fmtDur(c.min) : '0m'}</span>${isT ? `<button class="rec-b${on ? ' on' : ''}" data-act="rec" data-id="${a.id}" aria-label="${on ? 'Stop' : 'Start'} ${esc(a.t)}">${on ? ICON.stop : ICON.play}</button>` : ''}</div>`; }).join('')}</div>
+      <div class="dt-meta">${oneDaySelect('cuo', S.catchUp, d)}</div>
       <div class="dt-sec">Catch-up hours</div>
       <div class="ad-grid">${aday.ORDER.map(k => adSelect('cu-' + k, (S.catchUp || {})[k] || 0, k)).join('')}</div>
     </div></section>`);
 }
 const AD_HRS = [0, 30, 60, 90, 120, 150, 180, 240, 300, 360, 480];
+// Hours for one date only, in place of that weekday's usual hours
+function oneDaySelect(id, o, d) {
+  const on = aday.isOverride(o, d), v = on ? +o[d] || 0 : null, usual = +(o?.[aday.keyOf(d)] || 0);
+  const opts = v != null && !AD_HRS.includes(v) ? [...AD_HRS, v].sort((a, b) => a - b) : AD_HRS;
+  return `<label class="chip${on ? ' set' : ''}"><span class="k">Just this day</span><select id="${id}" aria-label="Hours for this day only"><option value=""${on ? '' : ' selected'}>Usual (${usual ? hrs(usual) : 'none'})</option>${opts.map(m => `<option value="${m}"${v === m ? ' selected' : ''}>${m ? hrs(m) : 'None'}</option>`).join('')}</select></label>`;
+}
+const withDay = (o, d, v) => { const x = { ...(o || {}) }; if (v === '') delete x[d]; else x[d] = +v || 0; const cut = add(today(), -120); for (const k of Object.keys(x)) if (/^\d{4}-/.test(k) && k < cut) delete x[k]; return x; };
 function adSelect(id, v, k) {
   const opts = AD_HRS.includes(v) ? AD_HRS : [...AD_HRS, v].sort((a, b) => a - b);
   return `<label class="ad-d"><span>${k[0].toUpperCase() + k.slice(1, 3)}</span><select id="${id}" aria-label="Hours on ${k}">${opts.map(m => `<option value="${m}"${v === m ? ' selected' : ''}>${m ? hrs(m) : '–'}</option>`).join('')}</select></label>`;
@@ -1702,8 +1711,9 @@ document.addEventListener('change', e => {
   if (t.id === 'rm-free') { setFree(t.value); return; }
   if (t.id === 'st-from' || t.id === 'st-to') { if (t.value) { S[t.id === 'st-from' ? 'stFrom' : 'stTo'] = t.value; render(); } return; }
   if (t.id === 'tl-day' || t.id === 'tl-s' || t.id === 'tl-e') { saveStretch(); return; }
-  if (t.id.startsWith('cu-')) { // catch-up hours, kept with the account like free hours
-    S.catchUp = { ...(S.catchUp || {}), [t.id.slice(3)]: +t.value || 0 }; saveUI();
+  if (t.id === 'ado' && S.open?.startsWith('day:')) { const [, aid, d] = S.open.split(':'), a = node(aid); if (a) store.update(aid, { dg: withDay(a.dg, d, t.value) }); return; }
+  if (t.id.startsWith('cu-') || t.id === 'cuo') { // catch-up hours, kept with the account like free hours
+    S.catchUp = t.id === 'cuo' ? withDay(S.catchUp, S.open.split(':')[2], t.value) : { ...(S.catchUp || {}), [t.id.slice(3)]: +t.value || 0 }; saveUI();
     if (client && user) client.auth.updateUser({ data: { catch_up: S.catchUp } }).catch(() => {});
     render(); renderDetail(); return;
   }
