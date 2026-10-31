@@ -301,6 +301,12 @@ function blockDetail(el, b, same) {
       + (lz.length ? `<div class="bk-card loose"><div class="bk-h"><span class="bk-name">Loose in ${esc(t.t || 'this area')}</span>${lz.length > 1 ? `<button class="bk-f" data-act="blk-focus" data-id="loose">Focus</button>` : ''}</div>${lz.map(n => blkStep(n)).join('')}</div>` : '')
       || `<div class="dt-note">Nothing open in ${esc(t.t || 'here')}. Add tasks in Projects, or use this time to plan what's next.</div>`;
   }
+  // Add something new right here: a task in the area (or a step in the project), then start it or log time already spent
+  if (t && S.blkView !== 'all' && !b.r) {
+    const na = S.blkAdded && node(S.blkAdded) && within(node(S.blkAdded), b.fo) ? node(S.blkAdded) : null, nOn = na && track.isRec(na);
+    work += `<form class="dt-add bk-add" data-form="blk-add" data-t="${t.id}"><span class="plus-i" aria-hidden="true">+</span><input id="bk-add-in" placeholder="Add a task to ${esc(t.t || 'this')}" autocomplete="off" aria-label="Add a task to ${esc(t.t || 'this')}" enterkeyhint="done"></form>`
+      + (na && !na.done ? `<div class="bk-added" style="--pc:${colorOf(na)}"><span>Added <button data-act="open" data-id="${na.id}">${esc(na.t)}</button></span><button class="chip" data-act="rec" data-id="${na.id}">${nOn ? ICON.stop : ICON.play}<span>${nOn ? 'Stop' : 'Start'}</span></button><button class="chip" data-act="blk-spent" data-id="${na.id}">+ Time already spent</button></div>` : '');
+  }
   const busy = r && r.id !== recId && within(r, b.fo) ? r : null;
   setDetail(el, `<div class="dt-back" data-act="close"></div>
   <section class="dt blk${same ? ' still' : ''}" role="dialog" aria-modal="true" aria-label="${esc(blockTitle(b))} time" style="--pc:${colorOf(b)};--f:${f}">
@@ -1601,6 +1607,10 @@ document.addEventListener('click', e => {
     case 'tl-edit': S.tlEdit = +b.dataset.i; renderDetail(); break;
     case 'tl-close': S.tlEdit = null; renderDetail(); break;
     case 'tl-del': { const i = +b.dataset.i; S.tlEdit = null; track.remove(S.open, i); break; }
+    case 'blk-spent': { // open the new task with a stretch of time to fill in, and a way back to the block
+      S.fromBlk = S.open; S.blkAdded = null; S.open = id; track.addTime(id); const tl = node(id)?.tl || [];
+      S.tlEdit = tl.reduce((k, e, i) => e.end && (k < 0 || Date.parse(e.end) >= Date.parse(tl[k].end)) ? i : k, -1); renderDetail(); break;
+    }
     case 'tl-add': {
       track.addTime(S.open); const tl = node(S.open)?.tl || [];
       S.tlEdit = tl.reduce((k, e, i) => e.end && (k < 0 || Date.parse(e.end) >= Date.parse(tl[k].end)) ? i : k, -1); renderDetail(); break; // open the one just added, to set its times
@@ -1703,6 +1713,11 @@ document.addEventListener('submit', e => {
   if (f.dataset.form === 'link') { saveLink(); return; }
   if (f.dataset.form === 'wait') { const o = f.querySelector('.wait-opt'); if (o) { S.waitEdit = false; document.activeElement?.blur(); edit(S.open, { w: o.dataset.id }); } return; }
   if (f.dataset.form === 'area-project') { if (v) { makeProject(v, f.dataset.area); inp.value = ''; renderDetail(); inp.scrollIntoView({ block: 'nearest' }); } else inp.blur(); return; }
+  if (f.dataset.form === 'blk-add') { // a task in the block's area, or a step in its project
+    if (!v) { inp.blur(); return; } const tg = node(f.dataset.t); if (!tg) return;
+    const n = store.create(tg.k === 'area' ? { t: v, ar: tg.id, m: 30, o: Date.now() / 1000 } : { t: v, p: tg.id, m: 30 });
+    S.blkAdded = n.id; inp.value = ''; toast(`Added ${short(v)}`); renderDetail(); document.getElementById('bk-add-in')?.focus({ preventScroll: true }); return;
+  }
   if (f.dataset.form === 'step') { if (v) { store.create({ t: v, p: f.dataset.p, m: 30 }); S.col[f.dataset.p] = false; inp.value = ''; renderDetail(); inp.scrollIntoView({ block: 'nearest' }); } else inp.blur(); return; } // Enter on an empty box is done
   if (f.dataset.form === 'new') {
     if (!v) { closeNew(); return; }
