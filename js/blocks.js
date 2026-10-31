@@ -8,6 +8,7 @@ import * as store from './store.js';
 import * as track from './track.js';
 import { add, pd, today, weekStart } from './util.js';
 import { children, hasKids, isDone, leaves, rootOf, targetOf, within } from './tree.js';
+import { weekTarget } from './areaday.js';
 
 const MIN = 60000;
 export const dayOf = b => b.oc || b.d;
@@ -99,5 +100,6 @@ export function week(id, at = today()) {
   const w = weekStart(at), w0 = pd(w).getTime(), w1 = pd(add(w, 7)).getTime(), now = Date.now(); let done = 0, ahead = 0;
   for (const n of store.logged()) if (inArea(n.rs ? store.get(n.rs) || n : n, id)) for (const e of n.tl) done += overlap(e, w0, w1);
   for (let i = 0, d = w; i < 7; i++, d = add(d, 1)) for (const b of store.blocksOn(d)) if (b.s != null && !b.done && inArea(b, id)) { const [a, z] = windowOf(b); if (z > now) ahead += (z - Math.max(a, now)) / MIN; }
-  return { done: Math.round(done), ahead: Math.round(ahead), target: store.get(id)?.wk || null };
+  const a = store.get(id); // hours per day, added up for the week; else the older rough weekly number
+  return { done: Math.round(done), ahead: Math.round(ahead), target: weekTarget(a) || a?.wk || null };
 }

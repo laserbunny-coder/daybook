@@ -4,7 +4,7 @@
 import { admin, cors } from "../_shared/common.ts";
 import { type Db, handle, type Note, type Row } from "./tools.ts";
 
-const COLS = "id,parent_id,title,notes,done,day,start_min,after_min,duration_min,sort,day_sort,color,due,link,kind,area_id,start,milestone,hard_deadline,waits_on,done_at,actual_minutes,time_log,planned,repeat_rule,series_id,occurs_on,focus_on,week_minutes,habit,deleted";
+const COLS = "id,parent_id,title,notes,done,day,start_min,after_min,duration_min,sort,day_sort,color,due,link,kind,area_id,start,milestone,hard_deadline,waits_on,done_at,actual_minutes,time_log,planned,repeat_rule,series_id,occurs_on,focus_on,week_minutes,habit,day_targets,time_pref,deleted";
 
 const NOTE_COLS = "id,author,title,body,link,task_ids,created_at,read_at,kind,project,project_link,resolved_at";
 
@@ -65,6 +65,19 @@ function dbFor(userId: string): Db {
       const { data, error } = await sb.auth.admin.getUserById(userId);
       if (error) throw error;
       const { error: e2 } = await sb.auth.admin.updateUserById(userId, { user_metadata: { ...(data.user?.user_metadata ?? {}), free_hours: hours } });
+      if (e2) throw e2;
+    },
+    // Catch-up hours for any area live with the account too (user_metadata.catch_up, minutes by weekday)
+    async getCatchUp() {
+      const { data, error } = await sb.auth.admin.getUserById(userId);
+      if (error) throw error;
+      const v = data.user?.user_metadata?.catch_up;
+      return v && typeof v === "object" ? v as Record<string, number> : null;
+    },
+    async setCatchUp(v) {
+      const { data, error } = await sb.auth.admin.getUserById(userId);
+      if (error) throw error;
+      const { error: e2 } = await sb.auth.admin.updateUserById(userId, { user_metadata: { ...(data.user?.user_metadata ?? {}), catch_up: v } });
       if (e2) throw e2;
     },
     async listNotes(limit, unreadOnly) {

@@ -1,0 +1,54 @@
+// Daily area targets: each area can have a number of hours for each day of the week (dg, minutes by weekday,
+// such as { mon: 180, wed: 0 }), plus a hint for when in the day it fits best (tp: morning, afternoon or evening).
+// A day's area cards show the target and the time logged so far. Time counts for an area when it's recorded on the
+// area itself (its own ▶, as often as you like in a day), on anything inside it, or on a block for it.
+// A catch-up target (hours on a weekday for any area, kept with the account) collects time beyond the areas' own targets.
+import * as store from './store.js';
+import * as track from './track.js';
+import { add, pd } from './util.js';
+import { rootOf, targetOf } from './tree.js';
+
+export const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+export const ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+export const PREFS = ['morning', 'afternoon', 'evening'];
+const MIN = 60000;
+export const keyOf = d => DAYS[pd(d).getDay()];
+export const areas = () => store.areas();
+export const targetOn = (a, d) => Math.max(0, +(a?.dg?.[keyOf(d)] || 0));
+export const weekTarget = a => a?.dg ? ORDER.reduce((t, k) => t + Math.max(0, +(a.dg[k] || 0)), 0) || null : null;
+
+// Which area an item's time belongs to (a repeat counts where its series lives, a block where its area or project is)
+function areaOf(n) {
+  let h = n.rs ? store.get(n.rs) || n : n;
+  if (h.k === 'block') { h = targetOf(h); if (!h) return null; }
+  const r = rootOf(h);
+  return r.k === 'area' ? r.id : r.ar || null;
+}
+const overlap = (e, a, z) => { const s = Date.parse(e.start), f = e.end ? Date.parse(e.end) : Date.now(); return Math.max(0, Math.min(f, z) - Math.max(s, a)) / MIN; };
+
+/** Time logged on a day, by area: { [areaId]: { min, items: Map(itemId -> min) } }. Guessed stretches count. */
+export function loggedOn(d) {
+  const a = pd(d).getTime(), z = pd(add(d, 1)).getTime(), out = {};
+  for (const n of store.logged()) {
+    const id = areaOf(n); if (!id) continue;
+    let m = 0; for (const e of n.tl) m += overlap(e, a, z);
+    if (m <= 0) continue;
+    const o = out[id] || (out[id] = { min: 0, items: new Map() });
+    o.min += m; const host = n.rs ? n.rs : n.id; o.items.set(host, (o.items.get(host) || 0) + m);
+  }
+  return out;
+}
+/** A day's area cards: every area with a target that day or time logged, morning ones first. */
+export function cardsOn(d, catchUp = {}) {
+  const L = loggedOn(d), k = keyOf(d), pr = a => a.tp ? PREFS.indexOf(a.tp) : 1;
+  const cards = areas().map(a => ({ a, target: targetOn(a, d), min: Math.round(L[a.id]?.min || 0) }))
+    .filter(c => c.target > 0 || c.min > 0)
+    .sort((x, y) => (x.target > 0 ? 0 : 1) - (y.target > 0 ? 0 : 1) || pr(x.a) - pr(y.a) || (x.a.o ?? 0) - (y.a.o ?? 0));
+  const cu = Math.max(0, +(catchUp?.[k] || 0));
+  const extra = Math.round(cards.reduce((t, c) => t + Math.max(0, c.min - c.target), 0));
+  return { cards, catchUp: cu ? { target: cu, min: Math.min(extra, 24 * 60) } : null };
+}
+/** Whether the area's own timer is running (as opposed to a task in it). */
+export const areaRec = id => track.isRec(store.get(id));
+/** Whether anything in the area is recording now. */
+export const live = id => { const r = track.running(); return !!r && areaOf(r) === id; };
