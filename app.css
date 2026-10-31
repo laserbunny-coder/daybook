@@ -403,6 +403,8 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
   .dr-up svg{width:14px;height:14px}
   .dr-b{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:6px;padding:4px 14px 18px}
   .dr-area,.dr-sub{display:flex;align-items:center;gap:8px;font:600 10.5px/1 var(--f-body);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:14px 4px 4px}
+  .dr-blk{border:1px dashed color-mix(in srgb,var(--pc) 55%,transparent);border-radius:12px;padding:10px 12px;margin-top:10px;cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;color:var(--fg)}
+  .dr-blk small{margin-left:auto;font:500 11px/1 var(--f-body);letter-spacing:0;text-transform:none;color:var(--muted)}
   .dr-row{display:flex;align-items:center;gap:12px;min-height:52px;padding:9px 14px;border-radius:16px;background:color-mix(in srgb,var(--fg) 4.5%,transparent);border:1px solid var(--line);cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
   .dr-row .ring{width:20px;height:20px}
   .dr-ck{width:18px;height:18px;flex:none;border-radius:6px;border:1.5px solid color-mix(in srgb,var(--pc) 70%,var(--fg))}
@@ -500,6 +502,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .acct{color:var(--muted);font-weight:500;overflow-wrap:anywhere}
 .sync.offline,.sync.error{color:var(--warn)}
 .foot-acts{display:flex;gap:14px;flex-wrap:wrap;margin-top:2px}
+.foot-set{display:flex;gap:14px;flex-wrap:wrap;margin-top:6px;padding-top:8px;border-top:1px solid var(--line)}
 .tip.warn{background:color-mix(in srgb,var(--warn) 14%,transparent)}
 /* Days gone by fade back, so today is where the plan comes into full strength. Anything left unchecked there
    (red outline) stays at full strength: it still needs dealing with. */
@@ -597,6 +600,7 @@ body.quiet .qh{display:flex;align-items:center;justify-content:center;gap:7px;fl
 body.quiet .qh::after{content:"";width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.8}
 body.quiet .qh:hover,body.quiet.q-strip .qh{color:var(--muted)}
 body.quiet .q-only{display:grid}
+body.quiet .mh .min-btn{display:none} /* Quiet is home: leave it from Projects' settings or with Q */
 /* The header becomes a frosted strip that drops from the day's name */
 body.quiet .main>.mh{position:absolute;top:8px;left:50%;z-index:30;width:max-content;max-width:calc(100% - 24px);justify-content:center;gap:8px 12px;padding:7px 10px;border:1px solid var(--edge);border-radius:22px;
   background:var(--pop);backdrop-filter:blur(24px) saturate(1.2);-webkit-backdrop-filter:blur(24px) saturate(1.2);box-shadow:0 20px 50px -20px rgba(0,0,0,.85);
@@ -1221,6 +1225,12 @@ body.quiet .nb-dot{top:7px;right:7px}
 .ny-marks{display:flex;gap:4px;align-items:center}
 @media (max-width:860px){.ny-line{align-self:stretch;margin:8px 16px 2px;max-width:none}.ny-line .ny-arr{margin-left:auto}}
 /* Quiet: just the marks and the count under the day name, centred */
+.now-line{display:flex;align-items:center;gap:8px;align-self:flex-start;margin:10px 20px 2px;padding:7px 12px;border:1px solid color-mix(in srgb,var(--pc) 45%,transparent);border-radius:10px;background:color-mix(in srgb,var(--pc) 10%,var(--panel));color:var(--muted);font-size:12.5px;line-height:1.2;max-width:calc(100% - 40px);flex:none;cursor:pointer}
+.now-line b{font-weight:600;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.now-line small{color:var(--faint);white-space:nowrap}
+.now-line.on .pdot{box-shadow:0 0 0 4px color-mix(in srgb,var(--pc) 25%,transparent)}
+.now-line .ny-arr{color:var(--faint)}
+body.quiet .now-line{align-self:center;margin:2px auto 6px}
 body.quiet .ny-line{align-self:center;margin:0 auto 6px;border-color:transparent;background:transparent;padding:4px 10px;font-size:11.5px}
 body.quiet .ny-line small,body.quiet .ny-line .ny-arr{display:none}
 body.quiet .ny-line b{font-size:13px}
