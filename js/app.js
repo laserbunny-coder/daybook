@@ -382,7 +382,13 @@ function newHTML() {
   const N = S.new, pc = pickColor(N.p);
   const pos = N.at === 'col' ? `;top:${hpx((N.s - H0 * 60) / 60)};min-height:max(${hpx(N.m / 60)} - 2px, 62px)` : '';
   return `<form class="nt at-${N.at}" data-form="new" style="--pc:${pc}${pos}"><input id="new-in" placeholder="New task" autocomplete="off" enterkeyhint="done" aria-label="New task">
-    <div class="nt-r">${N.s != null ? `<span class="nt-time">${fmtT(N.s)} – ${fmtT(N.s + N.m)}</span>` : ''}<label class="nt-p" title="Put it in an area or a project"><span class="pdot"></span><select id="new-p" aria-label="Project">${projOptions(N.p)}</select></label></div></form>`;
+    <div class="nt-r">${N.s != null ? `<span class="nt-time">${fmtT(N.s)} – ${fmtT(N.s + N.m)}</span>` : ''}<label class="nt-p" title="Put it in an area or a project"><span class="pdot"></span><select id="new-p" aria-label="Project">${projOptions(N.p)}</select></label></div>${N.at === 'col' ? `<div class="nt-blk" id="nt-blk">${ntBlkHTML()}</div>` : ''}</form>`;
+}
+/* Or make the time a focus block instead of a task: one tap on an area, or on the area or project picked above */
+function ntBlkHTML() {
+  const N = S.new, picked = N.p.startsWith('area:') ? N.p.slice(5) : N.p, areas = store.areas();
+  const ids = (picked && node(picked) ? [picked] : []).concat(areas.map(a => a.id).filter(id => id !== picked));
+  return `<span class="nt-blk-l">Block</span>` + ids.map(id => { const t = node(id); return `<button type="button" class="nt-bc" data-act="nt-block" data-id="${id}" style="--pc:${colorOf(t)}" title="Make this a block of time for ${esc(t.t || 'it')}"><span class="pdot"></span>${esc(t.t || 'Untitled')}</button>`; }).join('');
 }
 let newClosed = 0;
 function openNew(o) {
@@ -728,6 +734,8 @@ function fightHTML(d) {
   const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a quest to ${esc(dayShort(d))}"><span aria-hidden="true">+</span> Quest</button>`;
   return fight.html(d, { adder, needs: needLine() });
 }
+// With game modes hidden, the dragon's reminders stop too (they come back with Turn on reminders in Quest)
+const gamesQuiet = () => { if (!S.games && remind.state().act === 'off') remind.disable(() => {}); };
 const beginDragon = () => dragon.begin(user, quest.started() ? quest.realm().vault : 0); // the keep's gold comes along into the hoard
 /* Quest (js/quest.js): the day played against Claude as a dragon. Its + adds a task to that day, like the list's. */
 let QR = null;
@@ -1259,7 +1267,7 @@ function urActs(fresh) {
 function urBtns() {
   const u = store.canUndo(), r = store.canRedo();
   // Quiet's strip always keeps both, dimmed when there's nothing to undo or redo, so the row never shifts
-  if (quiet()) return `<div class="ur"><button class="ib" data-act="ur-undo" aria-label="Undo" title="Undo (Ctrl+Z; Ctrl+Shift+Z redoes)"${u ? '' : ' disabled'}>${ICON.undo}</button></div>`;
+  if (quiet()) return `<div class="ur"><button class="ib" data-act="ur-undo" aria-label="Undo" title="Undo"${u ? '' : ' disabled'}>${ICON.undo}</button><button class="ib" data-act="ur-redo" aria-label="Redo" title="Redo"${r ? '' : ' disabled'}>${ICON.redo}</button></div>`;
   if (!u && !r) return '';
   return `<div class="ur phone-only">${u ? `<button class="ib" data-act="ur-undo" aria-label="Undo">${ICON.undo}</button>` : ''}${r ? `<button class="ib" data-act="ur-redo" aria-label="Redo">${ICON.redo}</button>` : ''}</div>`;
 }
@@ -1454,6 +1462,7 @@ document.addEventListener('click', e => {
     case 'add': S.adding = id; S.new = null; S.col[id] = false; render(); break;
     case 'new-day': if (Date.now() - newClosed > 400) openNew({ at: 'list', d: b.dataset.d }); break;
     case 'tray-all': trayAll = b.dataset.d || null; render(); break;
+    case 'nt-block': { const N = S.new; if (!N) break; const t = node(id), n = t && newBlock(id, N.d, N.s, N.m); S.new = null; newClosed = Date.now(); render(); if (n) toast(`${short(t.t)} time added. Tap it to focus.`); break; }
     case 'new-tray': if (Date.now() - newClosed > 400) openNew({ at: 'tray', d: b.dataset.d }); break;
     case 'new-project': newProject(b.dataset.area); break;
     case 'new-area': newArea(); break;
@@ -1471,7 +1480,7 @@ document.addEventListener('click', e => {
     case 'view': leaveRoad(); S.view = b.dataset.v; if (S.view === 'week' && (S.mode === 'quest' || S.mode === 'dragon')) S.mode = 'list'; W = null; render(); break;
     case 'mode': leaveRoad(); S.cave = false; setMode(b.dataset.v); break;
     case 'min': setQuiet(!S.min); break;
-    case 'games': S.games = !S.games; if (!S.games && (S.mode === 'quest' || S.mode === 'dragon')) S.mode = 'timed'; if (S.games && phone()) quietPlan(); render(); toast(S.games ? 'Quest and Dragon are back in the layout switch' : 'Game modes hidden. Your progress is kept.'); break;
+    case 'games': S.games = !S.games; gamesQuiet(); if (!S.games && (S.mode === 'quest' || S.mode === 'dragon')) S.mode = 'timed'; if (S.games && phone()) quietPlan(); render(); toast(S.games ? 'Quest and Dragon are back in the layout switch' : 'Game modes hidden. Your progress is kept.'); break;
     case 'qstrip': setStrip(!S.qstrip); break;
     case 'qproj': if (!phone()) setQPin(!qPin); else if (qProjects()) { quietPlan(); render(); } else quietProjects(); break;
     case 'prev': case 'next': if (roadShown()) { roadmap.go(a === 'prev' ? -1 : 1); break; } if (statsShown()) { stats.go(a === 'prev' ? -1 : 1); break; } if (qProjects()) { quietPlan(); render(); break; } {
@@ -1576,6 +1585,7 @@ document.addEventListener('focusout', e => { if (e.target.id === 'dt-notes' && S
 document.addEventListener('focusout', e => { if (e.target.id === 'add-in' && !e.target.value.trim()) setTimeout(() => { if (S.adding && !document.activeElement?.matches('#add-in')) { S.adding = null; render(); } }, 150); });
 // Picking a project goes back to the title
 const inNew = el => !!el?.closest?.('form[data-form="new"]');
+document.addEventListener('pointerdown', e => { if (e.target.closest?.('.nt-bc')) e.preventDefault(); });
 document.addEventListener('focusout', e => {
   if (!S.new || !inNew(e.target)) return;
   setTimeout(() => {
@@ -1585,6 +1595,7 @@ document.addEventListener('focusout', e => {
 document.addEventListener('change', e => {
   if (e.target.id !== 'new-p' || !S.new) return;
   S.new.p = e.target.value; e.target.closest('form').style.setProperty('--pc', pickColor(S.new.p));
+  const nb = document.getElementById('nt-blk'); if (nb) nb.innerHTML = ntBlkHTML();
   document.getElementById('new-in')?.focus({ preventScroll: true });
 });
 let savedT;
@@ -1934,7 +1945,7 @@ async function enterCloud(u) {
   user = u; S.demo = false; if (u.user_metadata?.free_hours) S.free = u.user_metadata.free_hours; saveUI(); showWelcome(false);
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; // so Claude reads and writes finish times in local time
   if (tz && u.user_metadata?.tz !== tz) client.auth.updateUser({ data: { tz } }).catch(() => {});
-  calendar.useGoogle(client, u.id); initAI({ cloud: true, client }); notes.useCloud(client, u); quest.init({ client }); fight.init({ client, free: () => +S.free || 10 }); dragon.init({ client }); if (S.games && (S.mode === 'quest' || S.mode === 'dragon' || u.user_metadata?.quest_start)) quest.begin(u); if (S.games && (S.mode === 'dragon' || u.user_metadata?.dragon)) beginDragon(); remind.init(client); routine.init({ client });
+  calendar.useGoogle(client, u.id); initAI({ cloud: true, client }); notes.useCloud(client, u); quest.init({ client }); fight.init({ client, free: () => +S.free || 10 }); dragon.init({ client }); if (S.games && (S.mode === 'quest' || S.mode === 'dragon' || u.user_metadata?.quest_start)) quest.begin(u); if (S.games && (S.mode === 'dragon' || u.user_metadata?.dragon)) beginDragon(); remind.init(client); gamesQuiet(); routine.init({ client });
   render();
   await store.useCloud(client, u);
   calendar.ensure(add(today(), -7), add(today(), 28), true);
