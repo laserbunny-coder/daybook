@@ -2022,3 +2022,7 @@ body.td-shell .td-sbtns .td-pill,.td-sbtns .td-pill{top:auto;right:auto;left:aut
 .td-belly{left:78px}
 .td-host .td-sbtns .td-addslot .td-add:has(form){position:absolute;left:0;top:auto;bottom:0;width:340px;z-index:9}
 .td-say::before{right:70px}
+.td-jp{position:absolute;left:104px;top:0;z-index:5;min-width:26px;height:22px;padding:0 6px;border-radius:11px;border:1.5px solid #fff0c0;background:#c0442a;color:#fff6dc;font:700 12.5px 'Alegreya Sans',sans-serif;line-height:1;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.6)}
+.td-jp[hidden]{display:none}
+.td-jp.on{background:#f2c14e;color:#3a2410;border-color:#3a2410}
+.td-fanned .td-jp{visibility:hidden}
