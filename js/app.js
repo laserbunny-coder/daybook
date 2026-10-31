@@ -16,6 +16,7 @@ import * as routine from './routine.js';
 import * as kingdom from './kingdom.js';
 import * as blocks from './blocks.js';
 import * as aday from './areaday.js';
+import * as habits from './habits.js';
 import { cleanRule, ruleText, splitOcc, WEEK } from './repeat.js';
 import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fd, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
 import { ancestors, blockTitle, children, colorOf, dayItems, glow, hasKids, ink, isBlock, isDone, isProj, leaves, node, PALETTE, progress, rootOf, targetOf, within } from './tree.js';
@@ -65,7 +66,7 @@ const UI_KEY = 'daybook-ui';
 const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), focus: false, pick: null, adding: null, new: null, drOpen: false, drAt: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, notesEdit: false, waitEdit: false, rpEdit: false, scope: 'one', mcp: null };
 S.anchor = today();
 if (!S.games && (S.mode === 'quest' || S.mode === 'dragon')) S.mode = 'timed'; // game modes are tucked away unless switched on in Projects
-const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min, games: S.games, rmZoom: S.rmZoom, free: S.free, catchUp: S.catchUp, stK: S.stK, stCard: S.stCard, cave: S.cave });
+const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min, games: S.games, rmZoom: S.rmZoom, free: S.free, catchUp: S.catchUp, stK: S.stK, stCard: S.stCard, stMode: S.stMode, hbCard: S.hbCard, cave: S.cave });
 let client = null, user = null, configured = false, shown = today(), supaUrl = '';
 
 /* Links on items, such as the Thymer page a task came from */
@@ -238,6 +239,8 @@ function splitMeter(lg, full, target) {
   return `<span class="ad-meter">${parts.map((p, i) => `<i style="width:${p.m / full * 100}%;--sh:${shades[i % shades.length]}%"></i>`).join('')}</span>
     <span class="ad-leg">${parts.slice(0, 3).map((p, i) => `<span style="--sh:${shades[i]}%">${esc(p.n.k === 'area' ? 'General' : short(p.n.t))} ${fmtDur(Math.round(p.m))}</span>`).join('')}${parts.length > 3 ? `<span class="more">+${parts.length - 3}</span>` : ''}${left ? `<span class="more">${fmtDur(Math.round(left))} left</span>` : ''}</span>`;
 }
+// The Habits card, above the area cards (js/habits.js draws it)
+const habitStrip = d => { const h = habits.cardHTML(d, !!S.hbOpen?.[d], S.view === 'week' && d !== today()); return h ? `<div class="ad-strip hb-strip">${h}</div>` : ''; };
 // A day's area cards at the top of its list: target, time logged so far (fills sideways), and the area's own timer
 function areaStrip(d) {
   const { cards, catchUp } = aday.cardsOn(d, S.catchUp); if (!cards.length && !catchUp) return '';
@@ -443,11 +446,11 @@ function dayGaps(d) {
 }
 function listHTML(d) {
   const { E, gaps } = dayGaps(d);
-  const chips = g => g.map(n => chipHTML(n, { time: true, min: S.min })).join('');
+  const chips = g => g.filter(n => !(n.rs && habits.isHabit(n))).map(n => chipHTML(n, { time: true, min: S.min })).join(''); // habits live in their own card
   const all = eventsOn(d).filter(e => e.allDay).map(evRow).join('');
   const body = chips(gaps[0]) + E.map((e, i) => evRow(e) + chips(gaps[i + 1])).join('');
   const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a task to ${esc(dayShort(d))}"><span aria-hidden="true">+</span>${body ? '' : ' Add a task'}</button>`;
-  return `${areaStrip(d)}${all}<div class="list${body ? '' : ' empty'}" data-drop="list" data-date="${d}">${body}${adder}</div>`;
+  return `${habitStrip(d)}${areaStrip(d)}${all}<div class="list${body ? '' : ' empty'}" data-drop="list" data-date="${d}">${body}${adder}</div>`;
 }
 /* Adding a task right on the plan: the + at the end of a day's list, or a tap on an empty time (or the + in the "Any time" row) in Time blocks.
    A small form opens in place with the title ready to type. It goes in the Inbox unless a project is picked. */
@@ -653,10 +656,16 @@ function blocksHTML(d) {
   }).join('');
 }
 function nowHTML(d) { if (d !== today()) return ''; const m = nowMin(); if (m < H0 * 60 || m > H1 * 60) return ''; return `<div class="now" style="top:${hpx((m - H0 * 60) / 60)}"></div>`; }
+// In Time blocks a day's habits without a time fold into one pill in the Any time row; tap it to tick them off there
+function habitPill(d) {
+  const hs = dayItems(d).filter(n => n.rs && n.s == null && habits.isHabit(n)); if (!hs.length) return [];
+  const done = hs.filter(n => n.done).length, open = !!S.hbTray?.[d];
+  return [`<button class="hb-pill${done === hs.length ? ' met' : ''}" data-act="hb-tray" data-d="${d}" aria-expanded="${open}"><span>Habits</span><b>${done} of ${hs.length}</b></button>${open ? `<div class="hb-tray">${habits.cardHTML(d, true)}</div>` : ''}`];
+}
 /* A day's "Any time" tasks. In Week view a day with more than two shows the first and "+N more", which opens the whole list for that day. */
 let trayAll = null;
 function trayHTML(d, week) {
-  const rows = [...eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all"${evTint(e)}>${esc(e.t)}</div>`), ...dayItems(d).filter(n => n.s == null).map(n => chipHTML(n, { compact: week }))];
+  const rows = [...eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all"${evTint(e)}>${esc(e.t)}</div>`), ...habitPill(d), ...dayItems(d).filter(n => n.s == null && !(n.rs && habits.isHabit(n))).map(n => chipHTML(n, { compact: week }))];
   const all = !week || rows.length <= 2 || trayAll === d;
   const more = all ? (week && rows.length > 2 ? `<button class="tmore" data-act="tray-all" data-d="">Show less</button>` : '') : `<button class="tmore" data-act="tray-all" data-d="${d}">+${rows.length - 1} more</button>`;
   const add = S.new?.at === 'tray' && S.new.d === d ? newHTML() : `<button class="tadd" data-act="new-tray" data-d="${d}" aria-label="Add an all-day task to ${esc(dayShort(d))}" title="Add a task for the whole day"><span aria-hidden="true">+</span></button>`;
@@ -745,17 +754,24 @@ function setFree(v) {
 }
 roadmap.init({ S, saveUI, render: () => render(), toast: (...a) => toast(...a) });
 addEventListener('resize', () => { if (roadShown() || statsShown()) later(); });
+// The Habits view of Stats for the range on show, compared with the stretch of the same length just before it
+function habitStats(R) {
+  let { a, b } = R; if (R.k === 'all') a = habits.list().reduce((m, s) => s.d < m ? s.d : m, today());
+  const n = daysBetween(a, b) + 1, prevB = add(a, -1), prevA = add(a, -n);
+  const prevLabel = { day: 'the day before', week: 'the week before', month: 'the month before', year: 'the year before' }[R.k] || `the ${n} days before`;
+  return habits.statsHTML({ a, b, label: R.label, prevA, prevB, prevLabel, sel: S.hbSel, card: S.hbCard, year: S.hbYear });
+}
 /* The Stats page (js/stats.js draws it): hours by area for a range, a row of charts to swipe through, and the year in squares */
 function renderStats(el) {
   const k = stats.KINDS.some(([v]) => v === S.stK) ? S.stK : 'week', R = stats.range(), fixed = k === 'all';
   const prev = document.getElementById('mbody'), sc = prev?.dataset.k === 'stats' ? prev.scrollTop : 0;
   el.innerHTML = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">Stats · ${esc(R.label)}</span></button>` : ''}${qBack()}<header class="mh st-mh">
-    <div class="mh-l">${pageSeg()}<h1 id="mtitle">Stats</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Earlier"${fixed ? ' disabled' : ''}>${ICON.prev}</button><button class="tb" data-act="today"${fixed ? ' disabled' : ''}>${k === 'day' ? 'Today' : 'Now'}</button><button class="ib" data-act="next" aria-label="Later"${fixed ? ' disabled' : ''}>${ICON.next}</button></div>${urBtns()}</div>
+    <div class="mh-l">${pageSeg()}<h1 id="mtitle">Stats</h1><div class="seg st-mode" role="group" aria-label="Show"><button data-act="st-mode" data-v="time" aria-pressed="${S.stMode !== 'habits'}">Time</button><button data-act="st-mode" data-v="habits" aria-pressed="${S.stMode === 'habits'}">Habits</button></div><div class="nav"><button class="ib" data-act="prev" aria-label="Earlier"${fixed ? ' disabled' : ''}>${ICON.prev}</button><button class="tb" data-act="today"${fixed ? ' disabled' : ''}>${k === 'day' ? 'Today' : 'Now'}</button><button class="ib" data-act="next" aria-label="Later"${fixed ? ' disabled' : ''}>${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg st-kinds" role="group" aria-label="Range">${stats.KINDS.map(([v, l]) => `<button data-act="st-k" data-v="${v}" aria-pressed="${k === v}">${l}</button>`).join('')}</div>
     <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
     <button class="ib q-only" data-act="qproj" aria-pressed="${qProjects() || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
-  <div class="mbody st-b vscroll" id="mbody" data-k="stats">${stats.html()}</div>`;
+  <div class="mbody st-b vscroll" id="mbody" data-k="stats">${S.stMode === 'habits' ? habitStats(R) : stats.html()}</div>`;
   document.getElementById('mbody').scrollTop = sc;
   stats.mounted();
 }
@@ -985,6 +1001,7 @@ function renderDetail() {
       ${S.rpEdit ? repeatHTML(n) : ''}
       ${S.waitEdit ? waitPickHTML(n) : ''}
       ${n.p == null && isProj(n) ? swatchesHTML(n) : ''}
+      ${ser?.hb ? habits.detailHTML(ser, S.hbTab) : ''}
       <div class="dt-sec">Notes</div>
       ${n.notes && !S.notesEdit ? `<div class="dt-notes dt-notes-view" data-act="editnotes" role="button" tabindex="0" aria-label="Notes, tap to edit">${linkify(n.notes)}</div>` : `<textarea id="dt-notes" class="dt-notes" placeholder="Thoughts, links, where to start. These will be here when you sit down to do it." aria-label="Notes">${esc(n.notes || '')}</textarea>`}
       <div class="dt-saved" id="dt-saved" aria-live="polite"></div>
@@ -1390,8 +1407,14 @@ function placedText(id, proj = false) {
   const n = node(id); if (!(proj ? isDone(n) : n?.done) || n.s == null) return '';
   return ` · ${fmtT(n.s)}–${fmtT(n.s + (n.m || 60))}${n.tl?.[n.tl.length - 1]?.guess ? ', as planned' : ''}`;
 }
+// A habit is ticked without guessing how long it took, so it never adds hours to its area. Its timer still counts when used.
+function habitTick(id) {
+  const n = node(id); if (!n) return;
+  store.update(n.id, n.done ? { ...track.undonePatch(n), da: null } : { ...track.donePatch(n, false), da: new Date().toISOString() });
+}
 function toggle(id) {
-  const n = node(id); if (n.rs) { check(n); if (node(id)?.done) toast(`${short(n.t)} done${placedText(id)}`); return; } // a repeat is checked off on its own
+  const n = node(id); if (n.rs && habits.isHabit(n)) { habitTick(id); return; }
+  if (n.rs) { check(n); if (node(id)?.done) toast(`${short(n.t)} done${placedText(id)}`); return; } // a repeat is checked off on its own
   const anc = ancestors(n); const before = anc.map(isDone), was = isDone(n);
   if (hasKids(id) || n.c) { const all = isDone(n); store.updateMany(leaves(id).filter(l => !l.c && !l.r).map(l => [l.id, { done: !all }])); }
   else check(n);
@@ -1574,6 +1597,14 @@ document.addEventListener('click', e => {
     case 'st-at': S.stK = b.dataset.k; S.stAt = b.dataset.d; render(); document.getElementById('mbody')?.scrollTo({ top: 0, behavior: 'smooth' }); break;
     case 'st-area': S.stArea = id || null; render(); break;
     case 'st-card': stats.showCard(b.dataset.v); break;
+    case 'st-mode': S.stMode = b.dataset.v; saveUI(); render(); break;
+    case 'hb-tick': habitTick(id); break;
+    case 'hb-open': { const k = b.dataset.d; S.hbOpen = { ...(S.hbOpen || {}), [k]: !S.hbOpen?.[k] }; render(); break; }
+    case 'hb-tray': { const k = b.dataset.d; S.hbTray = { ...(S.hbTray || {}), [k]: !S.hbTray?.[k] }; render(); break; }
+    case 'hb-tab': S.hbTab = b.dataset.v; renderDetail(); break;
+    case 'hb-card': S.hbCard = b.dataset.v; saveUI(); render(); break;
+    case 'hb-sel': S.hbSel = id && S.hbSel !== id ? id : null; render(); break;
+    case 'hb-year': S.hbYear = id; S.hbSel = null; render(); break;
     case 'rm-zoom': roadmap.setZoom(+b.dataset.v); break;
     case 'rm-fold': S.col['rm:' + id] = !S.col['rm:' + id]; saveUI(); render(); break;
     case 'rm-week': S.anchor = b.dataset.d; S.view = 'week'; W = null; leaveRoad(); render(); break;
