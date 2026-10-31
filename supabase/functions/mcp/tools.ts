@@ -44,6 +44,10 @@ export type Row = {
   focus_on?: string | null;
   /** On an area: roughly how many minutes a week the person wants to give it. */
   week_minutes?: number | null;
+  /** An area's target minutes for each weekday, such as { mon: 180, wed: 0 }. */
+  day_targets?: Record<string, number> | null;
+  /** When in the day the area fits best: morning, afternoon or evening (a hint only). */
+  time_pref?: string | null;
   deleted: boolean;
 };
 
@@ -58,6 +62,9 @@ export type Db = {
   /** The Roadmap's free hours per week, null when never set. */
   getFreeHours(): Promise<number | null>;
   setFreeHours(hours: number): Promise<void>;
+  /** Catch-up minutes per weekday for any area (kept with the account, like free hours); null when never set. */
+  getCatchUp(): Promise<Record<string, number> | null>;
+  setCatchUp(v: Record<string, number>): Promise<void>;
   /** The person's time zone (the app records it), such as Europe/Berlin; null if unknown. */
   timeZone(): Promise<string | null>;
   /** Notes left for the person (post_note), newest first. */
@@ -99,6 +106,7 @@ export const INSTRUCTIONS = `Daybook is this person's own task and calendar app.
 - Notes: post_note leaves the person a note they see in the app as a card the next time they open it (unread notes stack into one card), with a button back to the chat it came from, and it stays in their Notes history. Use it to tell them what a scheduled check changed, such as a morning plan check, with a short title, a few lines, the link to this chat, and the ids of the tasks you changed. list_notes reads back what you already told them, and whether they've read it.
 - Needs you: a line on the person's Plan lists what's waiting on them across all their Claude projects, grouped by project, oldest first. When this chat needs them (a decision only they can make, work blocked on them, or something ready for them to review or try), raise_needs_you with one short line, the kind, the Claude project's name, and the link to this chat. A chat has at most one open item: raising again from the same link updates it (blocked → review, say) instead of adding another. clear_needs_you as soon as it no longer needs them, such as once they've answered. list_needs_you shows what's open.
 - Area time: the person prefers to plan blocks of time for a whole area or a big project ("Filmmaking, 9 to 12", every Mon/Wed/Fri) over timing every task. In the app a block opens to the next step of each project in that area, so they pick what to do when they get there, and it fills with the time really worked. list_blocks shows them; add_block, update_block and remove_block change them (a block can repeat like a task). Areas can have rough hours a week (set_area_hours; list_projects shows them with this week's blocked hours). When planning their week, place area blocks around their calendar so each area gets about its hours, and only time single tasks that have a deadline or must happen at a set time. Blocks count as busy time.
+- Daily area targets: each area can have target hours for each day of the week (get_area_targets / set_area_targets), such as Business 3 h on weekdays and Personal 0 on Wednesday, plus a catch-up of hours for any area on some days (such as Saturday 2 h). The app shows a card per area at the top of each day's List with the target and the hours logged so far; the person starts and stops the area's own timer as often as they like, and time on any task, project or block in the area counts too. time_pref (morning, afternoon, evening) is only a hint for when it fits. get_area_progress shows, per day and area, the target, the hours logged and which tasks the time went to: use it to see how the days really went before planning.
 - Say what you changed in plain words, since the person sees your reply, not the tool calls.`;
 
 const str = (description: string) => ({ type: "string", description });
@@ -336,6 +344,32 @@ export const TOOLS = [
     title: "Set an area's hours a week",
     description: "Sets roughly how many hours a week the person wants to give an area. The app shows each area's week as hours worked and still blocked against this. 0 clears it.",
     inputSchema: { type: "object", required: ["area", "hours"], properties: { area: str("The area, by name."), hours: { type: "number", description: "Hours a week, 0 to 80, halves allowed. 0 clears it." } } },
+  },
+  {
+    name: "get_area_targets",
+    title: "Get daily area targets",
+    description: "Lists each area's target hours for each day of the week, its weekly total, and when in the day it fits best (a hint), plus the catch-up hours for any area.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "set_area_targets",
+    title: "Set daily area targets",
+    description: "Sets an area's target hours for days of the week, and/or when in the day it fits best. Only the days you pass change; 0 means no target that day. To set the catch-up hours for any area instead, pass area \"catch-up\".",
+    inputSchema: {
+      type: "object",
+      required: ["area"],
+      properties: {
+        area: str("The area, by name, or \"catch-up\" for the catch-up hours that count time in any area beyond its own target."),
+        days: { type: "object", description: "Hours by weekday, such as {\"mon\": 3, \"wed\": 0, \"sat\": 2}. Keys mon, tue, wed, thu, fri, sat, sun; also \"weekdays\", \"weekend\" or \"every_day\" to set several at once (a single day given too wins). Hours 0 to 16, halves allowed.", additionalProperties: { type: "number" } },
+        time_pref: { type: ["string", "null"], enum: ["morning", "afternoon", "evening", null], description: "When in the day it fits best (a hint only); null clears it. Not for catch-up." },
+      },
+    },
+  },
+  {
+    name: "get_area_progress",
+    title: "Get area progress by day",
+    description: "For each day from from to to (at most 62 days) and each area: the target hours, the hours logged (time recorded on the area itself, on anything in it, and on blocks for it), and which tasks or projects the time went to. Also each day's catch-up target and the hours counted toward it (time beyond each area's own target).",
+    inputSchema: { type: "object", required: ["from", "to"], properties: { from: str("First day, YYYY-MM-DD."), to: str("Last day, YYYY-MM-DD.") } },
   },
   {
     name: "update_item",
@@ -760,7 +794,7 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
   if (["raise_needs_you", "clear_needs_you", "list_needs_you"].includes(name)) return runNeeds(name, args, db);
   if (name === "set_free_hours") { const h = hoursArg(args.hours); await db.setFreeHours(h); return { free_hours_per_week: h }; }
   const t = new Tree(await db.load());
-  if (["list_tasks", "list_projects", "get_item", "update_item", "add_task", "post_note", "list_notes"].includes(name)) t.tz = await db.timeZone();
+  if (["list_tasks", "list_projects", "get_item", "update_item", "add_task", "post_note", "list_notes", "get_area_progress"].includes(name)) t.tz = await db.timeZone();
   const today = () => zoned(Date.now(), t.tz).date;
   switch (name) {
     case "get_free_hours": {
@@ -870,6 +904,8 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
     }
     case "list_blocks": case "add_block": case "update_block": case "remove_block": case "set_area_hours":
       return runBlocks(name, args, t, db, today());
+    case "get_area_targets": case "set_area_targets": case "get_area_progress":
+      return runTargets(name, args, t, db);
     case "update_item": {
       const r = { ...t.get(args.id) };
       const changed: Row[] = [];
@@ -1043,6 +1079,119 @@ async function runBlocks(name: string, args: Record<string, unknown>, t: Tree, d
     }
   }
   throw new Bad(`Unknown tool ${name}`);
+}
+
+/* Daily area targets */
+const WDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const WORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+const hoursOf = (m: number) => Math.round(m / 6) / 10;
+function daysArg(v: unknown): Record<string, number> {
+  if (!v || typeof v !== "object" || Array.isArray(v)) throw new Bad("days must be an object of hours by weekday, such as {\"mon\": 3, \"sat\": 2}.");
+  const out: Record<string, number> = {}, put = (keys: string[], h: unknown) => {
+    const n = typeof h === "string" ? Number(h) : h;
+    if (typeof n !== "number" || !isFinite(n) || n < 0 || n > 16) throw new Bad("Each day's hours must be a number from 0 to 16.");
+    for (const k of keys) out[k] = Math.round(n * 2) * 30;
+  };
+  const e = v as Record<string, unknown>;
+  const group: Record<string, string[]> = { every_day: WORDER, weekdays: WORDER.slice(0, 5), weekend: ["sat", "sun"] };
+  for (const g of ["every_day", "weekdays", "weekend"]) if (g in e) put(group[g], e[g]);
+  for (const [k, h] of Object.entries(e)) {
+    if (k in group) continue;
+    const key = k.trim().toLowerCase().slice(0, 3);
+    if (!WDAYS.includes(key)) throw new Bad(`Unknown day ${JSON.stringify(k)}. Use mon, tue, wed, thu, fri, sat, sun, weekdays, weekend or every_day.`);
+    put([key], h);
+  }
+  return out;
+}
+const weekdayOf = (d: string) => WDAYS[new Date(d + "T12:00:00Z").getUTCDay()];
+const byDay = (dg: Record<string, number> | null | undefined) => Object.fromEntries(WORDER.map((k) => [k, hoursOf(Math.max(0, dg?.[k] ?? 0))]));
+
+async function runTargets(name: string, args: Record<string, unknown>, t: Tree, db: Db): Promise<unknown> {
+  const catchName = (v: unknown) => typeof v === "string" && /^catch[\s-]?up$/i.test(v.trim());
+  if (name === "get_area_targets") {
+    const cu = await db.getCatchUp();
+    return {
+      areas: t.areas.map((a) => {
+        const d = byDay(a.day_targets), week = Object.values(d).reduce((x, y) => x + y, 0);
+        return { area: a.title, area_id: a.id, hours_by_day: d, hours_a_week: week, ...(a.time_pref ? { time_pref: a.time_pref } : {}) };
+      }),
+      catch_up: { hours_by_day: byDay(cu), note: "Hours on these days for any area; time beyond each area's own target counts toward it." },
+    };
+  }
+  if (name === "set_area_targets") {
+    if (catchName(args.area)) {
+      const cu = { ...(await db.getCatchUp() ?? {}), ...(args.days !== undefined ? daysArg(args.days) : {}) };
+      await db.setCatchUp(cu);
+      return { catch_up: { hours_by_day: byDay(cu) } };
+    }
+    const a = { ...t.area(args.area) };
+    if (args.days !== undefined) a.day_targets = { ...(a.day_targets ?? {}), ...daysArg(args.days) };
+    if (args.time_pref !== undefined) {
+      if (args.time_pref !== null && !["morning", "afternoon", "evening"].includes(String(args.time_pref))) throw new Bad("time_pref must be morning, afternoon, evening or null.");
+      a.time_pref = (args.time_pref as string | null) ?? null;
+    }
+    if (args.days === undefined && args.time_pref === undefined) throw new Bad("Pass days, time_pref or both.");
+    await db.save([a]);
+    const d = byDay(a.day_targets);
+    return { area: a.title, hours_by_day: d, hours_a_week: Object.values(d).reduce((x, y) => x + y, 0), ...(a.time_pref ? { time_pref: a.time_pref } : {}) };
+  }
+  // get_area_progress
+  const from = dayArg(args.from, "from"), to = dayArg(args.to, "to");
+  if (to < from) throw new Bad("to is before from.");
+  const days: string[] = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) { days.push(d); if (days.length > 62) throw new Bad("At most 62 days at a time."); }
+  const all = new Map(t.raw.map((r) => [r.id, r]));
+  const areaIdOf = (r: Row): string | null => {
+    let h: Row | undefined = r.series_id ? all.get(r.series_id) ?? r : r;
+    if (h.kind === "block") h = h.focus_on ? all.get(h.focus_on) : undefined;
+    for (let i = 0; h && i < 50; i++) {
+      if (h.kind === "area") return h.id;
+      if (!h.parent_id) return h.area_id ?? null;
+      h = all.get(h.parent_id);
+    }
+    return null;
+  };
+  const nameOf = (r: Row) => { const h = r.series_id ? all.get(r.series_id) ?? r : r; return h.kind === "area" ? "(the area itself)" : h.kind === "block" ? `${all.get(h.focus_on ?? "")?.title ?? "?"} block` : h.title; };
+  const projOf = (r: Row) => { let h: Row | undefined = r.series_id ? all.get(r.series_id) ?? r : r; let top: Row | undefined; for (let i = 0; h && h.parent_id && i < 50; i++) { h = all.get(h.parent_id); if (h) top = h; } return top && top.kind !== "area" ? top.title : undefined; };
+  // minutes by day, area, item
+  const L = new Map<string, Map<string, Map<string, number>>>();
+  const start = Date.parse(from + "T00:00:00Z") - 36 * 3600000, end = Date.parse(addDays(to, 1) + "T00:00:00Z") + 36 * 3600000;
+  for (const r of t.raw) {
+    if (!r.time_log?.length || (r.deleted && !r.occurs_on)) continue;
+    const aid = areaIdOf(r); if (!aid) continue;
+    const key = r.series_id && all.get(r.series_id) ? r.series_id : r.id;
+    for (const e of r.time_log) {
+      let a = Date.parse(e.start); const b = e.end ? Date.parse(e.end) : Date.now();
+      if (!(b > a) || b < start || a > end) continue;
+      while (a < b) { // split at the person's local midnights
+        const z = zoned(a, t.tz), next = Date.parse(addDays(z.date, 1) + "T00:00:00Z") - z.off * 60000, c = Math.min(b, next > a ? next : b);
+        if (z.date >= from && z.date <= to) {
+          const dm = L.get(z.date) ?? new Map(); L.set(z.date, dm);
+          const am = dm.get(aid) ?? new Map(); dm.set(aid, am);
+          am.set(key, (am.get(key) ?? 0) + (c - a) / 60000);
+        }
+        a = c;
+      }
+    }
+  }
+  const cu = await db.getCatchUp();
+  return {
+    time_zone: t.tz ?? "UTC",
+    days: days.map((d) => {
+      const wd = weekdayOf(d), dm = L.get(d) ?? new Map<string, Map<string, number>>();
+      let extra = 0;
+      const areas = t.areas.map((a) => {
+        const target = Math.max(0, a.day_targets?.[wd] ?? 0), items = dm.get(a.id) ?? new Map<string, number>();
+        const logged = [...items.values()].reduce((x, y) => x + y, 0);
+        extra += Math.max(0, logged - target);
+        if (!target && logged < 1) return null;
+        const tasks = [...items.entries()].filter(([, m]) => m >= 1).sort((x, y) => y[1] - x[1]).map(([id, m]) => { const r = all.get(id)!; const p = projOf(r); return { id, title: nameOf(r), ...(p ? { project: p } : {}), hours: hoursOf(m) }; });
+        return { area: a.title, target_hours: hoursOf(target), logged_hours: hoursOf(logged), ...(a.time_pref ? { time_pref: a.time_pref } : {}), tasks };
+      }).filter(Boolean);
+      const cuT = Math.max(0, cu?.[wd] ?? 0);
+      return { date: d, weekday: wd, areas, ...(cuT ? { catch_up: { target_hours: hoursOf(cuT), counted_hours: hoursOf(extra) } } : {}) };
+    }),
+  };
 }
 
 export async function handle(msg: Rpc, db: Db): Promise<unknown | null> {
