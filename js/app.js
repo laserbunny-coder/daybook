@@ -66,7 +66,7 @@ const UI_KEY = 'daybook-ui';
 const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), focus: false, pick: null, adding: null, new: null, drOpen: false, drAt: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, notesEdit: false, waitEdit: false, rpEdit: false, scope: 'one', mcp: null };
 S.anchor = today();
 if (!S.games && (S.mode === 'quest' || S.mode === 'dragon')) S.mode = 'timed'; // game modes are tucked away unless switched on in Projects
-const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min, games: S.games, rmZoom: S.rmZoom, free: S.free, catchUp: S.catchUp, stK: S.stK, stCard: S.stCard, stMode: S.stMode, hbCard: S.hbCard, cave: S.cave });
+const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min, games: S.games, rmZoom: S.rmZoom, free: S.free, stK: S.stK, stCard: S.stCard, stMode: S.stMode, hbCard: S.hbCard, cave: S.cave });
 let client = null, user = null, configured = false, shown = today(), supaUrl = '';
 
 /* Links on items, such as the Thymer page a task came from */
@@ -175,7 +175,7 @@ function blkStep(n, big = false) {
   return `<div class="bk-step${n.done ? ' done' : ''}${big ? ' big' : ''}" style="--pc:${colorOf(n)}">${ckHTML(n)}<button class="bk-t" data-act="open" data-id="${n.id}">${esc(n.t || 'Untitled')}${n.notes ? ICON.note : ''}</button>${n.d ? `<span class="when set">${whenLabel(n)}</span>` : ''}<button class="rec-b${on ? ' on' : ''}" data-act="rec" data-id="${r.id}" aria-label="${on ? 'Stop recording' : 'Record time on'} ${esc(r.t || 'this')}" title="${on ? 'Stop' : `Record time on ${esc(r.t || 'this')}`}">${on ? ICON.stop : ICON.play}</button></div>`;
 }
 /* A day of an area with a daily target, opened from its card in the List: works like a block for the whole area and day,
-   with the area's own timer. Its id is day:<area id>:<date>; the catch-up for any area is day:catch:<date>. */
+   with the area's own timer. Its id is day:<area id>:<date>. */
 function virtualOf(id) {
   if (typeof id !== 'string' || !id.startsWith('day:')) return null;
   const [, aid, d] = id.split(':'), a = node(aid); if (!a || a.k !== 'area' || !d) return null;
@@ -231,26 +231,6 @@ function habitSave() {
   const n = store.create({ t, ar: h.ar || null, d: today(), r: cleanRule({ ...r, mins: h.hm || 0 }, today()), hb: true, m: h.hm || 15 });
   S.hbNew = null; S.open = null; toast(`Added ${short(t)}`); render(); return n;
 }
-// The catch-up for any area: time beyond each area's own target that day counts toward it
-function catchDetail(el, d, same) {
-  const { cards, catchUp } = aday.cardsOn(d, S.catchUp), cu = catchUp || { target: 0, min: 0 }, f = cu.target ? Math.min(1, cu.min / cu.target) : 0, isT = d === today();
-  const r = track.running();
-  setDetail(el, `<div class="dt-back" data-act="close"></div>
-  <section class="dt blk${same ? ' still' : ''}" role="dialog" aria-modal="true" aria-label="Catch-up" style="--pc:var(--accent);--f:${f}">
-    <div class="dt-top"><button class="dt-up" data-act="close">${ICON.prev}<span>Back</span></button><button class="ib" data-act="close" aria-label="Close">${ICON.close}</button></div>
-    <div class="dt-body vscroll" data-id="day:catch:${d}">
-      <div class="dt-kind"><span class="pdot"></span>Catch-up · any area</div>
-      <div class="dt-head"><div class="bk-title">Catch-up</div></div>
-      <div class="bk-when">${isT ? 'Today' : `${DAYL[pd(d).getDay()]} ${fmtShort(d)}`}</div>
-      <div class="bk-fill"><div class="bk-bar"><i></i></div><span>${fmtDur(cu.min)} of ${fmtDur(cu.target)}</span></div>
-      <div class="dt-note">Time in any area beyond its own target for the day counts here. Pick an area to start its timer.</div>
-      <div class="ad-pick">${aday.areas().map(a => { const on = track.isRec(a); const c = cards.find(x => x.a.id === a.id);
-        return `<div class="ad-row" style="--pc:${colorOf(a)}"><span class="pdot"></span><button class="ad-n" data-act="open" data-id="day:${a.id}:${d}">${esc(a.t || 'Untitled area')}</button><span class="ad-m">${c ? fmtDur(c.min) : '0m'}</span>${isT ? `<button class="rec-b${on ? ' on' : ''}" data-act="rec" data-id="${a.id}" aria-label="${on ? 'Stop' : 'Start'} ${esc(a.t)}">${on ? ICON.stop : ICON.play}</button>` : ''}</div>`; }).join('')}</div>
-      <div class="dt-meta">${oneDaySelect('cuo', S.catchUp, d)}</div>
-      <div class="dt-sec">Catch-up hours</div>
-      <div class="ad-grid">${aday.ORDER.map(k => adSelect('cu-' + k, (S.catchUp || {})[k] || 0, k)).join('')}</div>
-    </div></section>`);
-}
 const AD_HRS = [0, 30, 60, 90, 120, 150, 180, 240, 300, 360, 480];
 // Hours for one date only, in place of that weekday's usual hours
 function oneDaySelect(id, o, d) {
@@ -276,12 +256,11 @@ function splitMeter(lg, full, target) {
 const habitStrip = d => { const h = habits.cardHTML(d, !!S.hbOpen?.[d], S.view === 'week' && d !== today()); return h ? `<div class="ad-strip hb-strip">${h}</div>` : ''; };
 // A day's area cards at the top of its list: target, time logged so far (fills sideways), and the area's own timer
 function areaStrip(d) {
-  const { cards, catchUp } = aday.cardsOn(d, S.catchUp); if (!cards.length && !catchUp) return '';
+  const cards = aday.cardsOn(d); if (!cards.length) return '';
   const isT = d === today(), L = aday.loggedOn(d);
   const card = c => { const a = c.a, on = track.isRec(a), lv = aday.live(a.id) && isT, f = c.target ? Math.min(1, c.min / c.target) : c.min ? 1 : 0;
     return `<div class="ad-card${lv ? ' live' : ''}${c.target && c.min >= c.target ? ' met' : ''}" style="--pc:${colorOf(a)};--f:${f}"><button class="ad-main" data-act="open" data-id="day:${a.id}:${d}"><span class="ad-t">${esc(a.t || 'Untitled area')}</span><span class="ad-s">${lv ? '<span class="ad-dot"></span>' : ''}<b>${fmtDur(c.min)}</b>${c.target ? ` of ${fmtDur(c.target)}` : ' logged'}${a.tp ? ` · ${a.tp}` : ''}</span>${splitMeter(L[a.id], Math.max(c.target, c.min), c.target)}</button>${isT ? `<button class="rec-b${on ? ' on' : ''}" data-act="rec" data-id="${a.id}" aria-label="${on ? 'Stop' : 'Start'} ${esc(a.t)} time" title="${on ? 'Stop' : `Start ${esc(a.t)} time`}">${on ? ICON.stop : ICON.play}</button>` : ''}</div>`; };
-  const cu = catchUp ? `<div class="ad-card cu" style="--pc:var(--accent);--f:${Math.min(1, catchUp.min / catchUp.target)}"><button class="ad-main" data-act="open" data-id="day:catch:${d}"><span class="ad-t">Catch-up</span><span class="ad-s"><b>${fmtDur(catchUp.min)}</b> of ${fmtDur(catchUp.target)} · any area</span></button></div>` : '';
-  return `<div class="ad-strip">${cards.map(card).join('')}${cu}</div>`;
+  return `<div class="ad-strip">${cards.map(card).join('')}</div>`;
 }
 /** Whether a block for this item's area or project is on right now (then its tasks can record on their own). */
 const inBlockNow = n => store.blocksOn(today()).some(b => !b.done && blocks.isNow(b) && within(n, b.fo));
@@ -766,7 +745,7 @@ const roadBtn = () => `<button class="ib q-only" data-act="road" aria-pressed="$
 const qBack = () => quiet() && (roadShown() || statsShown() || qProjects()) ? `<button class="qback" data-act="qback" aria-label="Back to the plan" title="Back to the plan (Esc)">${ICON.prev}<span>Plan</span></button>` : '';
 function renderRoad(el) {
   const first = !document.getElementById('rmsc');
-  if (first && client && user) client.auth.getUser().then(({ data }) => { const md = data?.user?.user_metadata || {}, v = +md.free_hours; if (v > 0 && v !== +S.free) { S.free = v; saveUI(); later(); } if (md.catch_up && JSON.stringify(md.catch_up) !== JSON.stringify(S.catchUp || null)) { S.catchUp = md.catch_up; saveUI(); later(); } }).catch(() => {}); // set on another device, or by Claude
+  if (first && client && user) client.auth.getUser().then(({ data }) => { const md = data?.user?.user_metadata || {}, v = +md.free_hours; if (v > 0 && v !== +S.free) { S.free = v; saveUI(); later(); } }).catch(() => {}); // set on another device, or by Claude
   const z = S.rmZoom in { 1: 1, 3: 1, 6: 1 } ? +S.rmZoom : 3, free = +S.free > 0 ? +S.free : 10;
   const head = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">Roadmap</span></button>` : ''}${qBack()}<header class="mh rm-mh">
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">Roadmap</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Earlier">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Later">${ICON.next}</button></div>${urBtns()}</div>
@@ -988,9 +967,9 @@ function renderDetail() {
   const el = document.getElementById('detail'); let n = S.open && node(S.open);
   if (!n && typeof S.open === 'string' && S.open.startsWith('day:')) {
     const body0 = el.querySelector('.dt-body'), same0 = !el.hidden && body0?.dataset.id === S.open, sc = same0 ? body0.scrollTop : 0, [, aid, d] = S.open.split(':');
-    const v = aid === 'catch' ? null : virtualOf(S.open);
-    if (aid !== 'catch' && !v) { S.open = null; el.hidden = true; el.innerHTML = ''; return; }
-    el.hidden = false; if (v) blockDetail(el, v, same0); else catchDetail(el, d, same0); el.querySelector('.dt-body').scrollTop = sc; return;
+    const v = virtualOf(S.open);
+    if (!v) { S.open = null; el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false; blockDetail(el, v, same0); el.querySelector('.dt-body').scrollTop = sc; return;
   }
   if (S.open === 'hb:new') { const b0 = el.querySelector('.dt-body'), keep = !el.hidden && b0?.dataset.id === 'hb:new'; el.hidden = false; habitNewDetail(el, keep); return; }
   if (!n && S.open) { const o = splitOcc(S.open); if (o && node(o[0])) { S.open = o[0]; n = node(o[0]); } } // a repeat that's gone (its rule changed): show its series
@@ -1797,11 +1776,6 @@ document.addEventListener('change', e => {
   if (t.id === 'st-from' || t.id === 'st-to') { if (t.value) { S[t.id === 'st-from' ? 'stFrom' : 'stTo'] = t.value; render(); } return; }
   if (t.id === 'tl-day' || t.id === 'tl-s' || t.id === 'tl-e') { saveStretch(); return; }
   if (t.id === 'ado' && S.open?.startsWith('day:')) { const [, aid, d] = S.open.split(':'), a = node(aid); if (a) store.update(aid, { dg: withDay(a.dg, d, t.value) }); return; }
-  if (t.id.startsWith('cu-') || t.id === 'cuo') { // catch-up hours, kept with the account like free hours
-    S.catchUp = t.id === 'cuo' ? withDay(S.catchUp, S.open.split(':')[2], t.value) : { ...(S.catchUp || {}), [t.id.slice(3)]: +t.value || 0 }; saveUI();
-    if (client && user) client.auth.updateUser({ data: { catch_up: S.catchUp } }).catch(() => {});
-    render(); renderDetail(); return;
-  }
   const n = S.open && node(S.open); if (!n) return;
   if (t.id === 'dt-title') { if (!n.t.trim()) edit(n.id, { t: n.k === 'area' ? 'New area' : n.c ? 'New project' : 'Untitled' }); else store.updateMany([]); }
   if (t.id === 'dt-area') store.update(n.id, { ar: t.value || null });
@@ -2137,7 +2111,7 @@ function enterDemo() {
   initAI({ cloud: false, client: null }); quest.init({ client: null }); fight.init({ client: null, free: () => +S.free || 10 }); remind.init(null); routine.init({ client: null }); if (S.games && (S.mode === 'quest' || S.mode === 'dragon')) quest.begin(null); if (S.games && S.mode === 'dragon') beginDragon(); render();
 }
 async function enterCloud(u) {
-  user = u; S.demo = false; if (u.user_metadata?.free_hours) S.free = u.user_metadata.free_hours; if (u.user_metadata?.catch_up) S.catchUp = u.user_metadata.catch_up; saveUI(); showWelcome(false);
+  user = u; S.demo = false; if (u.user_metadata?.free_hours) S.free = u.user_metadata.free_hours; saveUI(); showWelcome(false);
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; // so Claude reads and writes finish times in local time
   if (tz && u.user_metadata?.tz !== tz) client.auth.updateUser({ data: { tz } }).catch(() => {});
   calendar.useGoogle(client, u.id); initAI({ cloud: true, client }); notes.useCloud(client, u); quest.init({ client }); fight.init({ client, free: () => +S.free || 10 }); dragon.init({ client }); if (S.games && (S.mode === 'quest' || S.mode === 'dragon' || u.user_metadata?.quest_start)) quest.begin(u); if (S.games && (S.mode === 'dragon' || u.user_metadata?.dragon)) beginDragon(); remind.init(client); gamesQuiet(); routine.init({ client });

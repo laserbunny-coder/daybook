@@ -64,9 +64,6 @@ export type Db = {
   /** The Roadmap's free hours per week, null when never set. */
   getFreeHours(): Promise<number | null>;
   setFreeHours(hours: number): Promise<void>;
-  /** Catch-up minutes per weekday for any area (kept with the account, like free hours); null when never set. */
-  getCatchUp(): Promise<Record<string, number> | null>;
-  setCatchUp(v: Record<string, number>): Promise<void>;
   /** The person's time zone (the app records it), such as Europe/Berlin; null if unknown. */
   timeZone(): Promise<string | null>;
   /** Notes left for the person (post_note), newest first. */
@@ -108,7 +105,7 @@ export const INSTRUCTIONS = `Daybook is this person's own task and calendar app.
 - Notes: post_note leaves the person a note they see in the app as a card the next time they open it (unread notes stack into one card), with a button back to the chat it came from, and it stays in their Notes history. Use it to tell them what a scheduled check changed, such as a morning plan check, with a short title, a few lines, the link to this chat, and the ids of the tasks you changed. list_notes reads back what you already told them, and whether they've read it.
 - Needs you: a line on the person's Plan lists what's waiting on them across all their Claude projects, grouped by project, oldest first. When this chat needs them (a decision only they can make, work blocked on them, or something ready for them to review or try), raise_needs_you with one short line, the kind, the Claude project's name, and the link to this chat. A chat has at most one open item: raising again from the same link updates it (blocked → review, say) instead of adding another. clear_needs_you as soon as it no longer needs them, such as once they've answered. list_needs_you shows what's open.
 - Area time: the person prefers to plan blocks of time for a whole area or a big project ("Filmmaking, 9 to 12", every Mon/Wed/Fri) over timing every task. In the app a block opens to the next step of each project in that area, so they pick what to do when they get there, and it fills with the time really worked. list_blocks shows them; add_block, update_block and remove_block change them (a block can repeat like a task). Areas can have rough hours a week (set_area_hours; list_projects shows them with this week's blocked hours). When planning their week, place area blocks around their calendar so each area gets about its hours, and only time single tasks that have a deadline or must happen at a set time. Blocks count as busy time.
-- Daily area targets: each area can have target hours for each day of the week (get_area_targets / set_area_targets), such as Business 3 h on weekdays and Personal 0 on Wednesday, plus a catch-up of hours for any area on some days (such as Saturday 2 h). The app shows a card per area at the top of each day's List with the target and the hours logged so far; the person starts and stops the area's own timer as often as they like, and time on any task, project or block in the area counts too. A single date can override its weekday's hours (set_area_targets with date and hours, such as a lighter Friday before a trip); progress and the app use the override for that day. time_pref (morning, afternoon, evening) is only a hint for when it fits. get_area_progress shows, per day and area, the target, the hours logged and which tasks the time went to: use it to see how the days really went before planning.
+- Daily area targets: each area can have target hours for each day of the week (get_area_targets / set_area_targets), such as Business 3 h on weekdays and Personal 0 on Wednesday. To make up for a slow week, raise an area's hours for one date or add a block for it; there is no separate catch-up. The app shows a card per area at the top of each day's List with the target and the hours logged so far; the person starts and stops the area's own timer as often as they like, and time on any task, project or block in the area counts too. A single date can override its weekday's hours (set_area_targets with date and hours, such as a lighter Friday before a trip); progress and the app use the override for that day. time_pref (morning, afternoon, evening) is only a hint for when it fits. get_area_progress shows, per day and area, the target, the hours logged and which tasks the time went to: use it to see how the days really went before planning.
 - Order: every item has a place among its siblings (a project's steps; the projects and standalone tasks of an area; the inbox). position is its place, from 1, and sort is the number that keeps it there; the app's lists show the same order. Lists under a project or area come back in that order. reorder_items puts a project's steps or an area's items in a new order; update_item's position moves one item (first, last, or after another). Priority is an item's rank in its area, counting its projects and standalone tasks together (1 is first), so a standalone task can come before a project; set_project_priority changes it, and it's the order the person sees when dragging in the app's area lists.
 - get_next_task gives what to work on next in an area or project: the first open step in order that isn't waiting on something unfinished or planned for a later day (for an area: its projects and standalone tasks in priority order). A project waiting on something unfinished is skipped as a whole, and the two after it. The app shows the same next task on each area block in List view.
 - A task marked habit (usually a repeating one, such as a daily walk) still shows on its days, but its time doesn't count toward the week's scheduled hours or get_free_hours.
@@ -357,20 +354,20 @@ export const TOOLS = [
   {
     name: "get_area_targets",
     title: "Get daily area targets",
-    description: "Lists each area's target hours for each day of the week, its weekly total, and when in the day it fits best (a hint), plus the catch-up hours for any area.",
+    description: "Lists each area's target hours for each day of the week, its weekly total, and when in the day it fits best (a hint).",
     inputSchema: { type: "object", properties: {} },
   },
   {
     name: "set_area_targets",
     title: "Set daily area targets",
-    description: "Sets an area's target hours for days of the week, and/or when in the day it fits best. Only the days you pass change; 0 means no target that day. With date and hours instead, sets the target for that one date only, replacing that weekday's usual hours for that day (hours null removes the override). To set the catch-up hours for any area instead, pass area \"catch-up\".",
+    description: "Sets an area's target hours for days of the week, and/or when in the day it fits best. Only the days you pass change; 0 means no target that day. With date and hours instead, sets the target for that one date only, replacing that weekday's usual hours for that day (hours null removes the override).",
     inputSchema: {
       type: "object",
       required: ["area"],
       properties: {
-        area: str("The area, by name, or \"catch-up\" for the catch-up hours that count time in any area beyond its own target."),
+        area: str("The area, by name."),
         days: { type: "object", description: "Hours by weekday, such as {\"mon\": 3, \"wed\": 0, \"sat\": 2}. Keys mon, tue, wed, thu, fri, sat, sun; also \"weekdays\", \"weekend\" or \"every_day\" to set several at once (a single day given too wins). Hours 0 to 16, halves allowed.", additionalProperties: { type: "number" } },
-        time_pref: { type: ["string", "null"], enum: ["morning", "afternoon", "evening", null], description: "When in the day it fits best (a hint only); null clears it. Not for catch-up." },
+        time_pref: { type: ["string", "null"], enum: ["morning", "afternoon", "evening", null], description: "When in the day it fits best (a hint only); null clears it." },
         date: str("A single date, YYYY-MM-DD, to override: its target becomes hours, in place of that weekday's usual hours, for that day only."),
         hours: { type: ["number", "null"], description: "With date: hours for that date only (0 to 16, halves allowed; 0 means no target that day). null removes the override so the weekday's usual hours apply again." },
       },
@@ -379,7 +376,7 @@ export const TOOLS = [
   {
     name: "get_area_progress",
     title: "Get area progress by day",
-    description: "For each day from from to to (at most 62 days) and each area: the target hours, the hours logged (time recorded on the area itself, on anything in it, and on blocks for it), and which tasks or projects the time went to. Also each day's catch-up target and the hours counted toward it (time beyond each area's own target).",
+    description: "For each day from from to to (at most 62 days) and each area: the target hours, the hours logged (time recorded on the area itself, on anything in it, and on blocks for it), and which tasks or projects the time went to.",
     inputSchema: { type: "object", required: ["from", "to"], properties: { from: str("First day, YYYY-MM-DD."), to: str("Last day, YYYY-MM-DD.") } },
   },
   {
@@ -1309,29 +1306,16 @@ async function runTargets(name: string, args: Record<string, unknown>, t: Tree, 
     for (const k of Object.keys(x)) if (/^\d{4}-/.test(k) && k < cut) delete x[k];
     return { x, d };
   };
-  const catchName = (v: unknown) => typeof v === "string" && /^catch[\s-]?up$/i.test(v.trim());
   if (name === "get_area_targets") {
-    const cu = await db.getCatchUp();
     return {
       areas: t.areas.map((a) => {
         const d = byDay(a.day_targets), week = Object.values(d).reduce((x, y) => x + y, 0);
         const ov = overridesOf(a.day_targets, todayStr);
         return { area: a.title, area_id: a.id, hours_by_day: d, hours_a_week: week, ...(a.time_pref ? { time_pref: a.time_pref } : {}), ...(ov.length ? { overrides: ov } : {}) };
       }),
-      catch_up: { hours_by_day: byDay(cu), ...(overridesOf(cu, todayStr).length ? { overrides: overridesOf(cu, todayStr) } : {}), note: "Hours on these days for any area; time beyond each area's own target counts toward it." },
     };
   }
   if (name === "set_area_targets") {
-    if (catchName(args.area)) {
-      if (args.date !== undefined) {
-        const { x, d } = setDate(await db.getCatchUp());
-        await db.setCatchUp(x);
-        return { catch_up: { date: d, hours: d in x ? hoursOf(x[d]) : null, usual_hours: hoursOf(x[weekdayOf(d)] ?? 0), overrides: overridesOf(x, todayStr) } };
-      }
-      const cu = { ...(await db.getCatchUp() ?? {}), ...(args.days !== undefined ? daysArg(args.days) : {}) };
-      await db.setCatchUp(cu);
-      return { catch_up: { hours_by_day: byDay(cu) } };
-    }
     if (args.date !== undefined) {
       const a = { ...t.area(args.area) }, { x, d } = setDate(a.day_targets);
       a.day_targets = x;
@@ -1388,22 +1372,18 @@ async function runTargets(name: string, args: Record<string, unknown>, t: Tree, 
       }
     }
   }
-  const cu = await db.getCatchUp();
   return {
     time_zone: t.tz ?? "UTC",
     days: days.map((d) => {
       const wd = weekdayOf(d), dm = L.get(d) ?? new Map<string, Map<string, number>>();
-      let extra = 0;
       const areas = t.areas.map((a) => {
         const ov = !!a.day_targets && d in a.day_targets, target = Math.max(0, (ov ? a.day_targets![d] : a.day_targets?.[wd]) ?? 0), items = dm.get(a.id) ?? new Map<string, number>();
         const logged = [...items.values()].reduce((x, y) => x + y, 0);
-        extra += Math.max(0, logged - target);
         if (!target && logged < 1) return null;
         const tasks = [...items.entries()].filter(([, m]) => m >= 1).sort((x, y) => y[1] - x[1]).map(([id, m]) => { const r = all.get(id)!; const p = projOf(r); return { id, title: nameOf(r), ...(p ? { project: p } : {}), hours: hoursOf(m) }; });
         return { area: a.title, target_hours: hoursOf(target), ...(ov ? { target_overridden: true } : {}), logged_hours: hoursOf(logged), ...(a.time_pref ? { time_pref: a.time_pref } : {}), tasks };
       }).filter(Boolean);
-      const cuOv = !!cu && d in cu, cuT = Math.max(0, (cuOv ? cu![d] : cu?.[wd]) ?? 0);
-      return { date: d, weekday: wd, areas, ...(cuT ? { catch_up: { target_hours: hoursOf(cuT), ...(cuOv ? { target_overridden: true } : {}), counted_hours: hoursOf(extra) } } : {}) };
+      return { date: d, weekday: wd, areas };
     }),
   };
 }
