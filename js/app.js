@@ -165,11 +165,13 @@ function newBlock(tid, d = today(), s, m = 90) {
   return store.create({ k: 'block', fo: tid, t: t.t || '', d, s, m, ds: Date.now() / 1000 });
 }
 const agoText = ms => { if (!ms) return 'not worked on yet'; const d = daysBetween(fd(new Date(ms)), today()); return d <= 0 ? 'worked on today' : d === 1 ? 'yesterday' : d < 14 ? `${d} days ago` : d < 60 ? `${Math.round(d / 7)} weeks ago` : 'a while ago'; };
-// One step inside a block: check it off, open it, or record time (a step's time goes to its project)
+// One step inside a block: check it off, open it, or record time on it (it still counts for its project and area)
 function blkStep(n, big = false) {
-  const r = rootOf(n), on = track.isRec(r);
+  const r = n, on = track.isRec(r);
   return `<div class="bk-step${n.done ? ' done' : ''}${big ? ' big' : ''}" style="--pc:${colorOf(n)}">${ckHTML(n)}<button class="bk-t" data-act="open" data-id="${n.id}">${esc(n.t || 'Untitled')}${n.notes ? ICON.note : ''}</button>${n.d ? `<span class="when set">${whenLabel(n)}</span>` : ''}<button class="rec-b${on ? ' on' : ''}" data-act="rec" data-id="${r.id}" aria-label="${on ? 'Stop recording' : 'Record time on'} ${esc(r.t || 'this')}" title="${on ? 'Stop' : `Record time on ${esc(r.t || 'this')}`}">${on ? ICON.stop : ICON.play}</button></div>`;
 }
+/** Whether a block for this item's area or project is on right now (then its tasks can record on their own). */
+const inBlockNow = n => store.blocksOn(today()).some(b => !b.done && blocks.isNow(b) && within(n, b.fo));
 function blockDetail(el, b, same) {
   const t = targetOf(b), ser = store.seriesOf(b)?.r ? store.seriesOf(b) : null, { w, len, f } = fillOf(b);
   const rec = track.isRec(b), past = blocks.isPast(b), ask = blocks.asks(b), r = track.running();
@@ -189,7 +191,7 @@ function blockDetail(el, b, same) {
     const open = focus.open.filter(n => !skip.includes(n.id)), list = open.length ? open : focus.open, now = list[0];
     work = `<div class="bk-pick" role="group" aria-label="Project">${cards.map(c => `<button data-act="blk-focus" data-id="${c.g.id}" aria-pressed="${focus.g?.id === c.g.id}">${esc(c.g.t || 'Untitled')}</button>`).join('')}${loose.length ? `<button data-act="blk-focus" data-id="loose" aria-pressed="${!focus.g}">Loose tasks</button>` : ''}<button class="bk-all" data-act="blk-focus" data-id="">Show all</button></div>
       <div class="bk-now" style="--pc:${colorOf(now)}"><div class="bk-lab">Now</div>${blkStep(now, true)}${now.notes ? `<div class="bk-notes">${linkify(now.notes.split('\n').slice(0, 3).join('\n'))}</div>` : ''}${now.link && safeLink(now.link) ? `<a class="chip set" href="${esc(safeLink(now.link))}" target="_blank" rel="noopener">${ICON.link}<span>${esc(linkLabel(safeLink(now.link)))}</span></a>` : ''}
-        <div class="bk-acts"><button class="tb pri" data-act="toggle" data-id="${now.id}">Done, next</button>${list.length > 1 ? `<button class="tb" data-act="blk-skip" data-id="${now.id}">Not now</button>` : ''}</div></div>
+        <div class="bk-acts"><button class="tb pri" data-act="blk-next" data-id="${now.id}" data-next="${list[1]?.id || ''}">Done, next</button>${list.length > 1 ? `<button class="tb" data-act="blk-skip" data-id="${now.id}">Not now</button>` : ''}</div></div>
       ${list.length > 1 ? `<div class="bk-then"><div class="bk-lab">Then</div>${list.slice(1, 4).map(n => `<button data-act="open" data-id="${n.id}">${esc(n.t || 'Untitled')}</button>`).join('')}${list.length > 4 ? `<span>+ ${list.length - 4} more</span>` : ''}</div>` : ''}`;
   } else {
     const card = c => { const rest = c.open.slice(1), m = more[c.g.id];
@@ -211,6 +213,7 @@ function blockDetail(el, b, same) {
       ${ser && b.rs ? `<div class="rp-scope" role="group" aria-label="Changes apply to"><span>Changes apply to</span><button data-act="scope" data-v="one" aria-pressed="${S.scope !== 'all'}">This one</button><button data-act="scope" data-v="all" aria-pressed="${S.scope === 'all'}">All repeats</button></div>` : ''}
       <div class="bk-fill"><div class="bk-bar"><i></i></div><span>${b.done && !w ? 'Skipped' : `${fmtDur(w)} worked${len ? ` of ${fmtDur(len)}` : ''}`}</span>
         ${past ? '' : `<button class="chip rec-chip${rec ? ' on' : ''}" data-act="rec" data-id="${b.id}">${rec ? ICON.stop : ICON.play}<span>${rec ? 'Recording · Stop' : busy ? 'Recording ' + esc(short(busy.t)) : 'Start'}</span></button>`}</div>
+      ${rec && t ? `<div class="dt-note bk-hint">Recording general ${esc(blockTitle(b))} time. Tap ▶ on what you're working on to put the time on that task.</div>` : ''}
       ${ask ? askHTML(b) : ''}
       ${b.r ? '<div class="dt-note rp-note">This is the repeating block itself. Open one of its days on the plan to work in it.</div>' : `<div class="dt-sec bk-sec">${S.blkView === 'all' ? 'Everything' : focus ? 'One thing at a time' : 'What to work on'}${t ? `<span class="seg bk-seg" role="group" aria-label="Show"><button data-act="blk-view" data-v="next" aria-pressed="${S.blkView !== 'all'}">Next steps</button><button data-act="blk-view" data-v="all" aria-pressed="${S.blkView === 'all'}">Everything</button></span>` : ''}</div>${work}`}
       <div class="dt-sec">When</div>
@@ -878,7 +881,7 @@ function renderDetail() {
       ${n.r ? '<div class="dt-note rp-note">Changes here go to every repeat. Check off each one on its day.</div>' : ''}
       ${kids.length ? `<div class="dt-prog"><div class="bar"><i style="width:${pct}%"></i></div><span>${pr.done} of ${pr.total} done</span></div>` : ''}
       <div class="dt-meta">
-        ${canRec(n) && (n.p == null || n.d || track.isRec(n)) ? `<button class="chip rec-chip${track.isRec(n) ? ' on' : ''}" data-act="rec" data-id="${n.id}">${track.isRec(n) ? ICON.stop : ICON.play}<span>${track.isRec(n) ? 'Recording · Stop' : 'Start'}</span></button>` : recUp(n)}
+        ${canRec(n) && (n.p == null || n.d || track.isRec(n) || (!hasKids(n.id) && inBlockNow(n))) ? `<button class="chip rec-chip${track.isRec(n) ? ' on' : ''}" data-act="rec" data-id="${n.id}">${track.isRec(n) ? ICON.stop : ICON.play}<span>${track.isRec(n) ? 'Recording · Stop' : 'Start'}</span></button>` : recUp(n)}
         ${n.r ? '' : `<button class="chip${n.d ? ' set' : ''}" data-act="dtpick">${ICON.cal}<span>${n.d ? whenLabel(n) : 'Add to a day'}</span></button>`}
         ${kids.length || n.c ? '' : `<button class="chip rp-chip${ser ? ' set' : ''}" data-act="rpedit" aria-expanded="${S.rpEdit}">${ICON.rep}<span>${ser ? esc(ruleText(ser.r, ser.d)) : 'Repeat'}</span></button>`}
         ${kids.length || n.c ? '' : `<label class="chip"><span class="k">Takes about</span><select id="dt-dur">${durs.sort((a, b) => a - b).map(m => `<option value="${m}"${(n.m || 60) === m ? ' selected' : ''}>${fmtDur(m)}</option>`).join('')}</select></label>`}
@@ -1427,6 +1430,7 @@ document.addEventListener('click', e => {
     case 'delete-all': { const s = store.seriesOf(node(S.open)); S.open = null; S.confirmDel = false; if (s) { store.remove(s.id); toast(`Deleted ${s.t || 'item'} and all its repeats`); } break; }
     case 'color': store.update(S.open, { c: b.dataset.c }); break;
     case 'toggle': toggle(id); break;
+    case 'blk-next': { const on = track.isRec(node(id)), nx = b.dataset.next; toggle(id); if (on && nx && node(nx) && !node(nx).done) track.start(nx); break; }
     case 'blk-ans': { const n = node(id); if (n) { blocks.answer(n, b.dataset.v); toast(b.dataset.v === 'skip' ? `Skipped ${short(blockTitle(n))} time` : `Counted ${b.dataset.v === 'part' ? 'half' : 'all'} of ${short(blockTitle(n))} time as worked`); } break; }
     case 'blk-more': (S.blkMore || (S.blkMore = {}))[id] = !S.blkMore[id]; renderDetail(); break;
     case 'blk-view': S.blkView = b.dataset.v; S.blkFocus = null; renderDetail(); break;
