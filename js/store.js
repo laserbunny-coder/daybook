@@ -4,7 +4,7 @@
 // Changes are applied locally at once, cached on the device, and synced to
 // Supabase in the background so the phone and computer stay in step.
 import { add, lsGet, lsSet, pd, today, uid } from './util.js';
-import { nextOn, occId, repeatsOn, shiftRule, splitOcc } from './repeat.js';
+import { isQuota, nextOn, occId, periodOf, repeatsOn, shiftRule, splitOcc } from './repeat.js';
 
 const nodes = new Map();          // id -> node (deleted ones kept as tombstones)
 const listeners = new Set();
@@ -73,9 +73,17 @@ function ghost(id) {
 }
 function repeatsOnDay(d) {
   const I = index(), out = (I.byDay.get(d) || []).slice();
-  for (const s of I.series) if (repeatsOn(s.r, s.d, d) && !I.bySeries.get(s.id)?.has(d)) out.push(virt(s, d));
+  for (const s of I.series) if (repeatsOn(s.r, s.d, d) && !I.bySeries.get(s.id)?.has(d) && !quotaMet(s, d)) out.push(virt(s, d));
   return out;
 }
+/** How many of a "times" series' repeats are done in the week or month around day d, leaving out day d itself. */
+export function doneInPeriod(s, d, skipDay = true) {
+  const [a, b] = periodOf(s.r, d); let c = 0;
+  for (const [oc, row] of index().bySeries.get(s.id) || []) if (row.done && !row.x && oc >= a && oc <= b && !(skipDay && oc === d)) c++;
+  return c;
+}
+/** A "times" series (n times a week or month) that already has its n done around day d doesn't show that day. */
+export const quotaMet = (s, d) => isQuota(s.r) && doneInPeriod(s, d) >= (s.r.n || 1);
 /** Every repeat on day d: the stored ones that sit on it, and the worked-out ones due that day. Repeating blocks are in blocksOn. */
 export const occOn = d => repeatsOnDay(d).filter(n => n.k !== 'block');
 /** The time blocks on day d: one-off ones and the repeats of repeating ones. */

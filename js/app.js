@@ -198,6 +198,39 @@ function areaDayFoot(b) {
     <div class="dt-meta">${oneDaySelect('ado', a.dg, b.d)}</div>
     <div class="dt-meta"><button class="chip" data-act="open" data-id="${a.id}">${ICON.cal}<span>Change ${esc(a.t)}'s hours</span></button></div>`;
 }
+// Adding a habit: its name, how often, its area, and whether a tick counts time there
+const HB_KINDS = [['day', 'Every day'], ['weekday', 'Weekdays'], ['week', 'On some days'], ['times', 'Times a week'], ['tmonth', 'Times a month'], ['days', 'Every few days']];
+function habitNewDetail(el, same) {
+  const h = S.hbNew || (S.hbNew = { t: '', k: 'day', days: [1, 3, 5], n: 2, interval: 2, ar: store.areas()[0]?.id || '', hm: 0 });
+  const nOpts = max => [...Array(max)].map((_, i) => `<option value="${i + 1}"${h.n === i + 1 ? ' selected' : ''}>${i + 1} time${i ? 's' : ''}</option>`).join('');
+  let how = '';
+  if (h.k === 'week') how = `<div class="rp-days" role="group" aria-label="On these days">${WEEK.map(d => `<button data-act="hbn-day" data-v="${d}" aria-pressed="${h.days.includes(d)}" aria-label="${DAYL[d]}">${DAYN[d][0]}</button>`).join('')}</div>`;
+  if (h.k === 'times' || h.k === 'tmonth') how = `<label class="chip"><select id="hbn-n" aria-label="How many times">${nOpts(h.k === 'tmonth' ? 20 : 6)}</select><span class="k">a ${h.k === 'tmonth' ? 'month' : 'week'}, any days</span></label>`;
+  if (h.k === 'days') how = `<label class="chip"><span class="k">Every</span><select id="hbn-int" aria-label="Every how many days">${[2, 3, 4, 5, 6, 7, 10, 14, 21, 30].map(i => `<option value="${i}"${h.interval === i ? ' selected' : ''}>${i} days</option>`).join('')}</select></label>`;
+  setDetail(el, `<div class="dt-back" data-act="close"></div>
+  <section class="dt${same ? ' still' : ''}" role="dialog" aria-modal="true" aria-label="Add a habit" style="--pc:var(--hb)">
+    <div class="dt-top"><button class="dt-up" data-act="close">${ICON.prev}<span>Back</span></button><button class="ib" data-act="close" aria-label="Close">${ICON.close}</button></div>
+    <div class="dt-body vscroll" data-id="hb:new">
+      <div class="dt-kind"><span class="pdot"></span>New habit</div>
+      <input id="hbn-t" class="dt-title hbn-t" placeholder="Read for 20 minutes" value="${esc(h.t)}" autocomplete="off" enterkeyhint="done" aria-label="Habit name">
+      <div class="dt-sec">How often</div>
+      <div class="rp-k hbn-k" role="group" aria-label="How often">${HB_KINDS.map(([v, l]) => `<button data-act="hbn-k" data-v="${v}" aria-pressed="${h.k === v}">${l}</button>`).join('')}</div>
+      ${how ? `<div class="rp-row">${how}</div>` : ''}
+      <div class="dt-sec">Where</div>
+      <div class="dt-meta"><label class="chip"><span class="k">Area</span><select id="hbn-ar">${store.areas().map(a => `<option value="${a.id}"${h.ar === a.id ? ' selected' : ''}>${esc(a.t || 'Untitled area')}</option>`).join('')}<option value=""${h.ar ? '' : ' selected'}>No area</option></select></label>
+      ${habits.minSelect({ ar: h.ar, r: { mins: h.hm } }, 'hbn-hm')}</div>
+      <div class="dt-note">A habit shows in the Habits card at the top of each day it's due. It's never overdue, and its time never counts toward your work hours on the Roadmap.</div>
+      <div class="dt-meta"><button class="chip set" data-act="hb-save">Add habit</button></div>
+    </div></section>`);
+  if (!same) setTimeout(() => document.getElementById('hbn-t')?.focus({ preventScroll: true }), 50);
+}
+function habitSave() {
+  const h = S.hbNew; if (!h) return; const t = (document.getElementById('hbn-t')?.value || h.t).trim();
+  if (!t) { toast('Give the habit a name first'); document.getElementById('hbn-t')?.focus(); return; }
+  const r = h.k === 'week' ? { every: 'week', days: h.days.length ? h.days : [pd(today()).getDay()] } : h.k === 'times' ? { every: 'times', per: 'week', n: h.n } : h.k === 'tmonth' ? { every: 'times', per: 'month', n: h.n } : h.k === 'days' ? { every: 'days', interval: h.interval } : { every: h.k };
+  const n = store.create({ t, ar: h.ar || null, d: today(), r: cleanRule({ ...r, mins: h.hm || 0 }, today()), hb: true, m: h.hm || 15 });
+  S.hbNew = null; S.open = null; toast(`Added ${short(t)}`); render(); return n;
+}
 // The catch-up for any area: time beyond each area's own target that day counts toward it
 function catchDetail(el, d, same) {
   const { cards, catchUp } = aday.cardsOn(d, S.catchUp), cu = catchUp || { target: 0, min: 0 }, f = cu.target ? Math.min(1, cu.min / cu.target) : 0, isT = d === today();
@@ -959,6 +992,7 @@ function renderDetail() {
     if (aid !== 'catch' && !v) { S.open = null; el.hidden = true; el.innerHTML = ''; return; }
     el.hidden = false; if (v) blockDetail(el, v, same0); else catchDetail(el, d, same0); el.querySelector('.dt-body').scrollTop = sc; return;
   }
+  if (S.open === 'hb:new') { const b0 = el.querySelector('.dt-body'), keep = !el.hidden && b0?.dataset.id === 'hb:new'; el.hidden = false; habitNewDetail(el, keep); return; }
   if (!n && S.open) { const o = splitOcc(S.open); if (o && node(o[0])) { S.open = o[0]; n = node(o[0]); } } // a repeat that's gone (its rule changed): show its series
   if (!n) { S.open = null; el.hidden = true; el.innerHTML = ''; return; }
   const ae = document.activeElement;
@@ -1047,13 +1081,17 @@ function saveStretch() {
    optional end. A repeat opened from the plan edits its whole series' rule here. */
 function repeatHTML(n) {
   const s = store.seriesOf(n), r = s?.r, start = r ? s.d : n.d || today();
-  const kinds = [['day', 'Daily'], ['weekday', 'Weekdays'], ['week', 'Weekly'], ['month', 'Monthly']];
+  const kinds = [['day', 'Daily'], ['weekday', 'Weekdays'], ['week', 'Weekly'], ['month', 'Monthly'], ['days', 'Every few days'], ['times', 'Times a week or month']];
   let h = `<div class="rp-ed"><div class="rp-k" role="group" aria-label="Repeats">${kinds.map(([v, t]) => `<button data-act="rp-every" data-v="${v}" aria-pressed="${r?.every === v}">${t}</button>`).join('')}</div>`;
   if (r?.every === 'week') {
     const days = r.days?.length ? r.days : [pd(start).getDay()];
     h += `<div class="rp-row"><div class="rp-days" role="group" aria-label="On these days">${WEEK.map(d => `<button data-act="rp-day" data-v="${d}" aria-pressed="${days.includes(d)}" aria-label="${DAYL[d]}" title="${DAYL[d]}">${DAYN[d][0]}</button>`).join('')}</div>
       <label class="chip"><span class="k">Every</span><select id="rp-int" aria-label="Every how many weeks">${[1, 2, 3, 4, 6, 8, 12].map(i => `<option value="${i}"${(r.interval || 1) === i ? ' selected' : ''}>${i === 1 ? 'week' : i + ' weeks'}</option>`).join('')}</select></label></div>`;
   }
+  if (r?.every === 'days') h += `<div class="rp-row"><label class="chip"><span class="k">Every</span><select id="rp-dint" aria-label="Every how many days">${[2, 3, 4, 5, 6, 7, 10, 14, 21, 30, 45, 60, 90].map(i => `<option value="${i}"${(r.interval || 2) === i ? ' selected' : ''}>${i} days</option>`).join('')}</select></label></div>`;
+  if (r?.every === 'times') { const per = r.per === 'month' ? 'month' : 'week', max = per === 'month' ? 20 : 6;
+    h += `<div class="rp-row"><label class="chip"><select id="rp-n" aria-label="How many times">${[...Array(max)].map((_, i) => `<option value="${i + 1}"${(r.n || 2) === i + 1 ? ' selected' : ''}>${i + 1} time${i ? 's' : ''}</option>`).join('')}</select></label><label class="chip"><span class="k">a</span><select id="rp-per" aria-label="In each"><option value="week"${per === 'week' ? ' selected' : ''}>week</option><option value="month"${per === 'month' ? ' selected' : ''}>month</option></select></label></div>
+    <div class="dt-note">Shows every day until it's done ${r.n || 2} time${(r.n || 2) === 1 ? '' : 's'} that ${per}. The other days don't count as missed.</div>`; }
   if (r) h += `<div class="rp-row"><label class="chip"><span class="k">Starts</span><input type="date" id="rp-start" value="${s.d}"${r.until ? ` max="${r.until}"` : ''}></label>
     <label class="chip${r.until ? ' set' : ''}"><span class="k">Ends</span><input type="date" id="rp-until" value="${r.until || ''}" min="${s.d}" aria-label="Last day it repeats"></label>
     <button class="chip-edit" data-act="rp-off">Don't repeat</button></div>`;
@@ -1408,9 +1446,13 @@ function placedText(id, proj = false) {
   return ` · ${fmtT(n.s)}–${fmtT(n.s + (n.m || 60))}${n.tl?.[n.tl.length - 1]?.guess ? ', as planned' : ''}`;
 }
 // A habit is ticked without guessing how long it took, so it never adds hours to its area. Its timer still counts when used.
+// A habit set to count time (hm on the series) adds that much, ending now, to its area's hours for the day.
 function habitTick(id) {
   const n = node(id); if (!n) return;
-  store.update(n.id, n.done ? { ...track.undonePatch(n), da: null } : { ...track.donePatch(n, false), da: new Date().toISOString() });
+  if (n.done) { store.update(n.id, { ...track.undonePatch(n), da: null }); return; }
+  const p = { ...track.donePatch(n, false), da: new Date().toISOString() }, hm = store.seriesOf(n)?.r?.mins, now = Date.now();
+  if (hm && !track.real(n).length) p.tl = [{ start: new Date(now - hm * 60000).toISOString(), end: new Date(now).toISOString(), guess: true }];
+  store.update(n.id, p);
 }
 function toggle(id) {
   const n = node(id); if (n.rs && habits.isHabit(n)) { habitTick(id); return; }
@@ -1601,6 +1643,12 @@ document.addEventListener('click', e => {
     case 'hb-tick': habitTick(id); break;
     case 'hb-open': { const k = b.dataset.d; S.hbOpen = { ...(S.hbOpen || {}), [k]: !S.hbOpen?.[k] }; render(); break; }
     case 'hb-tray': { const k = b.dataset.d; S.hbTray = { ...(S.hbTray || {}), [k]: !S.hbTray?.[k] }; render(); break; }
+    case 'hb-new': S.hbNew = null; S.open = 'hb:new'; S.drOpen && setDrawer?.(false); renderDetail(); break;
+    case 'hbn-k': S.hbNew.t = document.getElementById('hbn-t')?.value ?? S.hbNew.t; S.hbNew.k = b.dataset.v; if (b.dataset.v === 'tmonth' && S.hbNew.n < 2) S.hbNew.n = 2; renderDetail(); break;
+    case 'hbn-day': { const v = +b.dataset.v, h = S.hbNew; h.t = document.getElementById('hbn-t')?.value ?? h.t; h.days = h.days.includes(v) ? h.days.filter(x => x !== v) : [...h.days, v]; renderDetail(); break; }
+    case 'hb-save': habitSave(); break;
+    case 'hb-archive': { const s = node(id); if (s) { habits.archive(s); toast(`Put away ${short(s.t)}. Its record stays in Stats.`); } break; }
+    case 'hb-restore': { const s = node(id); if (s) { habits.restore(s); toast(`${short(s.t)} is back from today`); } break; }
     case 'hb-tab': S.hbTab = b.dataset.v; renderDetail(); break;
     case 'hb-card': S.hbCard = b.dataset.v; saveUI(); render(); break;
     case 'hb-sel': S.hbSel = id && S.hbSel !== id ? id : null; render(); break;
@@ -1682,6 +1730,7 @@ document.addEventListener('submit', e => {
 });
 document.addEventListener('keydown', e => {
   const key = e.key.toLowerCase();
+  if (e.key === 'Enter' && e.target.id === 'hbn-t') { e.preventDefault(); habitSave(); return; }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && (key === 'z' || key === 'y')) {
     if (e.target.closest?.('textarea, input:not([type]), input[type=text], input[type=search], input[type=url], [contenteditable]:not([contenteditable=false])')) return; // the box's own undo
     e.preventDefault(); if (D) return;
@@ -1731,6 +1780,7 @@ document.addEventListener('change', e => {
 });
 let savedT;
 document.addEventListener('input', e => {
+  if (e.target.id === 'hbn-t' && S.hbNew) { S.hbNew.t = e.target.value; return; }
   const t = e.target, n = S.open && node(S.open); if (!n) return;
   if (t.id === 'dt-notes') { edit(n.id, { notes: t.value || null }, true); grow(t); const m = document.getElementById('dt-saved'); m.textContent = 'Saved'; clearTimeout(savedT); savedT = setTimeout(() => m.textContent = '', 1200); }
   if (t.id === 'dt-title') { edit(n.id, { t: t.value.replace(/\n/g, ' ') }, true); grow(t); }
@@ -1738,6 +1788,10 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('change', e => {
   const t = e.target;
+  if (S.open === 'hb:new' && S.hbNew && t.id?.startsWith('hbn-')) { const h = S.hbNew; h.t = document.getElementById('hbn-t')?.value ?? h.t;
+    if (t.id === 'hbn-n') h.n = +t.value; if (t.id === 'hbn-int') h.interval = +t.value; if (t.id === 'hbn-ar') h.ar = t.value; if (t.id === 'hbn-hm') h.hm = +t.value || 0;
+    if (t.id !== 'hbn-t') renderDetail(); return; }
+  if (t.id === 'dt-hm') { const s = store.seriesOf(node(S.open)); if (s?.r) store.update(s.id, { r: cleanRule({ ...s.r, mins: +t.value || 0 }, s.d) }); return; }
   if (t.dataset.pickdate) { if (t.value) setDay(t.dataset.pickdate, t.value); return; }
   if (t.id === 'rm-free') { setFree(t.value); return; }
   if (t.id === 'st-from' || t.id === 'st-to') { if (t.value) { S[t.id === 'st-from' ? 'stFrom' : 'stTo'] = t.value; render(); } return; }
@@ -1757,7 +1811,9 @@ document.addEventListener('change', e => {
   if (t.id === 'dt-wk') store.update(n.id, { wk: +t.value || null });
   if (t.id.startsWith('ad-') && n.k === 'area') { const dg = { ...(n.dg || {}) }; dg[t.id.slice(3)] = +t.value || 0; store.update(n.id, { dg }); }
   if (t.id === 'dt-tp') store.update(n.id, { tp: t.value || null });
-  if (t.id === 'rp-int') setRepeat({ interval: +t.value });
+  if (t.id === 'rp-int' || t.id === 'rp-dint') setRepeat({ interval: +t.value });
+  if (t.id === 'rp-n') setRepeat({ n: +t.value });
+  if (t.id === 'rp-per') setRepeat({ per: t.value });
   if (t.id === 'rp-until') { const s = store.seriesOf(n); if (s?.r && (!t.value || t.value >= s.d)) setRepeat({ until: t.value || null }); else renderDetail(); }
   if (t.id === 'rp-start') { const s = store.seriesOf(n); if (s?.r && t.value && (!s.r.until || t.value <= s.r.until)) store.update(s.id, { d: t.value }); else renderDetail(); }
   if (t.id === 'dt-due') store.update(n.id, { due: t.value || null });
