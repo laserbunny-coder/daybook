@@ -597,7 +597,7 @@ function renderMain() {
   <div class="mbody${S.mode === 'timed' ? ' timed' : S.mode === 'dragon' ? ' td-body' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
     ${S.tip && S.mode !== 'dragon' ? `<div class="tip"><span>Tap a task to open it and add notes. Tap an empty time, or the + under a day, to add one. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
     ${S.mode === 'dragon' ? fightHTML(days[0]) : S.mode === 'quest' ? questHTML(days[0]) : S.mode === 'list' ? (S.view === 'week' ? weekList(days) : dayList(days[0])) : timed(days)}
-  </div>${S.cave && S.mode !== 'dragon' && phone() ? '<button class="cave-back" data-act="mode" data-v="dragon">‹ Back to the cave</button>' : ''}${drawerHTML()}${quiet() ? `<button class="qgrab" data-act="drawer" aria-label="Show projects to schedule"></button>` : ''}`;
+  </div>${drawerHTML()}${quiet() ? `<button class="qgrab" data-act="drawer" aria-label="Show projects to schedule"></button>` : ''}`;
   const dr = document.getElementById('dr-b'); if (dr) dr.scrollTop = drSc;
   const mb = document.getElementById('mbody');
   fitObs.disconnect(); mb.querySelectorAll('.block,.ev').forEach(b => fitObs.observe(b));
@@ -1348,7 +1348,7 @@ document.addEventListener('click', e => {
     case 'rm-fold': S.col['rm:' + id] = !S.col['rm:' + id]; saveUI(); render(); break;
     case 'rm-week': S.anchor = b.dataset.d; S.view = 'week'; W = null; leaveRoad(); render(); break;
     case 'view': leaveRoad(); S.view = b.dataset.v; if (S.view === 'week' && (S.mode === 'quest' || S.mode === 'dragon')) S.mode = 'list'; W = null; render(); break;
-    case 'mode': leaveRoad(); if (b.dataset.cave) S.cave = true; setMode(b.dataset.v); break;
+    case 'mode': leaveRoad(); S.cave = false; setMode(b.dataset.v); break;
     case 'min': setQuiet(!S.min); break;
     case 'look': setLook(look() === 'paper' ? 'ink' : 'paper'); break;
     case 'qstrip': setStrip(!S.qstrip); break;

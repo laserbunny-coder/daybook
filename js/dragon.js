@@ -82,9 +82,8 @@ export const CHARMS = {
 };
 /** His cards: a stuffed day slips one into your deck (two at most); every day he doesn't win burns one. */
 export const CURSES = {
-  sloth: { n: 'Sloth', t: 'One quest a day starts half eaten.' },
-  fog: { n: 'Fog', t: 'Quests more than 3 hours away show face down.' }
-};
+  sloth: { n: 'Sloth', t: 'One quest a day starts half eaten.' }
+}; // Fog (far quests face down) was dropped 2026-10-31: in a planner, hiding your own tasks costs too much
 export const EQUIP = 3, PRICE = { card: 40, charm: 100 }, SELL = 5, PACK = 5;
 const POOL = [...['shield', 'swap', 'back', 'lure', 'bet', 'split'].map(id => ({ k: 'card', id })), ...Object.keys(CHARMS).map(id => ({ k: 'charm', id }))];
 export const itemOf = it => ({ ...it, ...(it.k === 'card' ? CARDS[it.id] : CHARMS[it.id]) });
@@ -305,7 +304,7 @@ export function state() {
     r.hunt = H; r.run = run; days.push(r);
     gold += r.you + r.chest; belly += r.him; kept += r.you; shards += r.Qs.filter(q => q.st === 'kept').length;
     if (d < T && !r.rest) {
-      if (r.verdict === 'stuffed') { run = 0; stuffedRun++; if (curses.length < 2) curses.push(curses.includes('sloth') ? 'fog' : 'sloth'); }
+      if (r.verdict === 'stuffed') { run = 0; stuffedRun++; if (!curses.length) curses.push('sloth'); }
       else { run++; stuffedRun = 0; curses.pop(); }
       best = Math.max(best, run); if (r.verdict in tally) tally[r.verdict]++;
     }

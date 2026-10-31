@@ -215,7 +215,7 @@ function lane() {
     let c = cards.get(q.n.id);
     if (!c) { const b = document.createElement('div'); b.className = 'td-q'; el.lane.appendChild(b); c = { el: b, y: null }; cards.set(q.n.id, c); }
     c.q = q;
-    const habit = !!q.n.rs, nt = esc(q.n.t || 'Untitled'), fog = live && R.curses.includes('fog') && q.e - nowMin() > 180;
+    const habit = !!q.n.rs, nt = esc(q.n.t || 'Untitled'), fog = false;
     const when = q.st === 'jaws' ? `<em>In his jaws</em>` : q.soft ? `by ${fmtT(q.e)}` : `${fmtT(q.s0).replace(/(am|pm)$/, fmtT(q.s0).slice(-2) === fmtT(q.e).slice(-2) ? '' : '$1')}–${fmtT(q.e)}`;
     const tag = q.boss ? '<i class="td-tag mk">Boss day · ×3</i>' : q.mark ? '<i class="td-tag mk">His mark · ×2</i>' : q.shield ? '<i class="td-tag sh">Shielded</i>' : q.bet ? '<i class="td-tag bt">Bet</i>' : q.sloth ? `<i class="td-tag cu">Sloth bit ${q.sloth}</i>` : q.wind ? '<i class="td-tag bt">Second Wind</i>' : q.left ? '<i class="td-tag">Leftover · half</i>' : habit && q.run ? `<i class="td-tag">↻ ${q.run} day${q.run === 1 ? '' : 's'}</i>` : '';
     const h = `<button class="td-ck" data-act="${aim ? 'aim' : 'toggle'}" data-id="${q.n.id}" aria-label="Finish ${nt}"></button><button class="td-n" data-act="${aim ? 'aim' : 'open'}" data-id="${q.n.id}"><span class="td-r1"><span class="td-tm">${when}</span>${tag}</span><b>${fog ? 'Face down in the fog' : (habit ? '↻ ' : '') + nt}</b></button><span class="td-g"><i></i>${q.g}</span>`;
@@ -702,7 +702,7 @@ function chomped(q) {
   if (!reduce) el.stage.animate([{ translate: '0 0' }, { translate: '-5px 3px' }, { translate: '4px -3px' }, { translate: '0 0' }], { duration: 260 });
   talk(q.swooped ? 'swoop' : 'chomp'); line(true);
 }
-/** What your curses do and how they lift: a stuffed day (he ate most of it) adds one, up to two; any other day lifts one. */
+/** What your curses do and how they lift: a stuffed day (he ate most of it) adds one (Sloth); any other day lifts one. */
 function curseInfo() {
   el.banner.hidden = false; el.banner.className = 'td-banner cu';
   el.banner.innerHTML = `<button data-td="curse-x" aria-label="Close"><b>Cursed</b>${R.curses.map(c => `<span><em>${dragon.CURSES[c].n}:</em> ${dragon.CURSES[c].t}${c === 'sloth' ? ' The quest he bit says "Sloth bit" in purple.' : ''}</span>`).join('')}<small>You get cursed when he ends a day stuffed. Each day that ends any other way lifts one.</small></button>`;
