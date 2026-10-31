@@ -1290,7 +1290,6 @@ function onStep(st) {
   if (!st || st.text) return; // typing a name or notes: the box is right there, no pill needed
   if (off && st.ch.some(c => c[0] === off.id)) { occAll = off; toast(`${describe(st)}, just this one`, `<button data-act="occ-all">${ICON.rep}All repeats</button>${urActs(true)}`, 8000); return; }
   if (st.ch.length === 1 && st.ch[0][1].x === true && !store.peek(st.ch[0][0])?.t.trim()) return; // a new project or area, about to be named
-  if (st.ch.every(c => Object.keys(c[1]).every(k => k === 'tl' || k === 'am'))) return; // starting or stopping the timer: the recording pill already says so
   toast(performance.now() - toastAt < 100 ? toastMsg : describe(st), urActs(true));
 }
 // Checking off one task stops its recording and moves its block to when it was really done (track.js); reopening puts it back
