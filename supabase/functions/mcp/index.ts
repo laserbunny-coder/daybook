@@ -4,7 +4,7 @@
 import { admin, cors } from "../_shared/common.ts";
 import { type Db, handle, type Note, type Row } from "./tools.ts";
 
-const COLS = "id,parent_id,title,notes,done,day,start_min,after_min,duration_min,sort,day_sort,color,due,link,kind,area_id,start,milestone,hard_deadline,waits_on,done_at,actual_minutes,time_log,planned,repeat_rule,series_id,occurs_on,focus_on,week_minutes,deleted";
+const COLS = "id,parent_id,title,notes,done,day,start_min,after_min,duration_min,sort,day_sort,color,due,link,kind,area_id,start,milestone,hard_deadline,waits_on,done_at,actual_minutes,time_log,planned,repeat_rule,series_id,occurs_on,focus_on,week_minutes,habit,deleted";
 
 const NOTE_COLS = "id,author,title,body,link,task_ids,created_at,read_at,kind,project,project_link,resolved_at";
 

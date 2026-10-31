@@ -44,6 +44,8 @@ export type Row = {
   focus_on?: string | null;
   /** On an area: roughly how many minutes a week the person wants to give it. */
   week_minutes?: number | null;
+  /** A habit: a task (usually repeating) whose time doesn't count toward the week's scheduled hours. */
+  habit?: boolean | null;
   deleted: boolean;
 };
 
@@ -99,6 +101,9 @@ export const INSTRUCTIONS = `Daybook is this person's own task and calendar app.
 - Notes: post_note leaves the person a note they see in the app as a card the next time they open it (unread notes stack into one card), with a button back to the chat it came from, and it stays in their Notes history. Use it to tell them what a scheduled check changed, such as a morning plan check, with a short title, a few lines, the link to this chat, and the ids of the tasks you changed. list_notes reads back what you already told them, and whether they've read it.
 - Needs you: a line on the person's Plan lists what's waiting on them across all their Claude projects, grouped by project, oldest first. When this chat needs them (a decision only they can make, work blocked on them, or something ready for them to review or try), raise_needs_you with one short line, the kind, the Claude project's name, and the link to this chat. A chat has at most one open item: raising again from the same link updates it (blocked → review, say) instead of adding another. clear_needs_you as soon as it no longer needs them, such as once they've answered. list_needs_you shows what's open.
 - Area time: the person prefers to plan blocks of time for a whole area or a big project ("Filmmaking, 9 to 12", every Mon/Wed/Fri) over timing every task. In the app a block opens to the next step of each project in that area, so they pick what to do when they get there, and it fills with the time really worked. list_blocks shows them; add_block, update_block and remove_block change them (a block can repeat like a task). Areas can have rough hours a week (set_area_hours; list_projects shows them with this week's blocked hours). When planning their week, place area blocks around their calendar so each area gets about its hours, and only time single tasks that have a deadline or must happen at a set time. Blocks count as busy time.
+- Order: every item has a place among its siblings (a project's steps; the projects and standalone tasks of an area; the inbox). position is its place, from 1, and sort is the number that keeps it there; the app's lists show the same order. Lists under a project or area come back in that order. reorder_items puts a project's steps or an area's items in a new order; update_item's position moves one item (first, last, or after another). A top-level project's priority is its rank among the projects of its area (1 is first); set_project_priority changes it, and it's the order the person sees when dragging projects in the app.
+- get_next_task gives what to work on next in an area or project: the first open step in order that isn't waiting on something unfinished or planned for a later day (for an area: its projects in priority order, then its standalone tasks), and the two after it. The app shows the same next task on each area block in List view.
+- A task marked habit (usually a repeating one, such as a daily walk) still shows on its days, but its time doesn't count toward the week's scheduled hours or get_free_hours.
 - Say what you changed in plain words, since the person sees your reply, not the tool calls.`;
 
 const str = (description: string) => ({ type: "string", description });
@@ -126,7 +131,8 @@ export const TOOLS = [
         from: str("First day to include, YYYY-MM-DD."),
         to: str("Last day to include, YYYY-MM-DD."),
         unscheduled: { type: "boolean", description: "Only tasks with no day of their own and no scheduled project above them (steps of a scheduled project are worked on with it)." },
-        project_id: str("Only tasks anywhere under this project."),
+        project_id: str("Only tasks anywhere under this project. Without dates they come back in the project's order."),
+        area: str("Only tasks in this area, by name (its projects' steps and its standalone tasks). Without dates they come back in order: projects by priority, then standalone tasks."),
         query: str("Only tasks whose title contains these words."),
         include_done: { type: "boolean", description: "Include tasks already checked off." },
         done_since: str("Only tasks checked off on or after this local date, YYYY-MM-DD (includes done tasks)."),
@@ -137,14 +143,14 @@ export const TOOLS = [
   {
     name: "list_projects",
     title: "List projects",
-    description: "Lists the person's areas, and their projects and sub-projects with area, progress, start and due dates, what they wait on, and link.",
+    description: "Lists the person's areas, and their projects and sub-projects with area, progress, start and due dates, what they wait on, and link. Projects come in order: area by area, each area's projects by priority (a top-level project's priority is its rank in its area, 1 first), each followed by its sub-projects in order. position is an item's place among its siblings.",
     inputSchema: { type: "object", properties: { include_done: { type: "boolean", description: "Include finished projects." } } },
     annotations: { readOnlyHint: true },
   },
   {
     name: "get_item",
     title: "Open an item",
-    description: "Everything about one task or project: full notes, link, schedule, and the steps under it.",
+    description: "Everything about one task or project: full notes, link, schedule, its place among its siblings (position, sort), and the steps under it in order.",
     inputSchema: { type: "object", required: ["id"], properties: { id: str("The item's id.") } },
     annotations: { readOnlyHint: true },
   },
@@ -170,6 +176,7 @@ export const TOOLS = [
         hard_deadline: { type: ["boolean", "string"], enum: [true, false, "true", "false"], description: "A milestone whose date can't move (drawn red). Makes it a milestone too." },
         waiting_on: str("Id of another item this one waits on."),
         repeat: REPEAT,
+        habit: { type: ["boolean", "string"], enum: [true, false, "true", "false"], description: "A habit, such as a daily walk: it shows on its days, but its time doesn't count toward the week's scheduled hours." },
       },
     },
   },
@@ -363,8 +370,49 @@ export const TOOLS = [
         project_id: orNull("string", "Move under this project, or null to move to the inbox."),
         area: orNull("string", "For a top-level project or task: move it to this area, by name, or null for no area (a task goes back to the inbox)."),
         repeat: { ...REPEAT, type: ["object", "null"], description: REPEAT.description + " On a series (or one of its repeats) this changes how the whole series repeats; null stops it repeating, leaving it a plain task on its next day." },
+        habit: { type: ["boolean", "string"], enum: [true, false, "true", "false"], description: "Mark it a habit (true): it still shows on its days, but its time doesn't count toward the week's scheduled hours. On a repeating task, pass the series_id." },
+        position: str("Move it within its list (its project's steps, its area, or the inbox): \"first\", \"last\", or \"after:<item id>\" to go right after that item. Works with project_id or area, to place it in its new list."),
       },
     },
+  },
+  {
+    name: "reorder_items",
+    title: "Reorder steps or an area",
+    description: "Puts the items in one list in a new order: a project's steps, an area's projects and standalone tasks, or the inbox. The ids you list go first, in that order; any you leave out keep their order after them. The app shows the same order.",
+    inputSchema: {
+      type: "object",
+      required: ["parent", "ids"],
+      properties: {
+        parent: str("Whose list: a project's id, an area by name, or \"inbox\"."),
+        ids: { type: "array", items: { type: "string" }, description: "Item ids in the new order. Each must already be in that list (move items with update_item first)." },
+      },
+    },
+  },
+  {
+    name: "set_project_priority",
+    title: "Set project priority in an area",
+    description: "Sets the priority order of an area's top-level projects: the first id is its top priority. Projects you leave out keep their order after the ones you list; the area's standalone tasks stay where they are. get_next_task and the app's lists follow this order.",
+    inputSchema: {
+      type: "object",
+      required: ["area", "project_ids"],
+      properties: {
+        area: str("The area, by name, such as Business."),
+        project_ids: { type: "array", items: { type: "string" }, description: "Top-level project ids of that area, most important first." },
+      },
+    },
+  },
+  {
+    name: "get_next_task",
+    title: "Next task in an area or project",
+    description: "What to work on next in an area or project: the first open task in order that isn't done, isn't waiting on something unfinished, and isn't planned for a later day. For an area it looks through its projects in priority order, then its standalone tasks. Returns that task, its project, and the next two after it. The app shows the same next task on each area block in List view.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        area: str("The area, by name. Give this or project_id."),
+        project_id: str("The project or sub-project. Give this or area."),
+      },
+    },
+    annotations: { readOnlyHint: true },
   },
 ];
 
@@ -470,6 +518,9 @@ function repeatArg(v: unknown, start: string): Rule {
 const SHARED: (keyof Row)[] = ["parent_id", "title", "notes", "start_min", "after_min", "duration_min", "sort", "day_sort", "color", "link", "area_id", "waits_on", "kind", "focus_on"];
 const FOLLOW: (keyof Row)[] = ["parent_id", "title", "notes", "start_min", "duration_min", "color", "link", "waits_on", "area_id", "focus_on"];
 
+/** Order among siblings: sort, then (for equal sorts) the order they were made in. */
+const bySort = (a: Row, b: Row) => (a.sort || 0) - (b.sort || 0);
+
 /** The person's items as a tree, with the lookups the tools need. */
 class Tree {
   byId = new Map<string, Row>();
@@ -502,7 +553,7 @@ class Tree {
       k.push(r);
       this.kids.set(r.parent_id, k);
     }
-    for (const k of this.kids.values()) k.sort((a, b) => a.sort - b.sort);
+    for (const k of this.kids.values()) k.sort(bySort);
   }
   get(id: unknown): Row {
     const r = typeof id === "string" ? this.byId.get(id) ?? this.occLive.get(id) ?? this.ghost(id) : undefined;
@@ -550,6 +601,49 @@ class Tree {
     return a;
   }
   isProject = (r: Row) => this.children(r.id).length > 0 || (r.parent_id == null && !!r.color);
+  /** Which list an item sits in, the way the app groups them: a project's steps (p:<id>), an area's projects and
+   *  standalone tasks (a:<area id>, or a: for projects in no area), or the inbox (loose). */
+  groupOf(r: Row): string {
+    if (r.parent_id) return "p:" + r.parent_id;
+    const a = r.area_id && this.areas.some((x) => x.id === r.area_id) ? r.area_id : "";
+    return this.isProject(r) || a ? "a:" + a : "loose";
+  }
+  /** The items in a list, in order. */
+  group(key: string): Row[] {
+    if (key.startsWith("p:")) return this.children(key.slice(2));
+    return [...this.byId.values()].filter((r) => r.parent_id == null && this.groupOf(r) === key).sort(bySort);
+  }
+  position = (r: Row) => this.group(this.groupOf(r)).findIndex((x) => x.id === r.id) + 1;
+  /** A top-level project's priority: its rank among its area's projects, 1 first. */
+  priority(r: Row): number | null {
+    if (r.parent_id || !this.isProject(r) || !this.areaOf(r)) return null;
+    return this.group(this.groupOf(r)).filter((x) => this.isProject(x)).findIndex((x) => x.id === r.id) + 1;
+  }
+  /** These items and everything under them, depth first, in order. */
+  flat(rows: Row[]): Row[] { return rows.flatMap((r) => [r, ...this.flat(this.children(r.id))]); }
+  /** An area's items in order: its projects by priority, then its standalone tasks. */
+  areaItems(a: Row): Row[] {
+    const g = this.group("a:" + a.id);
+    return [...g.filter((r) => this.isProject(r)), ...g.filter((r) => !this.isProject(r))];
+  }
+  /** A habit: on the item, or on the series a repeat belongs to. */
+  isHabit = (r: Row) => !!(r.habit || (r.series_id && this.byId.get(r.series_id)?.habit));
+  /** What to work on next under these items, in order: open tasks that aren't waiting on something unfinished or
+   *  planned for a later day (nor inside a project that is). Repeating tasks are left out; they come on their days. */
+  nextUp(roots: Row[], today: string): Row[] {
+    const blocked = (r: Row) => {
+      if (r.day && r.day > today) return true;
+      if (r.waits_on) { const w = this.byId.get(r.waits_on); if (w && !this.isDone(w)) return true; }
+      return false;
+    };
+    const walk = (r: Row): Row[] => {
+      if (blocked(r)) return [];
+      const k = this.children(r.id);
+      if (k.length) return k.flatMap(walk);
+      return r.done || r.repeat_rule || (r.parent_id == null && r.color) ? [] : [r];
+    };
+    return roots.flatMap(walk);
+  }
   leaves(r: Row): Row[] {
     const k = this.children(r.id);
     return k.length ? k.flatMap((c) => this.leaves(c)) : [r];
@@ -600,6 +694,11 @@ class Tree {
     if (r.hard_deadline) o.hard_deadline = true;
     if (r.waits_on) { const w = this.byId.get(r.waits_on); if (w) o.waiting_on = { id: w.id, title: w.title }; }
     if (r.link) o.link = r.link;
+    if (this.isHabit(r)) o.habit = true;
+    if (this.byId.get(r.id) === r) { // its place in its list (repeats sit on their days instead)
+      o.position = this.position(r); o.sort = r.sort;
+      const pr = this.priority(r); if (pr) o.priority = pr;
+    }
     if (r.notes) o.notes = full || r.notes.length <= 200 ? r.notes : r.notes.slice(0, 200) + "…";
     return o;
   }
@@ -675,6 +774,11 @@ function minutesArg(v: unknown): number {
   return n;
 }
 
+function idList(v: unknown, name: string): string[] {
+  if (!Array.isArray(v) || !v.length || v.length > 500 || v.some((x) => typeof x !== "string")) throw new Bad(`${name} must be a list of item ids.`);
+  if (new Set(v).size !== v.length) throw new Bad(`${name} lists an id twice.`);
+  return v as string[];
+}
 const has = (o: Record<string, unknown>, k: string) => Object.prototype.hasOwnProperty.call(o, k) && o[k] !== undefined;
 
 function hoursArg(v: unknown): number {
@@ -685,7 +789,7 @@ function hoursArg(v: unknown): number {
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 /** Scheduled task hours (and area time) in each of the next weeks (Monday first), as the Roadmap counts them: every repeat counts. */
 function weekLoad(t: Tree, free: number, today = new Date(), weeks = 4) {
-  const rows = [...t.byId.values()].filter((r) => !r.repeat_rule);
+  const rows = [...t.byId.values()].filter((r) => !r.repeat_rule && !t.isHabit(r)); // habits don't count
   const mon = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
   mon.setUTCDate(mon.getUTCDate() - (mon.getUTCDay() + 6) % 7);
   return Array.from({ length: weeks }, (_, i) => {
@@ -693,7 +797,7 @@ function weekLoad(t: Tree, free: number, today = new Date(), weeks = 4) {
     const b = new Date(a); b.setUTCDate(b.getUTCDate() + 6);
     const from = ymd(a), to = ymd(b);
     const bt = t.blockTree(), blocks = [...bt.byId.values()].filter((r) => !r.repeat_rule && !r.done && r.day && r.day >= from && r.day <= to).concat(bt.occBetween(from, to).filter((r) => !r.done)); // area time counts too
-    const h = [...rows.filter((r) => r.day && r.day >= from && r.day <= to), ...t.occBetween(from, to), ...blocks].reduce((s, r) => s + (r.duration_min || 60) / 60, 0);
+    const h = [...rows.filter((r) => r.day && r.day >= from && r.day <= to), ...t.occBetween(from, to).filter((r) => !t.isHabit(r)), ...blocks].reduce((s, r) => s + (r.duration_min || 60) / 60, 0);
     const hours = Math.round(h * 2) / 2;
     return { week_of: from, scheduled_hours: hours, ...(hours > free ? { over_by: Math.round((hours - free) * 2) / 2 } : {}) };
   });
@@ -760,7 +864,7 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
   if (["raise_needs_you", "clear_needs_you", "list_needs_you"].includes(name)) return runNeeds(name, args, db);
   if (name === "set_free_hours") { const h = hoursArg(args.hours); await db.setFreeHours(h); return { free_hours_per_week: h }; }
   const t = new Tree(await db.load());
-  if (["list_tasks", "list_projects", "get_item", "update_item", "add_task", "post_note", "list_notes"].includes(name)) t.tz = await db.timeZone();
+  if (["list_tasks", "list_projects", "get_item", "update_item", "add_task", "post_note", "list_notes", "get_next_task"].includes(name)) t.tz = await db.timeZone();
   const today = () => zoned(Date.now(), t.tz).date;
   switch (name) {
     case "get_free_hours": {
@@ -771,6 +875,8 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       const from = has(args, "from") ? dayArg(args.from, "from") : null;
       const to = has(args, "to") ? dayArg(args.to, "to") : null;
       const under = has(args, "project_id") ? t.get(args.project_id) : null;
+      const inArea = has(args, "area") ? t.area(args.area) : null;
+      if (under && inArea) throw new Bad("Give either project_id or area, not both.");
       const words = typeof args.query === "string" ? args.query.toLowerCase().split(/\s+/).filter(Boolean) : [];
       let rows = [...t.byId.values()].filter((r) => !t.isProject(r));
       const since = has(args, "done_since") ? dayArg(args.done_since, "done_since") : null;
@@ -785,8 +891,11 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       if (from) rows = rows.filter((r) => r.day && r.day >= from);
       if (to) rows = rows.filter((r) => r.day && r.day <= to);
       if (under) rows = rows.filter((r) => t.ancestors(r).includes(under));
+      if (inArea) rows = rows.filter((r) => t.areaOf(t.ancestors(r)[0] ?? r) === inArea);
       if (words.length) rows = rows.filter((r) => words.every((w) => r.title.toLowerCase().includes(w)));
-      if (since) rows.sort((a, b) => (a.done_at ?? "").localeCompare(b.done_at ?? ""));
+      const scope = under ? t.flat(t.children(under.id)) : inArea ? t.flat(t.areaItems(inArea)) : null;
+      if (scope && !from && !to && !since) { const at = new Map(scope.map((r, i) => [r.id, i])); rows.sort((a, b) => (at.get(a.id) ?? 1e9) - (at.get(b.id) ?? 1e9)); } // the project's or area's own order
+      else if (since) rows.sort((a, b) => (a.done_at ?? "").localeCompare(b.done_at ?? ""));
       else rows.sort((a, b) => (a.day ?? "9999").localeCompare(b.day ?? "9999") || (a.start_min ?? 1e4) - (b.start_min ?? 1e4) || (a.day_sort ?? a.sort) - (b.day_sort ?? b.sort));
       const out = rows.slice(0, 300).map((r) => t.describe(r));
       return rows.length > 300 ? { tasks: out, note: `Showing 300 of ${rows.length}. Narrow it down with dates or a project.` } : { tasks: out };
@@ -813,8 +922,9 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       return { notes: notes.map((n) => noteOut(t, n)), ...(notes.length ? {} : { note: unread ? "No unread notes." : "No notes yet." }) };
     }
     case "list_projects": {
-      const rows = [...t.byId.values()].filter((r) => t.isProject(r) && (args.include_done || !t.isDone(r)));
-      rows.sort((a, b) => t.ancestors(a).length - t.ancestors(b).length || a.sort - b.sort);
+      // Area by area, projects by priority, each followed by its sub-projects in order; then projects in no area
+      const tops = [...t.areas.map((a) => t.group("a:" + a.id)), t.group("a:")].flat().filter((r) => t.isProject(r));
+      const rows = t.flat(tops).filter((r) => t.isProject(r) && (args.include_done || !t.isDone(r)));
       return { areas: t.areas.map((a) => a.title), projects: rows.map((r) => t.describe(r)) };
     }
     case "get_item": {
@@ -838,6 +948,7 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
         if (!f.day) f.day = today();
         f.repeat_rule = repeatArg(args.repeat, f.day);
       }
+      if (has(args, "habit")) f.habit = boolArg(args.habit, "habit");
       const r = newRow(f);
       await db.save([r]);
       return { added: t.with([r]).describe(r) };
@@ -868,6 +979,48 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       await db.save(rows);
       return { added: rows.map((r) => ({ id: r.id, title: r.title })), under: p.title };
     }
+    case "reorder_items": {
+      const p = typeof args.parent === "string" ? args.parent.trim() : "";
+      if (!p) throw new Bad("parent must be a project's id, an area's name, or \"inbox\".");
+      const key = p.toLowerCase() === "inbox" ? "loose" : t.byId.has(p) ? "p:" + p : "a:" + t.area(p).id;
+      const ids = idList(args.ids, "ids");
+      const list = t.group(key), out = ids.map((id) => {
+        const r = list.find((x) => x.id === id);
+        if (!r) throw new Bad(`${JSON.stringify(id)} isn't in that list. Its items are: ${list.map((x) => `${x.title} (${x.id})`).join(", ") || "none"}. Move an item there with update_item first.`);
+        return r;
+      });
+      const order = [...out, ...list.filter((x) => !ids.includes(x.id))];
+      const changed = order.map((x, j) => ({ ...x, sort: j })).filter((x, j) => list[j]?.id !== x.id || list[j].sort !== j);
+      if (changed.length) await db.save(changed);
+      const after = t.with(changed);
+      return { order: after.group(key).map((x) => ({ position: after.position(x), id: x.id, title: x.title })) };
+    }
+    case "set_project_priority": {
+      const a = t.area(args.area), key = "a:" + a.id, ids = idList(args.project_ids, "project_ids");
+      const list = t.group(key), projs = list.filter((x) => t.isProject(x));
+      const picked = ids.map((id) => {
+        const r = projs.find((x) => x.id === id);
+        if (!r) throw new Bad(`${JSON.stringify(id)} isn't a top-level project in ${a.title}. Its projects are: ${projs.map((x) => `${x.title} (${x.id})`).join(", ") || "none"}.`);
+        return r;
+      });
+      // The projects take the places projects had, in the new order; the area's standalone tasks stay put
+      const ranked = [...picked, ...projs.filter((x) => !ids.includes(x.id))];
+      let k = 0;
+      const order = list.map((x) => (t.isProject(x) ? ranked[k++] : x));
+      const changed = order.map((x, j) => ({ ...x, sort: j })).filter((x, j) => list[j].id !== x.id || list[j].sort !== j);
+      if (changed.length) await db.save(changed);
+      const after = t.with(changed);
+      return { area: a.title, projects: after.group(key).filter((x) => after.isProject(x)).map((x) => ({ priority: after.priority(x), id: x.id, title: x.title })) };
+    }
+    case "get_next_task": {
+      if (has(args, "area") === has(args, "project_id")) throw new Bad("Give either area or project_id.");
+      const a = has(args, "area") ? t.area(args.area) : null, p = a ? null : t.get(args.project_id);
+      if (p && (p.series_id || p.repeat_rule)) throw new Bad("That's a repeating task; get_next_task is for an area or a project.");
+      const next = t.nextUp(a ? t.areaItems(a) : [p!], today());
+      const ofIt = (r: Row) => { const top = t.ancestors(r)[0]; const proj = t.ancestors(r).at(-1); return proj ? { id: proj.id, title: t.ancestors(r).map((x) => x.title).join(" › "), ...(top && t.priority(top) ? { priority: t.priority(top) } : {}) } : null; };
+      if (!next.length) return { next: null, note: `Nothing open in ${a ? a.title : p!.title} that's ready now (not done, not waiting on something unfinished, not planned for a later day).` };
+      return { [a ? "area" : "in"]: a ? a.title : p!.title, next: { ...t.describe(next[0]), project: ofIt(next[0]) }, after_that: next.slice(1, 3).map((r) => ({ ...t.describe(r), project: ofIt(r) })) };
+    }
     case "list_blocks": case "add_block": case "update_block": case "remove_block": case "set_area_hours":
       return runBlocks(name, args, t, db, today());
     case "update_item": {
@@ -880,7 +1033,7 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
           if (Object.keys(args).some((k) => k !== "id" && k !== "repeat" && has(args, k))) throw new Bad(`repeat changes the whole series; pass it on its own, or use the series_id (${r.series_id}).`);
           return runTool(name, { id: r.series_id, repeat: args.repeat }, db);
         }
-        for (const k of ["project_id", "area", "start", "due", "milestone", "hard_deadline"]) if (has(args, k)) throw new Bad(`${k} belongs to the whole series; pass its series_id (${r.series_id}) instead.`);
+        for (const k of ["project_id", "area", "start", "due", "milestone", "hard_deadline", "habit", "position"]) if (has(args, k)) throw new Bad(`${k} belongs to the whole series; pass its series_id (${r.series_id}) instead.`);
       }
       if (series) {
         if (has(args, "done") || has(args, "done_at") || has(args, "actual_minutes")) throw new Bad("Check off one day's repeat, not the whole series: list_tasks with from and to gives each repeat's id.");
@@ -916,6 +1069,25 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
         if (r.parent_id != null) throw new Bad("Only top-level projects and tasks sit in an area; this item is inside another project.");
         if (args.area === null && r.color === "area") r.color = t.areaOf(r)?.color ?? null; // keep the colour it had
         r.area_id = args.area === null ? null : t.area(args.area).id;
+        if (r.area_id !== before.area_id && !has(args, "position")) r.sort = now(); // last in its new area
+      }
+      if (has(args, "habit")) r.habit = boolArg(args.habit, "habit");
+      // Its place in its list (after any move): the list is numbered again in the new order, as the app does
+      const placed: Row[] = [];
+      if (has(args, "position")) {
+        const list = t.group(t.groupOf(r)).filter((x) => x.id !== r.id);
+        const pos = typeof args.position === "string" ? args.position.trim() : "";
+        let i: number;
+        if (pos.toLowerCase() === "first") i = 0;
+        else if (pos.toLowerCase() === "last") i = list.length;
+        else {
+          const id = pos.replace(/^after\s*:\s*/i, "");
+          if (!pos || id === r.id) throw new Bad("position must be \"first\", \"last\" or \"after:<item id>\".");
+          i = list.findIndex((x) => x.id === id) + 1;
+          if (!i) throw new Bad(`${JSON.stringify(id)} isn't in the same list as this item (${t.groupOf(r).startsWith("p:") ? "the steps of " + (t.byId.get(t.groupOf(r).slice(2))?.title ?? "its project") : t.groupOf(r) === "loose" ? "the inbox" : "its area"}). Use an item from that list, "first" or "last".`);
+        }
+        list.splice(i, 0, r);
+        list.forEach((x, j) => { if (x === r) r.sort = j; else if (x.sort !== j) placed.push({ ...x, sort: j }); });
       }
       // done_at isn't sent unless set on purpose, so the database stamps check-offs itself
       const k = t.children(r.id);
@@ -964,11 +1136,13 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       }
       if (occ && !r.day) { r.deleted = true; r.start_min = null; r.day = before.day; } // a repeat taken off the plan is skipped
       changed.unshift(r);
+      const extra = changed.length - 1;
+      changed.push(...placed.filter((p) => !changed.some((c) => c.id === p.id)));
       await db.save(changed);
       if (r.deleted) return { skipped: { id: r.id, title: r.title, day: r.occurs_on, series_id: r.series_id } };
       for (const c of changed) if (c.done_at === undefined) { const o = t.byId.get(c.id) ?? t.occLive.get(c.id); c.done_at = !c.done ? null : o?.done ? o.done_at ?? null : new Date().toISOString(); } // what the database stamped
       const after = t.with(changed);
-      return { updated: after.describe(after.get(r.id)), ...(changed.length > 1 ? { [series ? "stored_repeats_changed" : "steps_changed"]: changed.length - 1 } : {}) };
+      return { updated: after.describe(after.get(r.id)), ...(extra ? { [series ? "stored_repeats_changed" : "steps_changed"]: extra } : {}), ...(placed.length ? { list: after.group(after.groupOf(r)).map((x) => ({ position: after.position(x), id: x.id, title: x.title })) } : {}) };
     }
   }
   throw new Bad(`Unknown tool ${name}.`);
