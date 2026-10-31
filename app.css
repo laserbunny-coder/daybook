@@ -2026,3 +2026,7 @@ body.td-shell .td-sbtns .td-pill,.td-sbtns .td-pill{top:auto;right:auto;left:aut
 .td-jp[hidden]{display:none}
 .td-jp.on{background:#f2c14e;color:#3a2410;border-color:#3a2410}
 .td-fanned .td-jp{visibility:hidden}
+/* the hours beside the quests: readable over his scales */
+.td-tk span,.td-tk.end span,.td-tk.bed span{left:auto;right:calc(100% - 32px);width:auto;padding:1px 5px;border-radius:7px;background:rgba(12,6,8,.82);color:#f3e4c4;font:700 11px 'Alegreya Sans',sans-serif;top:-9px;text-shadow:none}
+.td-tk.end span{color:#f2c14e}.td-tk.bed span{color:#9cc4ff}
+.td-tk.hr{border-top-color:rgba(243,228,196,.22)}
