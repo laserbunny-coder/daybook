@@ -54,7 +54,7 @@ function build() {
   root.innerHTML = `<div class="td-stage"><canvas class="td-cv" aria-hidden="true"></canvas>
     <button class="td-poke" data-td="poke" aria-label="Poke ${NAME}"></button>
     <nav class="td-rooms" aria-label="Rooms"></nav>
-    <div class="td-hud"><button class="td-help" data-td="help" aria-label="How the Fight works">?</button><div class="td-hl"><div class="td-date"><button data-act="prev" aria-label="Previous day">‹</button><button class="td-dt" data-act="today"></button><button data-act="next" aria-label="Next day">›</button></div></div><div class="td-hr"><button class="td-snd" data-td="sound" aria-label="Sound"></button><div class="td-purse" title="Your gold"><i></i><b></b></div></div></div>
+    <div class="td-hud"><button class="td-help" data-td="help" aria-label="How the Fight works">?</button><button class="td-curse" data-td="curse" hidden></button><div class="td-hl"><div class="td-date"><button data-act="prev" aria-label="Previous day">‹</button><button class="td-dt" data-act="today"></button><button data-act="next" aria-label="Next day">›</button></div></div><div class="td-hr"><button class="td-snd" data-td="sound" aria-label="Sound"></button><div class="td-purse" title="Your gold"><i></i><b></b></div></div></div>
     <div class="td-side"><div class="td-pips" aria-label="The rounds"></div><div class="td-rnd"></div><div class="td-sbtns"><button class="td-pill" data-td="dawn" hidden></button><button class="td-drg" data-td="lair" aria-label="Dragons" title="Dragons">${ICON.drg}</button><span class="td-nyslot"></span><button class="td-gutb" data-td="gut" aria-label="In his gut" title="In his gut: finish one to make him cough up half" hidden>${ICON.gut}<b></b></button><span class="td-addslot"></span></div></div>
     <div class="td-lane" aria-label="Your quests, in order"><div class="td-ruler" aria-hidden="true"></div></div>
     <button class="td-jp" data-td="jaws" hidden></button>
@@ -71,7 +71,7 @@ function build() {
     <div class="td-hit" hidden></div><div class="td-combo" hidden></div>
     <div class="td-flash"></div></div>`;
   const $ = s => root.querySelector(s);
-  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), pips: $('.td-pips'), side: $('.td-side'), foot: $('.td-foot'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small'), sayb: $('.td-say'), saybg: $('.td-saybg'), chip: $('.td-chip'), jp: $('.td-jp'), gutb: $('.td-gutb'), ruler: $('.td-ruler'), back: $('.td-back2'), hit: $('.td-hit'), combo: $('.td-combo'), fanbg: $('.td-fanbg'), rooms: $('.td-rooms'), dt: $('.td-dt') };
+  el = { stage: $('.td-stage'), lane: $('.td-lane'), now: $('.td-now span'), nowLine: $('.td-now'), rnd: $('.td-rnd'), pips: $('.td-pips'), side: $('.td-side'), foot: $('.td-foot'), purse: $('.td-purse b'), say: $('.td-say span'), banner: $('.td-banner'), belly: $('.td-belly'), hand: $('.td-hand'), aim: $('.td-aim'), verdict: $('.td-verdict'), flash: $('.td-flash'), dawn: $('.td-dawn'), pill: $('.td-pill'), lair: $('.td-lair'), drg: $('.td-drg'), who: $('.td-say small'), sayb: $('.td-say'), saybg: $('.td-saybg'), chip: $('.td-chip'), curse: $('.td-curse'), jp: $('.td-jp'), gutb: $('.td-gutb'), ruler: $('.td-ruler'), back: $('.td-back2'), hit: $('.td-hit'), combo: $('.td-combo'), fanbg: $('.td-fanbg'), rooms: $('.td-rooms'), dt: $('.td-dt') };
   swipeRooms();
   cv = $('.td-cv'); ctx = cv.getContext('2d');
   // while a card is picked, tapping a quest plays it there instead of opening or finishing it
@@ -90,6 +90,8 @@ function build() {
     else if (b.dataset.td === 'replay') { if (bub.open) bubble(false); else { bubble(true, 8); hear(); } }
     else if (b.dataset.td === 'say-x') bubble(false);
     else if (b.dataset.td === 'jaws') spreadJaws(!jawsOpen);
+    else if (b.dataset.td === 'curse') curseInfo();
+    else if (b.dataset.td === 'curse-x') { el.banner.hidden = true; }
     else if (b.dataset.td === 'gut') { gutOpen = !gutOpen; foot(); }
     else if (b.dataset.td === 'card') { if (fan) { fan = false; pickCard(b.dataset.c); hand(); } else { fan = true; hand(); } }
     else if (b.dataset.td === 'fan-x') { fan = false; hand(); }
@@ -198,7 +200,10 @@ function meter(live) {
   el.rnd.hidden = !cur || !cur.total;
   if (cur?.total) { const pct = v => Math.min(100, v / cur.total * 100).toFixed(1);
     el.rnd.innerHTML = `<em>${cur.kept}/${cur.total}</em><span class="td-vbar" title="${cur.name} round: ${cur.kept} of ${cur.total} kept, need ${cur.need}"><i class="k" style="height:${pct(cur.kept)}%"></i><i class="l" style="height:${pct(cur.lost)}%"></i><u style="bottom:${pct(cur.need)}%"></u></span><em class="nd">need ${cur.need}</em>`; }
-  el.now.textContent = [sw ? ` · swoops ${fmtT(sw.t)}` : '', now && R.curses.length ? ` · ${R.curses.map(c => dragon.CURSES[c].n).join(', ')}` : ''].join('');
+  el.now.textContent = sw ? ` · swoops ${fmtT(sw.t)}` : '';
+  // a curse wears a badge under the ?, tap it to read what it does
+  const cu = now ? R.curses : []; el.curse.hidden = !cu.length;
+  if (cu.length) { el.curse.innerHTML = `<i aria-hidden="true">☠</i>${cu.map(c => dragon.CURSES[c].n).join(' · ')}`; el.curse.setAttribute('aria-label', `Cursed: ${cu.map(c => dragon.CURSES[c].n).join(', ')}. Tap to read what it does`); }
 }
 /** The quests still in play, positioned by when they reach his jaws, never closer than one card apart. */
 function lane() {
@@ -687,6 +692,12 @@ function chomped(q) {
   el.flash.animate([{ opacity: 0.85 }, { opacity: 0 }], { duration: 600 });
   if (!reduce) el.stage.animate([{ translate: '0 0' }, { translate: '-5px 3px' }, { translate: '4px -3px' }, { translate: '0 0' }], { duration: 260 });
   talk(q.swooped ? 'swoop' : 'chomp'); line(true);
+}
+/** What your curses do and how they lift: a stuffed day (he ate most of it) adds one, up to two; any other day lifts one. */
+function curseInfo() {
+  el.banner.hidden = false; el.banner.className = 'td-banner cu';
+  el.banner.innerHTML = `<button data-td="curse-x" aria-label="Close"><b>Cursed</b>${R.curses.map(c => `<span><em>${dragon.CURSES[c].n}:</em> ${dragon.CURSES[c].t}${c === 'sloth' ? ' The quest he bit says "Sloth bit" in purple.' : ''}</span>`).join('')}<small>You get cursed when he ends a day stuffed. Each day that ends any other way lifts one.</small></button>`;
+  clearTimeout(roundOver.t); roundOver.t = setTimeout(() => { el.banner.hidden = true; }, 9000);
 }
 function roundOver(x) {
   el.banner.hidden = false; el.banner.className = 'td-banner ' + x.res;
