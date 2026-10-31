@@ -34,9 +34,10 @@ const subsOf = (id, K) => (K.get(id) || []).filter(c => (K.get(c.id) || []).leng
 const laneOf = n => (n.ar && store.get(n.ar) ? n.ar : '');
 const rootOf = n => { let r = n; while (r.p && store.get(r.p)) r = store.get(r.p); return r; };
 
-/* Hours of scheduled tasks and area time in each week (Monday first). A repeating task counts each of its repeats; it has no bar. */
+/* Hours of scheduled tasks and area time in each week (Monday first). A repeating task counts each of its repeats; it has no bar.
+   Habits (hb, on the task or its series) still show on their days but don't count here. */
 function weekHours(from, weeks) {
-  const h = new Array(weeks).fill(0), count = n => { const w = Math.floor(daysBetween(from, n.d) / 7); if (w < weeks) h[w] += (n.m || 60) / 60; };
+  const h = new Array(weeks).fill(0), count = n => { if (n.hb || store.seriesOf(n)?.hb) return; const w = Math.floor(daysBetween(from, n.d) / 7); if (w < weeks) h[w] += (n.m || 60) / 60; };
   for (const n of store.all()) if (n.d && n.d >= from && !n.r) count(n);
   for (let i = 0, d = from; i < weeks * 7; i++, d = add(d, 1)) { store.occOn(d).forEach(count); store.blocksOn(d).filter(b => !b.done).forEach(count); } // area time counts too
   return h;

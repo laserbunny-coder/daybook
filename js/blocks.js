@@ -68,6 +68,17 @@ export function inside(b) {
   const cards = groups.filter(g => !isDone(g)).map(g => ({ g, open: openOf(g), last: lastWorked(g) })).filter(c => c.open.length);
   return { t, cards, loose };
 }
+/* What's next in an area or project, the same way the connector's get_next_task works it out: in order (an area's projects
+   by priority, which is their order in the area, then its standalone tasks), the open tasks that aren't waiting on something
+   unfinished and aren't planned for a later day (nor inside a project that is). Repeating tasks come on their days instead. */
+export function nextUp(t, T = today()) {
+  if (!t) return [];
+  const blocked = n => (n.d && n.d > T) || (n.w && store.get(n.w) && !isDone(store.get(n.w)));
+  const walk = n => blocked(n) ? [] : hasKids(n.id) ? children(n.id).flatMap(walk) : n.done || n.r || (n.p == null && n.c) ? [] : [n];
+  if (t.k !== 'area') return walk(t);
+  const roots = store.all().filter(n => n.p == null && n.ar === t.id).sort((x, y) => x.o - y.o), proj = n => hasKids(n.id) || !!n.c;
+  return roots.filter(proj).concat(roots.filter(n => !proj(n))).flatMap(walk);
+}
 /** Where to start: something planned for today or overdue first, then whatever is due soonest (within two weeks). */
 export function suggest(b) {
   const { cards, loose } = inside(b), T = today(), soon = add(T, 14);
