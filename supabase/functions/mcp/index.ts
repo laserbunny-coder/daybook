@@ -67,19 +67,6 @@ function dbFor(userId: string): Db {
       const { error: e2 } = await sb.auth.admin.updateUserById(userId, { user_metadata: { ...(data.user?.user_metadata ?? {}), free_hours: hours } });
       if (e2) throw e2;
     },
-    // Catch-up hours for any area live with the account too (user_metadata.catch_up, minutes by weekday)
-    async getCatchUp() {
-      const { data, error } = await sb.auth.admin.getUserById(userId);
-      if (error) throw error;
-      const v = data.user?.user_metadata?.catch_up;
-      return v && typeof v === "object" ? v as Record<string, number> : null;
-    },
-    async setCatchUp(v) {
-      const { data, error } = await sb.auth.admin.getUserById(userId);
-      if (error) throw error;
-      const { error: e2 } = await sb.auth.admin.updateUserById(userId, { user_metadata: { ...(data.user?.user_metadata ?? {}), catch_up: v } });
-      if (e2) throw e2;
-    },
     async listNotes(limit, unreadOnly) {
       let q = sb.from("notes").select(NOTE_COLS).eq("user_id", userId).is("kind", null);
       if (unreadOnly) q = q.is("read_at", null);

@@ -2,7 +2,6 @@
 // such as { mon: 180, wed: 0 }), plus a hint for when in the day it fits best (tp: morning, afternoon or evening).
 // A day's area cards show the target and the time logged so far. Time counts for an area when it's recorded on the
 // area itself (its own ▶, as often as you like in a day), on anything inside it, or on a block for it.
-// A catch-up target (hours on a weekday for any area, kept with the account) collects time beyond the areas' own targets.
 import * as store from './store.js';
 import * as track from './track.js';
 import { add, pd } from './util.js';
@@ -18,7 +17,6 @@ export const areas = () => store.areas();
 const pick = (o, d) => o && d in o ? o[d] : o?.[keyOf(d)];
 export const targetOn = (a, d) => Math.max(0, +(pick(a?.dg, d) || 0));
 export const isOverride = (o, d) => !!o && d in o;
-export const catchUpOn = (cu, d) => Math.max(0, +(pick(cu, d) || 0));
 /** The week's target from Monday w: each day's target, overrides included. Without w, the usual weekdays. */
 export const weekTarget = (a, w) => !a?.dg ? null : (w ? [0, 1, 2, 3, 4, 5, 6].reduce((t, i) => t + targetOn(a, add(w, i)), 0) : ORDER.reduce((t, k) => t + Math.max(0, +(a.dg[k] || 0)), 0)) || null;
 
@@ -39,20 +37,18 @@ export function loggedOn(d) {
     let m = 0; for (const e of n.tl) m += overlap(e, a, z);
     if (m <= 0) continue;
     const o = out[id] || (out[id] = { min: 0, hb: 0, items: new Map() });
-    o.min += m; if ((n.rs ? store.get(n.rs) : n)?.hb) o.hb += m; // habit time counts in its area, never toward catch-up (work) hours
+    o.min += m; if ((n.rs ? store.get(n.rs) : n)?.hb) o.hb += m; // habit time counts in its area too
     const host = n.rs ? n.rs : n.id; o.items.set(host, (o.items.get(host) || 0) + m);
   }
   return out;
 }
 /** A day's area cards: every area with a target that day or time logged, morning ones first. */
-export function cardsOn(d, catchUp = {}) {
-  const L = loggedOn(d), k = keyOf(d), pr = a => a.tp ? PREFS.indexOf(a.tp) : 1;
+export function cardsOn(d) {
+  const L = loggedOn(d), pr = a => a.tp ? PREFS.indexOf(a.tp) : 1;
   const cards = areas().map(a => ({ a, target: targetOn(a, d), min: Math.round(L[a.id]?.min || 0), hb: Math.round(L[a.id]?.hb || 0) }))
     .filter(c => c.target > 0 || c.min > 0)
     .sort((x, y) => (x.target > 0 ? 0 : 1) - (y.target > 0 ? 0 : 1) || pr(x.a) - pr(y.a) || (x.a.o ?? 0) - (y.a.o ?? 0));
-  const cu = catchUpOn(catchUp, d);
-  const extra = Math.round(cards.reduce((t, c) => t + Math.max(0, c.min - c.hb - c.target), 0));
-  return { cards, catchUp: cu ? { target: cu, min: Math.min(extra, 24 * 60) } : null };
+  return cards;
 }
 /** Whether the area's own timer is running (as opposed to a task in it). */
 export const areaRec = id => track.isRec(store.get(id));
