@@ -2113,6 +2113,8 @@ body.td-shell .td-sbtns .td-pill,.td-sbtns .td-pill{top:auto;right:auto;left:aut
 .bk-t{flex:1;min-width:0;text-align:left;font-size:14px;display:flex;align-items:center;gap:6px}
 .bk-step.done .bk-t{text-decoration:line-through;color:var(--muted)}
 .bk-step .rec-b{width:26px;height:26px}
+.bk-step .rec-b:not(.on){opacity:.75} /* inside a block the timer is the point: always show it, also on a computer */
+.bk-step:hover .rec-b,.bk-step .rec-b:hover{opacity:1;color:var(--fg);border-color:var(--muted)}
 .bk-more{font-size:12px;color:var(--faint);padding:2px 0 2px 32px}
 .bk-more:hover{color:var(--fg)}
 .bk-pick{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
