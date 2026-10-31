@@ -920,7 +920,7 @@ function renderDetail() {
 const dayWord = d => d === today() ? 'Today' : d === add(today(), -1) ? 'Yesterday' : `${DAYN[pd(d).getDay()]} ${pd(d).getDate()}`;
 const hhmm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
 function timeHTML(n) {
-  if (n.r || n.k === 'area' || (n.p != null && !n.d && !n.tl?.length)) return ''; // a step's time goes to its project
+  if (n.r || n.k === 'area') return ''; // every task, step and project keeps its own log (steps are recorded on in area blocks)
   const t = track.total(n), plan = hasKids(n.id) || n.c ? null : n.pl?.duration_min ?? n.m;
   const rows = (n.tl || []).map((e, i) => {
     const a = track.local(e.start), b = e.end && track.local(e.end);
