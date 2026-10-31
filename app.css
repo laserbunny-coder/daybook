@@ -2202,6 +2202,8 @@ body.td-shell .td-sbtns .td-pill,.td-sbtns .td-pill{top:auto;right:auto;left:aut
 .ad-area .ad-main{padding:9px 4px 9px 12px}
 .ad-bar{display:grid;gap:0;width:100%;text-align:left;padding:0 12px 10px;margin-top:-3px}
 .ad-bar .ad-meter{margin-top:0}
+.ad-bar .ad-meter.lap{height:3px;margin-top:4px}
+.ad-over{color:var(--pc);font-weight:600}
 .wcol .ad-bar{padding:0 10px 8px}
 /* In the week's narrow columns: just the name, hours and meter */
 .wcol .ad-leg{display:none}

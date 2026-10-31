@@ -244,12 +244,17 @@ function adSelect(id, v, k) {
   return `<label class="ad-d"><span>${k[0].toUpperCase() + k.slice(1, 3)}</span><select id="${id}" aria-label="Hours on ${k}">${opts.map(m => `<option value="${m}"${v === m ? ' selected' : ''}>${m ? hrs(m) : '–'}</option>`).join('')}</select></label>`;
 }
 // Under an area card: a thin meter split by project (shades of the area colour), and the biggest pieces named
-function splitMeter(lg, full, target) {
+/* The split bar under an area card: one bar for the day's goal, split by project. Time past the goal starts a thin
+   second bar ("lap") measured against the same goal, then a third, up to four bars. */
+function splitMeter(lg, target) {
   if (!lg || lg.min < 1) return '';
   const by = new Map(); for (const [id, m] of lg.items) { const n = node(id); if (!n) continue; const r = n.k === 'area' ? n : rootOf(n); by.set(r.id, (by.get(r.id) || 0) + m); }
   const parts = [...by.entries()].map(([id, m]) => ({ n: node(id), m })).sort((a, b) => b.m - a.m), shades = [0, 30, 50, 15, 40, 60];
+  const cap = target || lg.min, laps = []; let cur = [], room = cap;
+  parts.forEach((p, i) => { let m = p.m; while (m > 0.01 && laps.length < 4) { const take = Math.min(m, room); cur.push(`<i style="width:${take / cap * 100}%;--sh:${shades[i % shades.length]}%"></i>`); m -= take; room -= take; if (room <= 0.01) { laps.push(cur); cur = []; room = cap; } } });
+  if (cur.length && laps.length < 4) laps.push(cur);
   const left = target ? Math.max(0, target - lg.min) : 0;
-  return `<span class="ad-meter">${parts.map((p, i) => `<i style="width:${p.m / full * 100}%;--sh:${shades[i % shades.length]}%"></i>`).join('')}</span>
+  return `${laps.map((l, i) => `<span class="ad-meter${i ? ' lap' : ''}">${l.join('')}</span>`).join('')}
     <span class="ad-leg">${parts.slice(0, 3).map((p, i) => `<span style="--sh:${shades[i]}%">${esc(p.n.k === 'area' ? 'General' : short(p.n.t))} ${fmtDur(Math.round(p.m))}</span>`).join('')}${parts.length > 3 ? `<span class="more">+${parts.length - 3}</span>` : ''}${left ? `<span class="more">${fmtDur(Math.round(left))} left</span>` : ''}</span>`;
 }
 // The Habits card, above the area cards (js/habits.js draws it)
@@ -259,8 +264,8 @@ function areaStrip(d) {
   const cards = aday.cardsOn(d); if (!cards.length) return '';
   const isT = d === today(), L = aday.loggedOn(d);
   const card = c => { const a = c.a, on = track.isRec(a), lv = aday.live(a.id) && isT;
-    const bar = splitMeter(L[a.id], Math.max(c.target, c.min), c.target) || (c.target ? '<span class="ad-meter"></span>' : '');
-    return `<div class="ad-card ad-area${lv ? ' live' : ''}${c.target && c.min >= c.target ? ' met' : ''}" style="--pc:${colorOf(a)}"><div class="ad-top"><button class="ad-main" data-act="open" data-id="day:${a.id}:${d}"><span class="ad-t">${esc(a.t || 'Untitled area')}</span><span class="ad-s">${lv ? '<span class="ad-dot"></span>' : ''}<b>${fmtDur(c.min)}</b>${c.target ? ` of ${fmtDur(c.target)}` : ' logged'}${a.tp ? ` · ${a.tp}` : ''}</span></button>${isT ? `<button class="rec-b${on ? ' on' : ''}" data-act="rec" data-id="${a.id}" aria-label="${on ? 'Stop' : 'Start'} ${esc(a.t)} time" title="${on ? 'Stop' : `Start ${esc(a.t)} time`}">${on ? ICON.stop : ICON.play}</button>` : ''}</div>${bar ? `<button class="ad-bar" data-act="open" data-id="day:${a.id}:${d}" tabindex="-1" aria-hidden="true">${bar}</button>` : ''}</div>`; };
+    const bar = splitMeter(L[a.id], c.target) || (c.target ? '<span class="ad-meter"></span>' : '');
+    return `<div class="ad-card ad-area${lv ? ' live' : ''}${c.target && c.min >= c.target ? ' met' : ''}" style="--pc:${colorOf(a)}"><div class="ad-top"><button class="ad-main" data-act="open" data-id="day:${a.id}:${d}"><span class="ad-t">${esc(a.t || 'Untitled area')}</span><span class="ad-s">${lv ? '<span class="ad-dot"></span>' : ''}<b>${fmtDur(c.min)}</b>${c.target ? ` of ${fmtDur(c.target)}` : ' logged'}${c.target && c.min - c.target >= 1 ? ` · <span class="ad-over">${fmtDur(c.min - c.target)} over</span>` : a.tp ? ` · ${a.tp}` : ''}</span></button>${isT ? `<button class="rec-b${on ? ' on' : ''}" data-act="rec" data-id="${a.id}" aria-label="${on ? 'Stop' : 'Start'} ${esc(a.t)} time" title="${on ? 'Stop' : `Start ${esc(a.t)} time`}">${on ? ICON.stop : ICON.play}</button>` : ''}</div>${bar ? `<button class="ad-bar" data-act="open" data-id="day:${a.id}:${d}" tabindex="-1" aria-hidden="true">${bar}</button>` : ''}</div>`; };
   return `<div class="ad-strip">${cards.map(card).join('')}</div>`;
 }
 /** Whether a block for this item's area or project is on right now (then its tasks can record on their own). */
