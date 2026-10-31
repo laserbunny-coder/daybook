@@ -197,9 +197,10 @@ function blockDetail(el, b, same) {
     const card = c => { const rest = c.open.slice(1), m = more[c.g.id];
       return `<div class="bk-card" style="--pc:${colorOf(c.g)}"><div class="bk-h"><span class="pdot"></span><button class="bk-name" data-act="open" data-id="${c.g.id}">${esc(c.g.t || 'Untitled')}</button><small>${agoText(c.last)}</small><button class="bk-f" data-act="blk-focus" data-id="${c.g.id}" title="Just this, one step at a time">Focus</button></div>
         ${blkStep(c.open[0])}${m ? rest.map(n => blkStep(n)).join('') : ''}${rest.length ? `<button class="bk-more" data-act="blk-more" data-id="${c.g.id}">${m ? 'Show less' : `+ ${rest.length} more`}</button>` : ''}</div>`; };
+    const lz = loose.filter(n => !sug || n !== sug.n); // loose tasks, less the Start here one
     work = (sug ? `<div class="bk-sug"><div class="bk-lab">Start here</div>${blkStep(sug.n)}<small>${esc(rootOf(sug.n).id !== sug.n.id ? rootOf(sug.n).t + ' · ' : '')}${sug.why || (sug.due ? 'due ' + (sug.due === today() ? 'today' : dayShort(sug.due)) : '')}</small></div>` : '')
-      + cards.map(card).join('')
-      + (loose.length ? `<div class="bk-card loose"><div class="bk-h"><span class="bk-name">Loose in ${esc(t.t || 'this area')}</span>${loose.length > 1 ? `<button class="bk-f" data-act="blk-focus" data-id="loose">Focus</button>` : ''}</div>${loose.map(n => blkStep(n)).join('')}</div>` : '')
+      + cards.map(c => sug ? { ...c, open: c.open.filter(n => n !== sug.n) } : c).filter(c => c.open.length).map(card).join('') // the Start here step isn't repeated in its card
+      + (lz.length ? `<div class="bk-card loose"><div class="bk-h"><span class="bk-name">Loose in ${esc(t.t || 'this area')}</span>${lz.length > 1 ? `<button class="bk-f" data-act="blk-focus" data-id="loose">Focus</button>` : ''}</div>${lz.map(n => blkStep(n)).join('')}</div>` : '')
       || `<div class="dt-note">Nothing open in ${esc(t.t || 'here')}. Add tasks in Projects, or use this time to plan what's next.</div>`;
   }
   const busy = r && r.id !== b.id && within(r, b.fo) ? r : null;
@@ -212,7 +213,7 @@ function blockDetail(el, b, same) {
       <div class="bk-when">${day === today() ? 'Today' : `${DAYL[pd(day).getDay()]} ${fmtShort(day)}`}${b.s != null ? ` · ${fmtT(b.s)} – ${fmtT(b.s + (b.m || 60))}` : ' · any time'}</div>
       ${ser && b.rs ? `<div class="rp-scope" role="group" aria-label="Changes apply to"><span>Changes apply to</span><button data-act="scope" data-v="one" aria-pressed="${S.scope !== 'all'}">This one</button><button data-act="scope" data-v="all" aria-pressed="${S.scope === 'all'}">All repeats</button></div>` : ''}
       <div class="bk-fill"><div class="bk-bar"><i></i></div><span>${b.done && !w ? 'Skipped' : `${fmtDur(w)} worked${len ? ` of ${fmtDur(len)}` : ''}`}</span>
-        ${past ? '' : `<button class="chip rec-chip${rec ? ' on' : ''}" data-act="rec" data-id="${b.id}">${rec ? ICON.stop : ICON.play}<span>${rec ? 'Recording · Stop' : busy ? 'Recording ' + esc(short(busy.t)) : 'Start'}</span></button>`}</div>
+        ${past ? '' : `${busy ? `<button class="chip rec-chip on" data-act="rec" data-id="${busy.id}">${ICON.stop}<span>Stop</span></button>` : `<button class="chip rec-chip${rec ? ' on' : ''}" data-act="rec" data-id="${b.id}">${rec ? ICON.stop : ICON.play}<span>${rec ? 'Recording · Stop' : 'Start'}</span></button>`}`}</div>
       ${rec && t ? `<div class="dt-note bk-hint">Recording general ${esc(blockTitle(b))} time. Tap ▶ on what you're working on to put the time on that task.</div>` : ''}
       ${ask ? askHTML(b) : ''}
       ${b.r ? '<div class="dt-note rp-note">This is the repeating block itself. Open one of its days on the plan to work in it.</div>' : `<div class="dt-sec bk-sec">${S.blkView === 'all' ? 'Everything' : focus ? 'One thing at a time' : 'What to work on'}${t ? `<span class="seg bk-seg" role="group" aria-label="Show"><button data-act="blk-view" data-v="next" aria-pressed="${S.blkView !== 'all'}">Next steps</button><button data-act="blk-view" data-v="all" aria-pressed="${S.blkView === 'all'}">Everything</button></span>` : ''}</div>${work}`}
@@ -1289,6 +1290,7 @@ function onStep(st) {
   if (!st || st.text) return; // typing a name or notes: the box is right there, no pill needed
   if (off && st.ch.some(c => c[0] === off.id)) { occAll = off; toast(`${describe(st)}, just this one`, `<button data-act="occ-all">${ICON.rep}All repeats</button>${urActs(true)}`, 8000); return; }
   if (st.ch.length === 1 && st.ch[0][1].x === true && !store.peek(st.ch[0][0])?.t.trim()) return; // a new project or area, about to be named
+  if (st.ch.every(c => Object.keys(c[1]).every(k => k === 'tl' || k === 'am'))) return; // starting or stopping the timer: the recording pill already says so
   toast(performance.now() - toastAt < 100 ? toastMsg : describe(st), urActs(true));
 }
 // Checking off one task stops its recording and moves its block to when it was really done (track.js); reopening puts it back
