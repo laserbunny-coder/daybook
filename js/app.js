@@ -638,11 +638,13 @@ function renderBoard(el) {
 }
 /* The Roadmap page (js/roadmap.js draws the timeline) */
 const roadBtn = () => `<button class="ib q-only" data-act="road" aria-pressed="${roadShown()}" aria-label="Roadmap" title="Roadmap (R)">${ICON.road}</button><button class="ib q-only" data-act="stats" aria-pressed="${statsShown()}" aria-label="Stats" title="Stats (S)">${ICON.stats}</button>`;
+// In Quiet the header hides, so Roadmap, Stats (and Projects on a phone) keep a plain "‹ Plan" at the top left as the way back
+const qBack = () => quiet() && (roadShown() || statsShown() || qProjects()) ? `<button class="qback" data-act="qback" aria-label="Back to the plan" title="Back to the plan (Esc)">${ICON.prev}<span>Plan</span></button>` : '';
 function renderRoad(el) {
   const first = !document.getElementById('rmsc');
   if (first && client && user) client.auth.getUser().then(({ data }) => { const v = +data?.user?.user_metadata?.free_hours; if (v > 0 && v !== +S.free) { S.free = v; saveUI(); later(); } }).catch(() => {}); // set on another device, or by Claude
   const z = S.rmZoom in { 1: 1, 3: 1, 6: 1 } ? +S.rmZoom : 3, free = +S.free > 0 ? +S.free : 10;
-  const head = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">Roadmap</span></button>` : ''}<header class="mh rm-mh">
+  const head = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">Roadmap</span></button>` : ''}${qBack()}<header class="mh rm-mh">
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">Roadmap</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Earlier">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Later">${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg rm-zoom" role="group" aria-label="Zoom">${[1, 3, 6].map(m => `<button data-act="rm-zoom" data-v="${m}" aria-pressed="${z === m}">${m} mo</button>`).join('')}</div>
     <label class="chip rm-free" title="How many hours a week you have for planned tasks. Weeks with more scheduled than this stand out."><input id="rm-free" type="number" inputmode="numeric" min="1" max="168" step="1" value="${free}" aria-label="Free hours per week"><span class="k">h free a week</span></label>
@@ -665,7 +667,7 @@ addEventListener('resize', () => { if (roadShown() || statsShown()) later(); });
 function renderStats(el) {
   const k = stats.KINDS.some(([v]) => v === S.stK) ? S.stK : 'week', R = stats.range(), fixed = k === 'all';
   const prev = document.getElementById('mbody'), sc = prev?.dataset.k === 'stats' ? prev.scrollTop : 0;
-  el.innerHTML = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">Stats · ${esc(R.label)}</span></button>` : ''}<header class="mh st-mh">
+  el.innerHTML = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">Stats · ${esc(R.label)}</span></button>` : ''}${qBack()}<header class="mh st-mh">
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">Stats</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Earlier"${fixed ? ' disabled' : ''}>${ICON.prev}</button><button class="tb" data-act="today"${fixed ? ' disabled' : ''}>${k === 'day' ? 'Today' : 'Now'}</button><button class="ib" data-act="next" aria-label="Later"${fixed ? ' disabled' : ''}>${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg st-kinds" role="group" aria-label="Range">${stats.KINDS.map(([v, l]) => `<button data-act="st-k" data-v="${v}" aria-pressed="${k === v}">${l}</button>`).join('')}</div>
     <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
@@ -701,7 +703,7 @@ function renderMain() {
   const P = (k, v) => `aria-pressed="${S[k] === v}"`;
   const prevDr = document.getElementById('dr-b'); const drSc = prevDr && prevDr.dataset.k === (S.drAt || '') ? prevDr.scrollTop : 0;
   const warn = store.sync.state === 'offline' || store.sync.state === 'error' ? `<div class="tip warn"><span>${SYNC_TEXT[store.sync.state]}</span></div>` : '';
-  el.innerHTML = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">${title}</span></button>` : ''}<header class="mh">
+  el.innerHTML = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">${title}</span></button>` : ''}${qBack()}<header class="mh">
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg" role="group" aria-label="Range"><button data-act="view" data-v="day" ${P('view', 'day')}>Day</button><button data-act="view" data-v="week" ${P('view', 'week')}>Week</button></div>
     <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button>${S.games ? `<button data-act="mode" data-v="quest" ${P('mode', 'quest')}>Quest</button><button data-act="mode" data-v="dragon" ${P('mode', 'dragon')}>Dragon</button>` : ''}</div>
@@ -1470,6 +1472,7 @@ document.addEventListener('click', e => {
       S.page = b.dataset.v; S.pick = null; S.adding = null; render(); break;
     case 'road': toggleRoad(); break;
     case 'stats': toggleRoad('stats'); break;
+    case 'qback': setStrip(false); leaveRoad(); W = null; render(); break;
     case 'st-k': S.stK = b.dataset.v; S.stAt = today(); render(); break;
     case 'st-at': S.stK = b.dataset.k; S.stAt = b.dataset.d; render(); document.getElementById('mbody')?.scrollTo({ top: 0, behavior: 'smooth' }); break;
     case 'st-area': S.stArea = id || null; render(); break;
@@ -1562,7 +1565,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && S.new) { closeNew(); return; }
   if (e.key === 'Escape' && S.notesOpen && !S.open) { S.notesOpen = false; render(); return; }
   if (e.key === 'Escape' && S.needsOpen && !S.open) { S.needsOpen = false; render(); return; }
-  if (e.key === 'Escape') { if (S.adding) { S.adding = null; render(); } else if (S.open) { S.open = null; renderDetail(); } else if (quiet() && !D) quietAway(); }
+  if (e.key === 'Escape') { if (S.adding) { S.adding = null; render(); } else if (S.open) { S.open = null; renderDetail(); } else if (quiet() && !D && !S.qstrip && !qSide && document.body.classList.contains('ai-off') && (roadShown() || statsShown() || qProjects())) { leaveRoad(); W = null; render(); } else if (quiet() && !D) quietAway(); }
   // Q turns Quiet on and off, anywhere outside a text box
   if (key === 'q' && !D && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); if (S.open) { S.open = null; renderDetail(); } setQuiet(!S.min); return; }
   // R opens the Roadmap and goes back, anywhere outside a text box
