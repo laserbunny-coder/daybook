@@ -2190,6 +2190,13 @@ body.td-shell .td-sbtns .td-pill,.td-sbtns .td-pill{top:auto;right:auto;left:aut
 .ad-leg span::before{content:"";display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:4px;background:color-mix(in srgb,var(--pc),var(--bg) var(--sh,0%))}
 .ad-leg .more::before{display:none}
 .ad-leg .more{color:var(--faint)}
+/* Area cards: one split bar across the full width, with the ▶ up beside the name (no background fill) */
+.ad-card.ad-area{display:grid;gap:0;padding:0;background:var(--card)}
+.ad-top{display:flex;align-items:center;gap:8px;padding-right:8px;min-width:0}
+.ad-area .ad-main{padding:9px 4px 9px 12px}
+.ad-bar{display:grid;gap:0;width:100%;text-align:left;padding:0 12px 10px;margin-top:-3px}
+.ad-bar .ad-meter{margin-top:0}
+.wcol .ad-bar{padding:0 10px 8px}
 /* In the week's narrow columns: just the name, hours and meter */
 .wcol .ad-leg{display:none}
 .wcol .ad-main{padding:7px 2px 7px 10px}
