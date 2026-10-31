@@ -179,7 +179,7 @@ function fitFoot() {
 const SPK = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/>';
 function soundBtn() {
   const b = root?.querySelector('.td-snd'); if (!b) return; const on = sfx.on();
-  b.innerHTML = SPK + (on ? '<path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11"/></svg>' : '<path d="M17 9l5 6M22 9l-5 6"/></svg>');
+  setHTML(b, SPK + (on ? '<path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11"/></svg>' : '<path d="M17 9l5 6M22 9l-5 6"/></svg>'));
   b.setAttribute('aria-pressed', on); b.setAttribute('aria-label', on ? 'Sound on: tap to mute' : 'Sound off: tap to turn on');
 }
 function hud() {
@@ -196,10 +196,10 @@ function hud() {
 function meter(live) {
   const now = live && !R.closed, cur = now && !R.off ? R.R.find(x => x.live) : null, sw = now ? R.swoops.find(x => !x.past) : null;
   el.pips.hidden = view > today() || R.off;
-  el.pips.innerHTML = R.R.map(x => `<i class="${x.res}${x === cur ? ' live' : ''}" title="${x.name}: ${x.res === 'none' ? 'no contest' : x.res === 'open' ? `${x.kept} of ${x.total} kept` : `${x.res === 'won' ? 'won' : 'lost'}, ${x.kept} of ${x.total}`}"><b>${x.name[0]}</b></i>`).join('');
+  setHTML(el.pips, R.R.map(x => `<i class="${x.res}${x === cur ? ' live' : ''}" title="${x.name}: ${x.res === 'none' ? 'no contest' : x.res === 'open' ? `${x.kept} of ${x.total} kept` : `${x.res === 'won' ? 'won' : 'lost'}, ${x.kept} of ${x.total}`}"><b>${x.name[0]}</b></i>`).join(''));
   el.rnd.hidden = !cur || !cur.total;
   if (cur?.total) { const pct = v => Math.min(100, v / cur.total * 100).toFixed(1);
-    el.rnd.innerHTML = `<em>${cur.kept}/${cur.total}</em><span class="td-vbar" title="${cur.name} round: ${cur.kept} of ${cur.total} kept, need ${cur.need}"><i class="k" style="height:${pct(cur.kept)}%"></i><i class="l" style="height:${pct(cur.lost)}%"></i><u style="bottom:${pct(cur.need)}%"></u></span><em class="nd">need ${cur.need}</em>`; }
+    setHTML(el.rnd, `<em>${cur.kept}/${cur.total}</em><span class="td-vbar" title="${cur.name} round: ${cur.kept} of ${cur.total} kept, need ${cur.need}"><i class="k" style="height:${pct(cur.kept)}%"></i><i class="l" style="height:${pct(cur.lost)}%"></i><u style="bottom:${pct(cur.need)}%"></u></span><em class="nd">need ${cur.need}</em>`); }
   el.now.textContent = sw ? ` · swoops ${fmtT(sw.t)}` : '';
   // a curse wears a badge under the ?, tap it to read what it does
   const cu = now ? R.curses : []; el.curse.hidden = !cu.length;
@@ -264,10 +264,10 @@ function place(snap) {
   el.nowLine.style.transform = `translateY(${(LANE_Y - NOW_Y - scroll.y).toFixed(1)}px)`;
   const J = L.filter(c => c.q.st === 'jaws');
   if (J.length < 2 && jawsOpen) { jawsOpen = false; clearTimeout(jawsT); }
-  el.jp.hidden = J.length < 2 || !!aim;
+  { const h = J.length < 2 || !!aim; if (el.jp.hidden !== h) el.jp.hidden = h; }
   if (J.length >= 2) { el.jp.style.transform = `translate(0,${(J[0].y - HALF - 9 + off).toFixed(1)}px)`; el.jp.textContent = jawsOpen ? '▴' : '×' + J.length;
     el.jp.setAttribute('aria-label', jawsOpen ? 'Pile them back up' : `${J.length} quests in his jaws: spread them out`); el.jp.classList.toggle('on', jawsOpen); }
-  el.back.hidden = scroll.to < 20;
+  if (el.back.hidden !== scroll.to < 20) el.back.hidden = scroll.to < 20;
   ruler(off);
 }
 /** Where minute t of the day sits on the lane: steady time, stretched wherever quests are packed closer than a card apart. */
@@ -308,12 +308,14 @@ function foot() {
   el.gutb.hidden = !eaten.length; el.gutb.querySelector('b').textContent = eaten.length || '';
   if (!eaten.length) gutOpen = false;
   el.gutb.setAttribute('aria-expanded', gutOpen); el.belly.hidden = !gutOpen;
-  el.belly.innerHTML = eaten.length ? `<span class="td-bl">In his gut · finish one and he coughs up half</span><span class="td-bones">${eaten.map(q => `<span class="td-bone"><button class="td-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Finish ${esc(q.n.t)} to make him cough up half"></button><button class="td-n" data-act="open" data-id="${q.n.id}">${esc(q.n.t || 'Untitled')}</button><em>½ ${Math.ceil(q.g / 2)}</em></span>`).join('')}</span>` : '';
+  setHTML(el.belly, eaten.length ? `<span class="td-bl">In his gut · finish one and he coughs up half</span><span class="td-bones">${eaten.map(q => `<span class="td-bone"><button class="td-ck" data-act="toggle" data-id="${q.n.id}" aria-label="Finish ${esc(q.n.t)} to make him cough up half"></button><button class="td-n" data-act="open" data-id="${q.n.id}">${esc(q.n.t || 'Untitled')}</button><em>½ ${Math.ceil(q.g / 2)}</em></span>`).join('')}</span>` : '');
   hand();
 }
 /* ---------- your hand ---------- */
 // The cards sit tucked along the bottom, only their tops showing. Tap them and they rise and fan out big; tap one to play it.
 let gutOpen = false;
+// only touch the page when something changed, so nothing redraws (and blinks) on every refresh
+const setHTML = (e, h) => { if (e._h !== h) { e._h = h; e.innerHTML = h; } };
 let aim = null; // { c, ids: [], plan } while a card waits for its quest(s), then for your yes
 let fan = false;
 const AIM_TXT = { wind: 'Tap the quest to give a Second Wind', shield: 'Tap the quest to shield', swap: 'Tap the first quest to swap', back: 'Tap the quest to send back', split: 'Tap the big quest to split' };
@@ -326,8 +328,8 @@ function hand() {
     el.aim.hidden = true; fan = false; el.fanbg.hidden = true; el.stage.classList.remove('td-fanned'); return; }
   const n = R.hand.length; if (!n) fan = false;
   el.stage.classList.toggle('td-fanned', fan); el.fanbg.hidden = !fan;
-  el.hand.innerHTML = R.hand.map((c, i) => { const off = i - (n - 1) / 2, sel = aim?.c === c.c;
-    return `<button class="td-card${c.used ? ' used' : ''}${c.comeback ? ' comeback' : ''}${sel ? ' sel' : ''}" data-td="card" data-c="${c.c}" style="--off:${off};--ao:${Math.abs(off)};--sp:${n > 3 ? 74 : 112}px;--fs:${n > 3 ? 78 : 122}px" aria-pressed="${sel}" aria-label="${fan ? `Play ${c.n}` : `${c.n}: tap to see your cards`}"${c.used && fan ? ' disabled' : ''}><b>${c.n}</b><i class="td-art" aria-hidden="true">${GLYPH[c.c] || '✦'}</i><span>${c.t}</span><small class="${c.plan ? 'pl' : ''}">${c.used ? 'Played' : c.plan ? 'Moves your plan' : 'Game only'}</small></button>`; }).join('');
+  setHTML(el.hand, R.hand.map((c, i) => { const off = i - (n - 1) / 2, sel = aim?.c === c.c;
+    return `<button class="td-card${c.used ? ' used' : ''}${c.comeback ? ' comeback' : ''}${sel ? ' sel' : ''}" data-td="card" data-c="${c.c}" style="--off:${off};--ao:${Math.abs(off)};--sp:${n > 3 ? 74 : 112}px;--fs:${n > 3 ? 78 : 122}px" aria-pressed="${sel}" aria-label="${fan ? `Play ${c.n}` : `${c.n}: tap to see your cards`}"${c.used && fan ? ' disabled' : ''}><b>${c.n}</b><i class="td-art" aria-hidden="true">${GLYPH[c.c] || '✦'}</i><span>${c.t}</span><small class="${c.plan ? 'pl' : ''}">${c.used ? 'Played' : c.plan ? 'Moves your plan' : 'Game only'}</small></button>`; }).join(''));
   el.aim.hidden = !aim;
   if (aim) el.aim.innerHTML = aim.plan
     ? `<span><b>${dragon.CARDS[aim.c].n}:</b> ${esc(aim.plan.text)}</span><span class="td-aim-b"><button data-td="aim-x">Cancel</button><button class="go" data-td="aim-go">Play it</button></span>`
@@ -434,7 +436,8 @@ function dawn() {
 }
 
 /* ---------- goal dragons: on duty, the Dragons panel, his page ---------- */
-let lairOpen = null, on = null, goalSeen = null, tint = 'none';
+let lairOpen = null, on = null, goalSeen = null, tint = 'none', dutyAt = 0;
+const hue = { to: 0, now: 0, sat: 1 }; // the goal dragon's colour, eased so he never snaps from one dragon to the next
 const hit = () => { const ids = new Set(R.Qs.filter(q => q.goal && (q.st === 'kept' || q.st === 'late')).map(q => q.goal)); return S.goals.filter(g => ids.has(g.id)); };
 const hueOf = hex => { const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(hex || ''); if (!m) return 0;
   const [r, g, b] = m.slice(1).map(x => parseInt(x, 16) / 255), mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; if (!d) return 0;
@@ -445,9 +448,12 @@ function duty() {
   // whoever owns the quest in his jaws, else the next one to reach them (by when it reaches his jaws, not when it starts)
   const next = !live ? null : R.Qs.find(q => q.st === 'jaws') || R.Qs.filter(q => q.st === 'open').sort((a, b) => a.e - b.e)[0];
   const g = next?.goal ? S.goals.find(x => x.id === next.goal) : null;
-  if ((g?.id || null) !== (on?.id || null) && g) { el.banner.hidden = false; el.banner.className = 'td-banner card'; el.banner.innerHTML = `<b>${esc(g.name)}</b><span>takes over for ${esc(next.n.t || 'this quest')}</span>`; clearTimeout(roundOver.t); roundOver.t = setTimeout(() => { el.banner.hidden = true; }, 3000); }
+  // the first few seconds after the Fight opens, while your quests are still loading in, he changes quietly
+  const settled = dutyAt && performance.now() - dutyAt > 4000; if (!dutyAt) dutyAt = performance.now();
+  if (settled && (g?.id || null) !== (on?.id || null) && g) { el.banner.hidden = false; el.banner.className = 'td-banner card'; el.banner.innerHTML = `<b>${esc(g.name)}</b><span>takes over for ${esc(next.n.t || 'this quest')}</span>`; clearTimeout(roundOver.t); roundOver.t = setTimeout(() => { el.banner.hidden = true; }, 3000); }
   on = g || null;
-  tint = on ? `hue-rotate(${Math.round(hueOf(on.color) - 6)}deg) saturate(1.1)` : 'none';
+  hue.to = on ? Math.round(hueOf(on.color) - 6) : 0; hue.sat = on ? 1.1 : 1;
+  if (!settled) hue.now = hue.to;
   el.who.textContent = (on ? on.name.split(/[\s,]/)[0] : NAME).toUpperCase();
 }
 /** Taming and escapes get their moment when they happen. */
@@ -482,9 +488,9 @@ const shell = () => document.body.classList.contains('td-shell');
 const roomOf = () => !lairOpen || lairOpen === 'help' ? 'fight' : lairOpen === 'week' ? 'week' : lairOpen === 'realm' ? 'realm' : 'lair';
 function rooms() {
   const at = roomOf();
-  el.rooms.innerHTML = ROOMS.map(([k, n]) => k === 'ledger'
+  setHTML(el.rooms, ROOMS.map(([k, n]) => k === 'ledger'
     ? `<button data-act="mode" data-v="list" data-cave="1">${n}</button>`
-    : `<button data-td="room" data-v="${k}" aria-current="${k === at}">${n}</button>`).join('');
+    : `<button data-td="room" data-v="${k}" aria-current="${k === at}">${n}</button>`).join(''));
 }
 function goRoom(k) {
   if (k === 'ledger') { el.rooms.querySelector('[data-cave]')?.click(); return; }
@@ -853,7 +859,7 @@ const embers = [], smoke = [];
 const COINS = Array.from({ length: 170 }, (_, i) => ({ u: hash(i) * 1.1 - .05, v: Math.pow(hash(i + 50), 1.6), s: 4.5 + hash(i + 7) * 4.5, t: hash(i + 11) })).sort((a, b) => a.v - b.v);
 /** The hoard is a mound piled up around his body: its peak just over the bottom of the painting, sloping down to the right. */
 function hoardTop(H) {
-  const s = Math.min(.44, Math.max(.36, (H - 400) / 936)), base = art.ok ? NOW_Y - ART.jaw * s + ART.h * s : H - 130;
+  const s = Math.min(.44, Math.max(.36, (H - 400) / 936)), base = !art.failed ? NOW_Y - ART.jaw * s + ART.h * s : H - 130;
   const peak = Math.min(H - 110, base - 46), right = Math.min(H - 34, peak + 120);
   return x => x < 120 ? peak + Math.pow((120 - x) / 140, 2) * 34 : peak + Math.pow(Math.min(1, (x - 120) / 290), 1.5) * (right - peak);
 }
@@ -875,10 +881,10 @@ function talkJaw(a, x0, y0, s) {
   ctx.translate(hx, hy); ctx.rotate(a); ctx.translate(-hx, -hy); ctx.clip(jawPath); ctx.drawImage(art.closed, 0, 0);
   ctx.restore();
 }
-const art = { ok: false, open: 0 };
+const art = { ok: false, failed: false, fade: 0, open: 0 };
 if (typeof Image !== 'undefined') {
   const load = src => new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
-  Promise.all([load('art/dragon-closed.webp'), load('art/dragon-open.webp')]).then(([c, o]) => { if (c && o) { art.closed = c; art.opened = o; art.ok = true; } });
+  Promise.all([load('art/dragon-closed.webp'), load('art/dragon-open.webp')]).then(([c, o]) => { if (c && o) { art.closed = c; art.opened = o; art.ok = true; } else art.failed = true; });
 }
 function painted(p, H, dt) {
   const s = Math.min(.44, Math.max(.36, (H - 400) / 936)), x0 = 312 - ART.tip[0] * s, y0 = NOW_Y - ART.jaw * s;
@@ -890,7 +896,7 @@ function painted(p, H, dt) {
   ctx.drawImage(art.closed, x0, y0, ART.w * s, ART.h * s);
   const talk = (p.talk || 0) * (1 - art.open);
   if (talk > .02 && jawPath) talkJaw(talk * JAW.max, x0, y0, s);
-  if (art.open > .01) { ctx.globalAlpha = art.open; ctx.drawImage(art.opened, x0, y0, ART.w * s, ART.h * s); ctx.globalAlpha = 1; }
+  if (art.open > .01) { const a0 = ctx.globalAlpha; ctx.globalAlpha = a0 * art.open; ctx.drawImage(art.opened, x0, y0, ART.w * s, ART.h * s); ctx.globalAlpha = a0; }
   ctx.filter = 'none';
   const ex = x0 + ART.eye[0] * s, ey = y0 + ART.eye[1] * s; art.nose = [x0 + ART.nose[0] * s + p.lean, y0 + ART.nose[1] * s + p.bob];
   // his eye burns hotter as a quest gets close, and flares for a strike
@@ -916,7 +922,8 @@ function draw(p, time, dt) {
   g = ctx.createRadialGradient(90, hy, 10, 90, hy, 340); g.addColorStop(0, `rgba(255,150,60,${.42 * p.flicker})`); g.addColorStop(1, 'rgba(255,120,40,0)');
   ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = g; ctx.fillRect(0, 250, BW, H - 250); ctx.globalCompositeOperation = 'source-over';
   // the dragon: Michael's paintings once they've loaded, else the one painted in code
-  if (art.ok) painted(p, H, dt); else {
+  // the paintings fade in once loaded; the code-painted dragon only stands in if they never arrive
+  if (art.ok) { art.fade = Math.min(1, art.fade + dt * 3); ctx.save(); ctx.globalAlpha = art.fade; painted(p, H, dt); ctx.restore(); } else if (art.failed) {
   ctx.save(); ctx.filter = tint; ctx.translate(HX + p.lean, HY + p.bob); ctx.rotate(p.tilt);
   const lights = [{ x: 90, y: hy, r: 520, c: `rgba(255,120,40,${.3 * p.flicker})` }, { x: HX + 70, y: HY + 30, r: 120 + p.jaw * 200, c: `rgba(255,140,50,${.15 + p.heat * .45 * p.flicker})` }];
   const skin = ['#7d2a22', '#3a0f12'];
@@ -1000,6 +1007,8 @@ function loop(ts) {
   lastQuarter = qtr; crank *= .85;
   snapT = Math.max(0, snapT - dt * 3); flinch = Math.max(0, flinch - dt * 2); cough = Math.max(0, cough - dt * .8);
   const glow = hitTick(ts); bubbleTick(ts);
+  hue.now += (hue.to - hue.now) * Math.min(1, dt * 4);
+  tint = Math.abs(hue.now) < .5 && hue.sat === 1 ? 'none' : `hue-rotate(${hue.now.toFixed(1)}deg) saturate(${hue.sat})`;
   blinkT -= dt; if (blinkT < 0) { blink = 1; blinkT = 2.5 + Math.random() * 3; } blink = Math.max(0, blink - dt * 6);
   const time = ts / 1000, v = !live && view <= today() ? R.verdict : null;
   const open = .06 + danger * .36 + Math.sin(time * 1.4) * .025;
