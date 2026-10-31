@@ -157,7 +157,9 @@ function zoneHTML(b, pos, tm) {
 function blockChip(b, o = {}) {
   const { w, f } = fillOf(b), past = blocks.isPast(b), skipped = b.done && !w, ask = blocks.asks(b);
   const meta = o.min ? '' : `<div class="it-m">${b.rs ? ICON.repS : ''}<span>${blockKind(b)} time</span>${b.s != null ? `<span>·</span><span class="tm">${fmtT(b.s)} – ${fmtT(b.s + (b.m || 60))}</span>` : ''}${w || past ? `<span>·</span><span>${skipped ? 'Skipped' : fmtDur(w) + ' worked'}</span>` : ''}</div>`;
-  return `<div class="item zone-i${skipped ? ' done' : ''}${blocks.live(b) ? ' recording' : ''}${o.compact ? ' compact' : ''}" data-drag data-id="${b.id}" style="--pc:${colorOf(b)};--f:${f}"><span class="zfr" aria-hidden="true"></span><div class="it-body"><div class="it-t">${esc(blockTitle(b))}</div>${meta}${ask && !o.compact ? askHTML(b) : ''}</div>${o.compact || past ? '' : recBtn(b)}</div>`;
+  const nx = o.min || o.compact || past || skipped ? null : blocks.nextUp(targetOf(b))[0]; // what's next in it, as Claude's get_next_task sees it
+  const next = nx ? `<div class="it-next"><span class="k">Next</span>${esc(nx.t || 'Untitled')}${targetOf(b)?.k === 'area' && rootOf(nx).id !== nx.id ? `<span class="in"> · ${esc(rootOf(nx).t || 'Untitled')}</span>` : ''}</div>` : '';
+  return `<div class="item zone-i${skipped ? ' done' : ''}${blocks.live(b) ? ' recording' : ''}${o.compact ? ' compact' : ''}" data-drag data-id="${b.id}" style="--pc:${colorOf(b)};--f:${f}"><span class="zfr" aria-hidden="true"></span><div class="it-body"><div class="it-t">${esc(blockTitle(b))}</div>${next}${meta}${ask && !o.compact ? askHTML(b) : ''}</div>${o.compact || past ? '' : recBtn(b)}</div>`;
 }
 /** A new block for an area or project: on a day (today unless given), at a time (the next half hour today, else 9am), 90 minutes. */
 function newBlock(tid, d = today(), s, m = 90) {
@@ -963,6 +965,7 @@ function renderDetail() {
         ${kids.length || n.c ? `<label class="chip${n.st ? ' set' : ''}"><span class="k">Starts</span><input type="date" id="dt-start" value="${n.st || ''}"${n.due ? ` max="${n.due}"` : ''}></label>` : ''}
         ${kids.length || n.c || n.due || n.ms ? `<label class="chip${n.due ? ' set' : ''}"><span class="k">Due</span><input type="date" id="dt-due" value="${n.due || ''}"${n.st ? ` min="${n.st}"` : ''}></label>` : ''}
         ${kids.length || n.c || rp ? '' : `<button class="chip ms-chip${n.ms ? ' set' : ''}" data-act="ms" aria-pressed="${!!n.ms}">${ICON.ms}<span>Milestone</span></button>`}
+        ${rp && ser ? `<button class="chip hb-chip${ser.hb ? ' set' : ''}" data-act="habit" aria-pressed="${!!ser.hb}" title="A habit still shows on its days, but its time doesn't count toward the week's hours on the Roadmap">Habit</button>` : ''}
         ${n.ms && !kids.length && !n.c && !rp ? `<button class="chip hd-chip${n.hd ? ' set' : ''}" data-act="hd" aria-pressed="${!!n.hd}" title="A date that can't move">Hard deadline</button>` : ''}
         ${isProj(n) && !n.rs ? `<button class="chip" data-act="blk-new" data-id="${n.id}" title="A block of time to work on this whole ${n.p ? 'part' : 'project'}">${ICON.cal}<span>Block time</span></button>` : ''}
         ${waitHTML(n)}
@@ -1493,6 +1496,7 @@ document.addEventListener('click', e => {
     }
     case 'rp-off': { const t = store.stopRepeat(S.open); if (t) { S.open = t; S.rpEdit = false; S.scope = 'one'; toast(`${short(node(t).t)} no longer repeats`); } break; }
     case 'occ-all': if (occAll) { const o = occAll; occAll = null; const t = short(node(o.id)?.t); store.seriesEdit(o.id, o.patch); toast(`Changed every repeat of ${t}`); } break;
+    case 'habit': { const s = store.seriesOf(node(S.open)); if (s) store.update(s.id, { hb: !s.hb }); break; }
     case 'ms': { const n = node(S.open); store.update(n.id, n.ms ? { ms: false, hd: false } : { ms: true }); break; }
     case 'hd': { const n = node(S.open); store.update(n.id, { hd: !n.hd }); break; }
     case 'waitedit': S.waitEdit = true; renderDetail(); document.getElementById('dt-wait')?.focus(); break;
