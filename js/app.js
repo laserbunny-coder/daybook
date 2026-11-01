@@ -1026,6 +1026,7 @@ function renderDetail() {
       ${S.rpEdit ? repeatHTML(n) : ''}
       ${S.waitEdit ? waitPickHTML(n) : ''}
       ${n.p == null && isProj(n) ? swatchesHTML(n) : ''}
+      ${ser?.hb ? habitSwatches(ser) : ''}
       ${ser?.hb ? habits.detailHTML(ser, S.hbTab) : ''}
       <div class="dt-sec">Notes</div>
       ${n.notes && !S.notesEdit ? `<div class="dt-notes dt-notes-view" data-act="editnotes" role="button" tabindex="0" aria-label="Notes, tap to edit">${linkify(n.notes)}</div>` : `<textarea id="dt-notes" class="dt-notes" placeholder="Thoughts, links, where to start. These will be here when you sit down to do it." aria-label="Notes">${esc(n.notes || '')}</textarea>`}
@@ -1103,6 +1104,12 @@ function edit(id, patch, quiet) {
   else store.update(id, patch, quiet);
 }
 
+/* A habit's colour: its area's (the ringed swatch) or its own, kept in its repeat rule. */
+function habitSwatches(s) {
+  const area = s.ar && store.get(s.ar), own = s.r?.hc ? glow(s.r.hc) : null;
+  const follow = `<button class="sw follow${own ? '' : ' on'}" style="--sw:${area ? ink(area.c) : ink(null)}" data-act="hb-color" data-id="${s.id}" data-c="" aria-label="Use ${area ? `the ${esc(area.t)} area's` : 'the plain'} colour" title="Use the area's colour"></button><span class="sw-sep"></span>`;
+  return `<div class="swatches" role="group" aria-label="Habit colour">${follow}${PALETTE.map(c => `<button class="sw${own === c ? ' on' : ''}" style="--sw:${ink(c)}" data-act="hb-color" data-id="${s.id}" data-c="${c}" aria-label="Colour ${c}"></button>`).join('')}</div>`;
+}
 /* Colour choices. A project in an area can follow the area's colour (the ringed swatch) or have its own. */
 function swatchesHTML(n) {
   const area = n.k !== 'area' && areaOf(n) && store.get(n.ar);
@@ -1385,6 +1392,7 @@ function describe(st) {
   if (began) return `Recording ${short(store.peek(began[0])?.t)}`;
   if ('done' in b) return n > 1 ? `${a.done ? 'Checked off' : 'Unchecked'} ${n} steps` : `${a.done ? 'Checked off' : 'Unchecked'} ${t}`;
   if ('c' in b) return `Changed the color of ${t}`;
+  if ('r' in b && a.r && b.r && (a.r.hc || '') !== (b.r.hc || '') && JSON.stringify({ ...a.r, hc: 0 }) === JSON.stringify({ ...b.r, hc: 0 })) return `Changed the color of ${t}`;
   if ('r' in b) return !a.r ? `${t} no longer repeats` : b.r ? `Changed how ${t} repeats` : `Made ${t} repeat`;
   if ('tl' in b) return live(b.tl) && !live(a.tl) ? `Stopped recording ${t}` : `Changed the time on ${t}`;
   if ('d' in b || 's' in b || 'ar' in b || 'a' in b) return `Moved ${t}`;
@@ -1578,6 +1586,7 @@ document.addEventListener('click', e => {
     case 'delete': { const n = node(S.open); S.open = n.p && node(n.p) && !n.rs ? n.p : null; S.confirmDel = false; store.remove(n.id); const on = n.d || n.oc; toast(n.rs ? `Deleted ${n.t || 'item'} on ${on === today() ? 'today' : DAYN[pd(on).getDay()] + ' ' + fmtShort(on)}` : `Deleted ${n.t || 'item'}`); break; }
     case 'delete-all': { const s = store.seriesOf(node(S.open)); S.open = null; S.confirmDel = false; if (s) { store.remove(s.id); toast(`Deleted ${s.t || 'item'} and all its repeats`); } break; }
     case 'color': store.update(S.open, { c: b.dataset.c }); break;
+    case 'hb-color': { const s = node(id); if (s?.r) { const r = { ...s.r }; if (b.dataset.c) r.hc = b.dataset.c; else delete r.hc; store.update(s.id, { r }); } break; }
     case 'toggle': toggle(id); break;
     case 'blk-next': { const on = track.isRec(node(id)), nx = b.dataset.next; toggle(id); if (on && nx && node(nx) && !node(nx).done) track.start(nx); break; }
     case 'blk-ans': { const n = node(id); if (n) { blocks.answer(n, b.dataset.v); toast(b.dataset.v === 'skip' ? `Skipped ${short(blockTitle(n))} time` : `Counted ${b.dataset.v === 'part' ? 'half' : 'all'} of ${short(blockTitle(n))} time as worked`); } break; }

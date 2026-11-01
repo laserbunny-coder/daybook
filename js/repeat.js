@@ -55,6 +55,7 @@ export function cleanRule(r, start) {
   if (r.every === 'days') o.interval = Math.max(2, Math.min(90, Math.round(r.interval || 2)));
   if (r.every === 'times') { o.per = r.per === 'month' ? 'month' : 'week'; o.n = Math.max(1, Math.min(o.per === 'month' ? 30 : 6, Math.round(r.n || 2))); }
   if (r.until) o.until = r.until;
+  if (/^#[0-9a-f]{6}$/i.test(r.hc || '')) o.hc = r.hc; // a habit's own colour
   if (r.mins > 0) o.mins = Math.min(600, Math.round(r.mins)); // a habit: how long each tick counts toward its area
   const off = (r.off || []).filter(x => Array.isArray(x) && x[0] && x[1] && x[0] <= x[1]); if (off.length) o.off = off;
   return o;
