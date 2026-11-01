@@ -77,9 +77,9 @@ export function donePatch(n, place = true) {
   if (!n.pl) p.pl = { day: n.d ?? null, start_min: n.s ?? null, duration_min: n.m ?? 60 };
   return p;
 }
-/** Reopening a task puts it back where it was planned, and forgets the guess. */
+/** Reopening a task puts it back where it was planned, and forgets the guess (and how long it was said to take). */
 export function undonePatch(n) {
-  const p = { done: false, ...withLog(n, (n.tl || []).filter(e => !e.guess)) };
+  const p = { done: false, ...withLog(n, (n.tl || []).filter(e => !e.guess && !e.est)) };
   if (n.pl) Object.assign(p, { d: n.pl.day, s: n.pl.start_min, m: n.pl.duration_min ?? n.m, a: null, pl: null });
   return p;
 }
@@ -93,7 +93,8 @@ export function reopenPatch(n) { const { done, ...p } = undonePatch(n); return p
 // Changes to the log by hand. A done task's block follows its last stretch.
 function setLog(n, tl) {
   const p = withLog(n, tl);
-  if (n.done && p.tl) { const last = p.tl.filter(e => e.end).pop(); if (last) Object.assign(p, placeOn(last)); }
+  const place = !store.seriesOf(n)?.hb && (n.d != null || n.p == null); // a habit, or a step off the plan, stays where it is
+  if (n.done && p.tl && place) { const last = p.tl.filter(e => e.end).pop(); if (last) Object.assign(p, placeOn(last)); }
   store.update(n.id, p);
 }
 /** Changes one stretch. A corrected guess becomes real time. */
@@ -113,4 +114,28 @@ export function addTime(id) {
   const n = store.get(id); if (!n) return;
   const now = Date.now(), m = Math.min(n.m || 30, 240);
   setLog(n, [...(n.tl || []), { start: iso(now - m * 60000), end: iso(now) }]);
+}
+
+/* How long it really took, said after the fact (took.js asks right after a check-off).
+   The answer is one stretch ending when it was done, marked est: a rough number from the person,
+   not timed, but real enough to count everywhere a guess doesn't. It takes the place of the guess. */
+const said = e => e.guess || e.est;
+/** The stretch a check-off answer sits on (the guess, or an earlier answer), or null */
+export const saidOf = n => [...(n?.tl || [])].reverse().find(said) || null;
+/** Sets how long a finished item took: m minutes, ending when it was done. 0 takes the time out. */
+export function setTook(id, m) {
+  const n = store.get(id); if (!n) return;
+  const tl = n.tl || [], e = saidOf(n);
+  const end = e ? ms(e.end) : n.da ? ms(n.da) : Date.now();
+  const rest = tl.filter(x => x !== e && !x.guess);
+  const s = { start: iso(end - Math.max(1, m) * 60000), end: iso(end), est: true };
+  setLog(n, m > 0 ? [...rest, s] : rest);
+}
+/** Moves the start of the last timed stretch: +10 means it really started 10 minutes earlier (the timer went on late). */
+export function stretchLast(id, by) {
+  const n = store.get(id); const tl = n?.tl || [];
+  const i = tl.reduce((k, x, j) => x.end && !said(x) && (k < 0 || ms(x.end) >= ms(tl[k].end)) ? j : k, -1); if (i < 0) return;
+  const e = tl[i], prev = tl.filter((x, j) => j !== i && x.end && ms(x.end) <= ms(e.start)).reduce((a, x) => Math.max(a, ms(x.end)), 0);
+  const s = Math.max(prev, Math.min(ms(e.end) - 60000, ms(e.start) - by * 60000));
+  setLog(n, tl.map((x, j) => j === i ? { ...x, start: iso(s) } : x));
 }

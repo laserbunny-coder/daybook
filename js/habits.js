@@ -8,6 +8,7 @@ import * as store from './store.js';
 import { cleanRule, isQuota, occId, periodOf, repeatsOn, ruleText } from './repeat.js';
 import { add, esc, fd, fmtShort, fmtT, pd, today, weekStart } from './util.js';
 import { colorOf } from './tree.js';
+import * as track from './track.js';
 
 /** A habit that was put away (archived): its repeats ended before today. Its record stays. */
 export const archived = s => !!(s.r?.until && s.r.until < today());
@@ -216,17 +217,27 @@ export function statsHTML({ a, b, label, prevA, prevB, prevLabel, sel, card, yea
   </div>`;
 }
 
+const PLAY = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 3.8v8.4a.5.5 0 0 0 .76.43l6.6-4.2a.5.5 0 0 0 0-.86l-6.6-4.2a.5.5 0 0 0-.76.43z"/></svg>';
+const STOP = '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="4.5" y="4.5" width="7" height="7" rx="1.5"/></svg>';
+const fmtM = m => { m = Math.round(m); return m < 60 ? m + 'm' : m % 60 ? Math.floor(m / 60) + 'h ' + (m % 60) + 'm' : m / 60 + 'h'; };
+/** Minutes spent on these habit repeats: timed, said after ticking, or counted (its usual time). */
+const minsOn = os => os.reduce((a, o) => a + (o.tl || []).reduce((b, e) => b + track.mins(e), 0), 0);
+
 /** The Habits card at the top of a day's List: the day's habits, one tap each, with the last 7 days as dots.
  *  Once every habit that day is done it folds to one line (tap to open it again). */
 export function cardHTML(d, open, fold = false) { // fold: show one line until opened (other days in Week view)
   const hs = list().map(s => ({ s, o: occ(s, d) })).filter(x => x.o && (x.o.done || !store.quotaMet(x.s, d))); if (!hs.length) return '';
   const done = hs.filter(x => x.o.done).length, n = hs.length, f = done / n;
-  if ((done === n || fold) && !open) return `<div class="ad-card hb-cardl${done === n ? ' met' : ''}" style="--pc:var(--hb);--f:${f}"><button class="ad-main" data-act="hb-open" data-d="${d}" aria-expanded="false"><span class="ad-t">Habits</span><span class="ad-s">${done === n ? `<b>All ${n}</b> done` : `<b>${done}</b> of ${n}`} ${d === today() ? 'today' : 'that day'}</span></button></div>`;
+  const tm = minsOn(hs.map(x => x.o)), tt = tm >= 1 ? ` · <b>${fmtM(tm)}</b>` : '';
+  if ((done === n || fold) && !open) return `<div class="ad-card hb-cardl${done === n ? ' met' : ''}" style="--pc:var(--hb);--f:${f}"><button class="ad-main" data-act="hb-open" data-d="${d}" aria-expanded="false"><span class="ad-t">Habits</span><span class="ad-s">${done === n ? `<b>All ${n}</b> done` : `<b>${done}</b> of ${n}`} ${d === today() ? 'today' : 'that day'}${tt}</span></button></div>`;
   const dots = s => [...Array(7)].map((_, i) => { const day = add(d, i - 6), o = day >= s.d ? occ(s, day) : null; return `<i class="${!o || (quota(s) && !o.done && day !== today()) ? 'n' : o.done ? 'y' : day === today() ? 't' : ''}"></i>`; }).join('');
   const sub = s => quota(s) ? ` <small>${doneIn(s, d)} of ${s.r.n || 1} this ${unit(s)}</small>` : '';
   return `<div class="ad-card hb-cardl${done === n ? ' met' : ''}" style="--pc:var(--hb);--f:${f}"><div class="ad-main">
-    <span class="ad-t">Habits</span><span class="ad-s"><b>${done}</b> of ${n} ${d === today() ? 'today' : 'that day'}</span>
-    <div class="hb-list">${hs.map(({ s, o }) => `<div class="hb-row${o.done ? ' on' : ''}" style="--hc:${col(s)}"><button class="hb-ck" data-act="hb-tick" data-id="${o.id}" aria-pressed="${!!o.done}" aria-label="${o.done ? 'Undo' : 'Mark'} ${name(s)}"></button><button class="hb-t" data-act="open" data-id="${o.id}">${name(s)}${sub(s)}${o.s != null ? ` <small>${fmtT(o.s)}</small>` : ''}</button><span class="hb-wk" title="The last 7 days">${dots(s)}</span></div>`).join('')}</div>
+    <span class="ad-t">Habits</span><span class="ad-s"><b>${done}</b> of ${n} ${d === today() ? 'today' : 'that day'}${tt}</span>
+    <div class="hb-list">${hs.map(({ s, o }) => { const on = track.isRec(o), m = minsOn([o]);
+      const when = on ? ' <small class="hb-live">● recording</small>' : m >= 1 ? ` <small>${fmtM(m)}</small>` : o.s != null ? ` <small>${fmtT(o.s)}</small>` : '';
+      const rec = d === today() && !o.done ? `<button class="rec-b${on ? ' on' : ''}" data-act="rec" data-id="${o.id}" aria-label="${on ? 'Stop timing' : 'Time'} ${name(s)}" title="${on ? 'Stop' : 'Start timing it'}">${on ? STOP : PLAY}</button>` : '';
+      return `<div class="hb-row${o.done ? ' on' : ''}${on ? ' live' : ''}" style="--hc:${col(s)}"><button class="hb-ck" data-act="hb-tick" data-id="${o.id}" aria-pressed="${!!o.done}" aria-label="${o.done ? 'Undo' : 'Mark'} ${name(s)}"></button><button class="hb-t" data-act="open" data-id="${o.id}">${name(s)}${sub(s)}${when}</button><span class="hb-wk" title="The last 7 days">${dots(s)}</span>${rec}</div>`; }).join('')}</div>
     <div class="hb-foot"><button class="hb-fold" data-act="hb-new">+ Habit</button>${done === n || fold ? `<button class="hb-fold" data-act="hb-open" data-d="${d}">Fold away</button>` : ''}</div>
   </div></div>`;
 }
