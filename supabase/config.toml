@@ -23,6 +23,10 @@ verify_jwt = false
 [functions.scribe]
 verify_jwt = false
 
+# Inkwell's weekly and monthly summaries: woken by the database job; checks its own secret.
+[functions.inkwell-digest]
+verify_jwt = false
+
 # Inkwell's share links: readers open them without signing in; the link's own secret is checked.
 [functions.inkwell-share]
 verify_jwt = false
