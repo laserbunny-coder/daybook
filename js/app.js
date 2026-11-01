@@ -20,7 +20,7 @@ import * as habits from './habits.js';
 import * as took from './took.js';
 import { cleanRule, ruleText, splitOcc, WEEK } from './repeat.js';
 import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fd, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
-import { ancestors, blockTitle, children, colorOf, dayItems, glow, hasKids, ink, isBlock, isDone, isProj, leaves, node, PALETTE, progress, rootOf, targetOf, within } from './tree.js';
+import { ancestors, blockTitle, children, colorOf, dayItems, glow, hasKids, ink, isBlock, isDone, isProj, leaves, node, PALETTE, progress, projColor, rootOf, targetOf, within } from './tree.js';
 
 const H0 = 6, H1 = 23;
 const HP = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hp')) || 48;
@@ -1132,7 +1132,8 @@ function whatLine(n, anc, kids, ser, rp) {
   if (anc.length) where = `<span class="kc">${anc.map(a => `<button data-act="open" data-id="${a.id}">${esc(a.t || 'Untitled')}</button>`).join('<span>›</span>')}</span>`;
   else if (n.p == null && !n.rs) where = `<label class="kc"><select id="dt-area" aria-label="Area">${store.areas().map(a => `<option value="${a.id}"${areaOf(n) === a.id ? ' selected' : ''}>${esc(a.t || 'Untitled area')}</option>`).join('')}<option value=""${areaOf(n) ? '' : ' selected'}>No area</option></select></label>`;
   else { const a = ser?.ar && store.get(ser.ar); if (a) where = `<span class="kc">${esc(a.t)}</span>`; }
-  return `<div class="dt-what"><i class="kd"></i>${word}${where ? `<span class="ks">·</span>${where}` : ''}</div>`;
+  const mv = n.k ? '' : `<button class="kmv${S.mvOpen ? ' on' : ''}" data-act="mv-open" aria-expanded="${!!S.mvOpen}">Move</button>`;
+  return `<div class="dt-what"><i class="kd"></i>${word}${where ? `<span class="ks">·</span>${where}` : ''}${mv}</div>${S.mvOpen ? movePickHTML(n) : ''}`;
 }
 /* Waiting on and the link show once they're set. Until then they wait behind one "+ Add". */
 function linkedLine(n) {
@@ -1143,13 +1144,62 @@ function linkedLine(n) {
   return line('Linked', [w || S.waitEdit ? waitHTML(n) : '', l || S.linkEdit ? linkHTML(n) : '', extra]);
 }
 
+/* Move to…: put an item (and everything under it) under any project or sub-project, right in an area, or in the Inbox.
+   "New sub-project here" groups it into a new one in the same place, to gather sessions under a phase as you go. */
+const mvHost = n => (n.rs ? store.get(n.rs) || n : n);
+function moveTargets(n, q) {
+  const h = mvHost(n), bad = new Set([h.id]), kidsOf = id => children(id).forEach(c => { bad.add(c.id); kidsOf(c.id); }); kidsOf(h.id);
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean), ok = t => words.every(w => t.toLowerCase().includes(w));
+  const out = [], here = h.p ? 'p:' + h.p : h.ar && store.get(h.ar)?.k === 'area' ? 'a:' + h.ar : 'inbox';
+  const row = (key, name, dep, c, sub) => out.push({ key, name, dep, c, sub, here: key === here });
+  const walk = (x, dep, path) => { if (bad.has(x.id) || x.done && !hasKids(x.id)) return; const nm = x.t || 'Untitled', pth = path ? path + ' › ' + nm : nm;
+    if (!words.length || ok(pth)) row('p:' + x.id, nm, dep, projColor(rootOf(x)), words.length && path ? path : '');
+    children(x.id).filter(c => isProj(c)).forEach(c => walk(c, dep + 1, pth)); };
+  if (!words.length || ok('Inbox')) row('inbox', 'Inbox', 0, null, '');
+  for (const a of [...store.areas(), null]) {
+    const tops = store.all().filter(x => x.p == null && isProj(x) && (a ? x.ar === a.id : !(x.ar && store.get(x.ar)?.k === 'area'))).sort((x, y) => x.o - y.o);
+    if (a && (!words.length || ok(a.t || ''))) row('a:' + a.id, a.t || 'Untitled area', 0, ink(a.c), 'right in the area');
+    tops.forEach(x => walk(x, a ? 1 : 0, ''));
+  }
+  return out;
+}
+function moveListHTML(n, q) {
+  const T = moveTargets(n, q);
+  return T.length ? T.map(t => `<button type="button" class="mv-opt${t.here ? ' here' : ''}" data-act="mv-to" data-id="${t.key}" style="--dep:${t.dep};--pc:${t.c || 'var(--faint)'}"${t.here ? ' disabled' : ''}><i class="${t.key.startsWith('a:') ? 'ar' : t.key === 'inbox' ? 'ib' : ''}"></i><span>${esc(t.name)}${t.sub ? `<small>${esc(t.sub)}</small>` : ''}</span>${t.here ? '<em>here now</em>' : ''}</button>`).join('')
+    : '<div class="wait-hint">Nothing by that name</div>';
+}
+function movePickHTML(n) {
+  const h = mvHost(n), par = h.p && node(h.p), area = !par && h.ar && store.get(h.ar)?.k === 'area' ? store.get(h.ar) : null;
+  const where = par ? esc(par.t || 'its project') : area ? esc(area.t) : 'the Inbox';
+  return `<div class="mv-pick" style="--pc:${colorOf(n)}">
+    <div class="mv-h"><span>Move ${esc(h.t || 'this')}${hasKids(h.id) ? ' and its steps' : ''} to</span><button class="link" data-act="mv-open">Cancel</button></div>
+    <input id="mv-q" class="mv-q" placeholder="Find a project" autocomplete="off" aria-label="Find a project">
+    <div class="mv-list" id="mv-list">${moveListHTML(n, '')}</div>
+    <form class="dt-add mv-new" data-form="mv-new"><span class="plus-i" aria-hidden="true">+</span><input id="mv-new-in" placeholder="New sub-project here" title="Makes a new sub-project in ${where} and moves this into it" autocomplete="off" aria-label="New sub-project here" enterkeyhint="done"></form></div>`;
+}
+function moveTo(n, key) {
+  const h = mvHost(n), sibs = p => store.all().filter(x => (p ? x.p === p : x.p == null)), last = l => l.reduce((m, x) => Math.max(m, x.o || 0), 0) + 1;
+  const projLike = hasKids(h.id) || (h.p == null && !!h.c);
+  let patch, name;
+  if (key.startsWith('p:')) { const d = node(key.slice(2)); if (!d) return; patch = { p: d.id, ar: null, o: last(sibs(d.id)) }; name = d.t; }
+  else if (key.startsWith('a:')) { const a = store.get(key.slice(2)); if (!a) return; patch = { p: null, ar: a.id, o: last(sibs(null).filter(x => x.ar === a.id)) }; if (projLike) patch.c = h.c && h.c !== 'area' && h.p == null ? h.c : 'area'; name = a.t; }
+  else { patch = { p: null, ar: null, o: last(sibs(null).filter(x => !x.ar)) }; if (projLike && (!h.c || h.c === 'area')) { const used = new Set(store.all().filter(x => x.p == null && x.c && x.c !== 'area').map(x => glow(x.c))); patch.c = PALETTE.find(x => !used.has(x)) || PALETTE[0]; } name = 'the Inbox'; }
+  if (h.r) store.seriesEdit(h.id, patch); else store.update(h.id, patch);
+  S.mvOpen = false; renderDetail(); toast(`Moved ${short(h.t || 'it')} to ${short(name || 'Untitled')}`);
+}
+function groupHere(n, t) {
+  const h = mvHost(n), area = h.p == null && h.ar && store.get(h.ar)?.k === 'area' ? h.ar : null;
+  const g = h.p ? store.create({ t, p: h.p, o: (h.o || 0) - 0.001 }) : makeProject(t, area);
+  moveTo(n, 'p:' + g.id);
+}
+
 /* Labels (Building, Client work…) cut across areas. An item's own ones come off with ×; the ones it wears because
    its project does show faded. A repeat's labels are its series'. */
 const lbHost = n => (n.rs ? store.get(n.rs) || n : n);
 const lbPill = (l, more = '') => `style="--lc:${ink(l.c)}"${more}>${esc(l.t || 'Untitled')}`;
 function labelsLine(n) {
   const L = store.labelsOf(n);
-  const chips = L.map(({ l, from }) => from ? `<span class="lbl inh" title="From ${esc(from.t || 'its project')}" ${lbPill(l)}</span>`
+  const chips = L.map(({ l, from }) => from ? `<button class="lbl inh" data-act="open" data-id="${from.id}" title="From ${esc(from.t || 'its project')}, tap to open it" ${lbPill(l)}</button>`
     : `<button class="lbl" data-act="lb-tog" data-id="${l.id}" title="Take ${esc(l.t)} off" aria-label="Remove label ${esc(l.t)}" ${lbPill(l)}<span class="x" aria-hidden="true">×</span></button>`).join('');
   return `${line('Labels', [chips, `<button class="chip add" data-act="lb-pick" aria-expanded="${!!S.lbPick}">+ Label</button>`])}${S.lbPick ? labelPickHTML(n, L) : ''}`;
 }
@@ -1258,7 +1308,7 @@ function openItem(id, focusTitle = false) {
   // Opened from inside a block: remember the block, so the item can lead back to it (until the panel closes)
   const cur = S.open && nodeOrDay(S.open), nx = nodeOrDay(id);
   if (nx && isBlock(nx)) S.fromBlk = null; else if (cur && isBlock(cur)) S.fromBlk = cur.id; else if (!cur) S.fromBlk = null;
-  if (S.open !== id) { S.occAsk = null; S.addOpen = false; S.lbPick = false; S.lbEdit = false; S.rpEdit = false; S.blkFocus = null; S.blkSkip = []; S.blkView = 'next'; }
+  if (S.open !== id) { S.occAsk = null; S.addOpen = false; S.mvOpen = false; S.lbPick = false; S.lbEdit = false; S.rpEdit = false; S.blkFocus = null; S.blkSkip = []; S.blkView = 'next'; }
   S.open = id; S.tlEdit = null; S.dtpick = false; S.confirmDel = false; S.linkEdit = false; S.notesEdit = false; S.waitEdit = false; renderDetail();
   if (focusTitle) { const t = document.getElementById('dt-title'); t.focus(); t.select(); }
 }
@@ -1646,6 +1696,8 @@ document.addEventListener('click', e => {
     case 'occ-one': S.occAsk = null; renderDetail(); break;
     case 'occ-every': { const o = S.occAsk; S.occAsk = null; if (o) { const t = short(node(o.id)?.t); store.seriesEdit(o.id, o.patch); toast(`Changed every repeat of ${t}`); } renderDetail(); break; }
     case 'addmenu': S.addOpen = true; renderDetail(); break;
+    case 'mv-open': S.mvOpen = !S.mvOpen; renderDetail(); if (S.mvOpen && !phone()) document.getElementById('mv-q')?.focus(); break;
+    case 'mv-to': { const n = node(S.open); if (n) moveTo(n, id); break; }
     case 'lb-pick': S.lbPick = !S.lbPick; S.lbEdit = false; renderDetail(); if (S.lbPick && !store.labels().length) document.getElementById('lb-new-in')?.focus(); break;
     case 'lb-edit': S.lbEdit = !S.lbEdit; renderDetail(); break;
     case 'lb-tog': { const n = node(S.open); if (n) toggleLabel(n, id); break; }
@@ -1819,6 +1871,7 @@ document.addEventListener('submit', e => {
   if (f.id === 'askf') { const q = document.getElementById('askq'); if (q.value.trim()) { ask(q.value.trim()); q.value = ''; } return; }
   const inp = f.querySelector('input'); const v = inp.value.trim();
   if (f.dataset.form === 'link') { saveLink(); return; }
+  if (f.dataset.form === 'mv-new') { const n = node(S.open); if (v && n) { inp.value = ''; inp.blur(); groupHere(n, v.slice(0, 200)); } else inp.blur(); return; }
   if (f.dataset.form === 'lb-new') { const n = node(S.open); if (v && n) { inp.value = ''; inp.blur(); newLabel(n, v); renderDetail(); document.getElementById('lb-new-in')?.focus(); } else inp.blur(); return; }
   if (f.dataset.form === 'wait') { const o = f.querySelector('.wait-opt'); if (o) { S.waitEdit = false; document.activeElement?.blur(); edit(S.open, { w: o.dataset.id }); } return; }
   if (f.dataset.form === 'area-project') { if (v) { makeProject(v, f.dataset.area); inp.value = ''; renderDetail(); inp.scrollIntoView({ block: 'nearest' }); } else inp.blur(); return; }
@@ -1894,6 +1947,7 @@ document.addEventListener('input', e => {
   if (t.id === 'dt-notes') { edit(n.id, { notes: t.value || null }, true); grow(t); const m = document.getElementById('dt-saved'); m.textContent = 'Saved'; clearTimeout(savedT); savedT = setTimeout(() => m.textContent = '', 1200); }
   if (t.id === 'dt-title') { edit(n.id, { t: t.value.replace(/\n/g, ' ') }, true); grow(t); }
   if (t.id === 'dt-wait') document.getElementById('wait-list').innerHTML = waitListHTML(n, t.value);
+  if (t.id === 'mv-q') document.getElementById('mv-list').innerHTML = moveListHTML(n, t.value);
 });
 document.addEventListener('change', e => {
   const t = e.target;
