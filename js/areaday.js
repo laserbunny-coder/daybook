@@ -50,6 +50,14 @@ export function cardsOn(d) {
     .sort((x, y) => (x.target > 0 ? 0 : 1) - (y.target > 0 ? 0 : 1) || pr(x.a) - pr(y.a) || (x.a.o ?? 0) - (y.a.o ?? 0));
   return cards;
 }
+/** Whether the area was marked done for that day (dd: a list of dates). */
+export const doneOn = (a, d) => !!a?.dd?.includes(d);
+/** dd with that day marked done or not; dates older than 120 days are dropped. */
+export function withDone(a, d, on) {
+  const cut = add(d, -120), s = new Set((a?.dd || []).filter(x => x >= cut));
+  if (on) s.add(d); else s.delete(d);
+  return s.size ? [...s].sort() : null;
+}
 /** Whether the area's own timer is running (as opposed to a task in it). */
 export const areaRec = id => track.isRec(store.get(id));
 /** Whether anything in the area is recording now. */

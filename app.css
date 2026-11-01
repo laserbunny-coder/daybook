@@ -2237,6 +2237,14 @@ body.td-shell .td-sbtns .td-pill,.td-sbtns .td-pill{top:auto;right:auto;left:aut
 .wcol .ad-main{padding:7px 2px 7px 10px}
 .wcol .ad-s{font-size:11.5px}
 .wcol .ad-card .rec-b{width:28px;height:28px}
+/* Done for the day: a check beside the area's name. A done area fades like a done task, title struck, meter kept so the day's time still shows */
+.ad-area .ad-top>.ck{width:20px;height:20px;margin-left:12px;border-color:var(--pc)}
+.ad-area .ad-top>.ck+.ad-main{padding-left:0}
+.ad-card.ad-area.done{opacity:.6;border-color:color-mix(in srgb,var(--pc) 30%,transparent)}
+.ad-card.ad-area.done .ad-t{color:var(--faint);text-decoration:line-through;text-decoration-color:var(--faint)}
+.ad-card.ad-area.done .ad-meter{filter:saturate(.6)}
+.wcol .ad-area .ad-top>.ck{width:15px;height:15px;margin-left:8px;border-width:1.5px}
+.wcol .ad-area .ad-top>.ck.on::after{width:4px;height:7px}
 
 /* Habits (js/habits.js): the Habits card in the List, a habit's own page, and the Habits view in Stats */
 :root{--hb:#B9A88F}
