@@ -17,7 +17,7 @@ const saved = new Map();          // id -> server updated_at of the newest versi
 let flushTimer = null, retryTimer = null;
 export const sync = { state: 'local', pending: 0 }; // local | syncing | saved | offline | error
 
-const ROW = { p: 'parent_id', t: 'title', notes: 'notes', done: 'done', d: 'day', s: 'start_min', m: 'duration_min', o: 'sort', c: 'color', due: 'due', link: 'link', a: 'after_min', ds: 'day_sort', k: 'kind', ar: 'area_id', st: 'start', ms: 'milestone', hd: 'hard_deadline', w: 'waits_on', am: 'actual_minutes', tl: 'time_log', pl: 'planned', r: 'repeat_rule', rs: 'series_id', oc: 'occurs_on', fo: 'focus_on', wk: 'week_minutes', hb: 'habit', dg: 'day_targets', tp: 'time_pref', dd: 'days_done', x: 'deleted' };
+const ROW = { p: 'parent_id', t: 'title', notes: 'notes', done: 'done', d: 'day', s: 'start_min', m: 'duration_min', o: 'sort', c: 'color', due: 'due', link: 'link', a: 'after_min', ds: 'day_sort', k: 'kind', ar: 'area_id', st: 'start', ms: 'milestone', hd: 'hard_deadline', w: 'waits_on', am: 'actual_minutes', tl: 'time_log', pl: 'planned', r: 'repeat_rule', rs: 'series_id', oc: 'occurs_on', fo: 'focus_on', wk: 'week_minutes', hb: 'habit', dg: 'day_targets', tp: 'time_pref', dd: 'days_done', lb: 'labels', x: 'deleted' };
 const toRow = n => { const r = { id: n.id }; for (const [k, col] of Object.entries(ROW)) r[col] = n[k] ?? (k === 'done' || k === 'x' || k === 'ms' || k === 'hd' ? false : k === 'm' ? 60 : k === 'o' ? 0 : null); return r; };
 // done_at (da) is read but never written: the database stamps it when an item is checked off
 const fromRow = r => { const n = { id: r.id }; for (const [k, col] of Object.entries(ROW)) n[k] = r[col]; n.da = r.done_at ?? null; return n; };
@@ -29,8 +29,25 @@ function setSync(state) { sync.state = state; sync.pending = dirty.size; for (co
 export function onChange(f) { listeners.add(f); return () => listeners.delete(f); }
 // A repeating task's stored occurrences are left out: they show on their days (occOn), not in the project tree
 // Time blocks for an area or project (kind 'block') aren't part of the tree either: blocks() and blocksOn() list them
-export const all = () => [...nodes.values()].filter(n => !n.x && n.k !== 'area' && n.k !== 'block' && !n.rs);
+export const all = () => [...nodes.values()].filter(n => !n.x && n.k !== 'area' && n.k !== 'block' && n.k !== 'label' && !n.rs);
 export const areas = () => [...nodes.values()].filter(n => !n.x && n.k === 'area').sort((a, b) => a.o - b.o);
+/* Labels (Building, Client work…) cut across areas: rows of kind 'label' (name t, colour c). An item lists its own in lb;
+   the steps of a labelled project wear it too, and a repeat wears its series'. */
+export const labels = () => [...nodes.values()].filter(n => !n.x && n.k === 'label').sort((a, b) => a.o - b.o || (a.t || '').localeCompare(b.t || ''));
+/** Every label an item wears: [{ l: the label, from: the item it comes from (null when it's the item's own) }]. */
+export function labelsOf(n) {
+  const out = [], seen = new Set();
+  let h = n?.rs ? (get(n.rs) || n) : n, own = true;
+  for (let i = 0; h && i < 60; i++) {
+    for (const id of h.lb || []) { const l = nodes.get(id); if (l && !l.x && l.k === 'label' && !seen.has(id)) { seen.add(id); out.push({ l, from: own ? null : h }); } }
+    h = h.p ? get(h.p) : null; own = false;
+  }
+  return out;
+}
+const LABEL_COLORS = ['#C9A6FF', '#E58FB0', '#8FD0E5', '#E5C48F', '#A6E59B', '#F0A07A', '#9BA8FF', '#D9D9D9'];
+/** A colour for a new label, one no other label has yet if possible. */
+export function nextLabelColor() { const used = new Set(labels().map(l => l.c)); return LABEL_COLORS.find(c => !used.has(c)) || LABEL_COLORS[labels().length % LABEL_COLORS.length]; }
+export const LABEL_PALETTE = LABEL_COLORS;
 /** Every time block (a series counts once, as itself). */
 export const blocks = () => [...nodes.values()].filter(n => !n.x && n.k === 'block' && !n.rs);
 /** Whatever is recording right now (see track.js): at most one item has a stretch of time with no end. */
@@ -58,7 +75,7 @@ function index() {
   return IX;
 }
 // What a repeat shares with its series
-const SHARED = ['p', 't', 'notes', 's', 'o', 'c', 'link', 'a', 'ds', 'ar', 'w', 'k', 'fo'];
+const SHARED = ['p', 't', 'notes', 's', 'o', 'c', 'link', 'a', 'ds', 'ar', 'w', 'k', 'fo', 'lb'];
 function virt(s, d) {
   const v = { id: occId(s.id, d), rs: s.id, oc: d, d, done: false, m: s.m ?? 60, k: null, r: null, due: null, st: null, ms: false, hd: false, am: null, x: false, v: true };
   for (const k of SHARED) v[k] = s[k] ?? null;
@@ -101,7 +118,7 @@ function own(id) {
 // Changing one of these on a single repeat can be carried over to the whole series
 const EDIT = ['t', 'notes', 'm', 's', 'd', 'link', 'w'];
 // What a change to the series hands down to its stored repeats (those still the same as the series was)
-const FOLLOW = ['p', 't', 'notes', 's', 'm', 'c', 'link', 'w', 'ar', 'fo'];
+const FOLLOW = ['p', 't', 'notes', 's', 'm', 'c', 'link', 'w', 'ar', 'fo', 'lb'];
 function setOcc(n, patch) {
   if ('d' in patch && !patch.d) patch = { ...patch, x: true }; // a repeat taken off the plan is skipped
   mark(n.id); Object.assign(n, patch); touch(n);
@@ -204,6 +221,7 @@ export function remove(id) {
   const n0 = nodes.get(id);
   const kill = i => { const n = nodes.get(i); if (!n) return; mark(i); n.x = true; touch(n); for (const c of [...nodes.values()]) if ((c.p === i || c.rs === i) && !c.x) kill(c.id); };
   kill(id);
+  if (n0?.k === 'label') for (const c of nodes.values()) if (!c.x && c.lb?.includes(id)) { mark(c.id); c.lb = c.lb.filter(x => x !== id); if (!c.lb.length) c.lb = null; touch(c); } // a label that goes comes off everything that wore it
   if (n0?.k === 'area') for (const c of nodes.values()) if (c.ar === id && !c.x) { mark(c.id); c.ar = null; if (c.c === 'area') c.c = n0.c; touch(c); } // its projects stay, with no area, keeping the colour they had
   emit();
 }
@@ -323,6 +341,8 @@ export function sampleData() {
   mk('Homepage mockup', wd, { d: D(2), m: 180 });
   mk('Review mobile navigation', wd, { d: D(3), m: 45 });
   mk('Choose hosting', w, { d: D(4), m: 45 });
+  const lbC = 'lbl-client-local'; N.push({ id: lbC, k: 'label', t: 'Client work', c: '#E58FB0', p: null, notes: null, done: false, d: null, s: null, m: 60, o: 1, due: null, ar: null, x: false });
+  N.find(n => n.id === w).lb = [lbC];
   const t = mk('Family trip to Maine', null, { ar: life, c: 'area', due: D(25) });
   mk('Book cabin', t, { done: true });
   mk('Plan driving route', t, { d: D(1), m: 30 });
@@ -360,9 +380,9 @@ export function sampleData() {
       at += len + 15 + Math.round(rnd() * 70);
     }
   }
-  [['Quarterly taxes', biz, -9, 600, 120, 165], ['Update showreel', film, -5, 1140, 90, 140], ['Sharpen the kitchen knives', life, -3, 1080, 30, 25]].forEach(([t, ar, k, s, plan, took]) => {
+  [['Quarterly taxes', biz, -9, 600, 120, 165], ['Update showreel', film, -5, 1140, 90, 140, [lbC]], ['Sharpen the kitchen knives', life, -3, 1080, 30, 25]].forEach(([t, ar, k, s, plan, took, lb]) => {
     const t0 = pd(D(k)), t1 = pd(D(k)); t0.setMinutes(s); t1.setMinutes(s + took);
-    mk(t, null, { ar, done: true, d: D(k), s, m: took, am: took, pl: { day: D(k), start_min: s, duration_min: plan }, tl: [{ start: t0.toISOString(), end: t1.toISOString() }] });
+    mk(t, null, { ar, lb: lb || null, done: true, d: D(k), s, m: took, am: took, pl: { day: D(k), start_min: s, duration_min: plan }, tl: [{ start: t0.toISOString(), end: t1.toISOString() }] });
   });
   // Area time: a block for Filmmaking this morning (worked in), and Business every weekday afternoon
   const at = (k, m) => { const x = pd(D(k)); x.setMinutes(m); return x.toISOString(); };

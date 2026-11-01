@@ -38,13 +38,13 @@ function pieces() {
   for (const n of store.logged()) {
     let host = n.rs ? (store.get(n.rs) || n) : n; // a repeat counts where its series lives
     if (host.k === 'block') { const t = targetOf(host); if (t) host = t; } // time in an area or project block counts for that area or project
-    const root = rootOf(host);
+    const root = rootOf(host), lb = store.labelsOf(host).map(x => x.l.id); // labels count the time too, on top of its area
     for (const e of n.tl) {
       let a = Date.parse(e.start); const b = e.end ? Date.parse(e.end) : now;
       if (!(b > a)) continue;
       while (a < b) {
         const t = new Date(a), mid = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1).getTime(), c = Math.min(b, mid);
-        out.push({ d: fd(t), s: t.getHours() * 60 + t.getMinutes() + t.getSeconds() / 60, m: (c - a) / 60000, n: host, root, g: !!e.guess });
+        out.push({ d: fd(t), s: t.getHours() * 60 + t.getMinutes() + t.getSeconds() / 60, m: (c - a) / 60000, n: host, root, lb, g: !!e.guess });
         a = c;
       }
     }
@@ -95,7 +95,10 @@ function model() {
   // A period still going is weighed against the one before up to the same point (this week so far against last week by now)
   const going = R.b >= T && R.a <= T, pb = going ? add(pa, daysBetween(R.a, T)) : add(R.a, -1), cut = going ? nowMin() : 1440;
   const prevPart = p => p.d < pb ? p.m : p.d === pb ? Math.max(0, Math.min(p.m, cut - p.s)) : 0;
-  const mine = P.filter(p => area == null || areaKey(p.root) === area);
+  const lab = S.stLabel && store.get(S.stLabel)?.k === 'label' ? store.get(S.stLabel) : null; // the label tapped, if it's still there
+  if (!lab) S.stLabel = null;
+  const inArea = P.filter(p => area == null || areaKey(p.root) === area);
+  const mine = lab ? inArea.filter(p => p.lb.includes(lab.id)) : inArea;
   const G = new Map(), gKey = p => area == null ? areaKey(p.root) : p.root.id;
   const grp = (p, k) => {
     let g = G.get(k); if (g) return g;
@@ -122,7 +125,24 @@ function model() {
   const elapsed = Math.max(1, daysBetween(lo, hi) + 1);
   const areaName = area == null ? null : area !== '~' ? store.get(area)?.t || 'Untitled area' : 'No area';
   const areaC = area == null ? null : area !== '~' ? ink(store.get(area)?.c) : ink();
-  return { R, span, area, areaName, areaC, groups, gi, gKey, ps: inR, mine, total, ptotal, guessed, prevOk: !!f0 && pa >= f0 && R.k !== 'all', elapsed, any: P.length > 0 };
+  // Labels: each one's time in the range (inside the area tapped, if any), split by area (or by project inside an area)
+  let all = 0; const LB = new Map();
+  for (const p of inArea) {
+    const now = p.d >= R.a && p.d <= R.b, pm = !now && p.d >= pa && p.d <= pb ? prevPart(p) : 0;
+    if (now) all += p.m;
+    if (!p.lb.length || (!now && !pm)) continue;
+    for (const id of p.lb) {
+      let L = LB.get(id); if (!L) { const l = store.get(id); if (!l) continue; LB.set(id, L = { l, m: 0, pm: 0, by: new Map(), roots: new Map() }); }
+      if (!now) { L.pm += pm; continue; }
+      L.m += p.m;
+      const k = area == null ? areaKey(p.root) : p.root.id;
+      L.by.set(k, (L.by.get(k) || 0) + p.m);
+      const rn = p.root.k === 'area' ? 'Area time' : p.root.t || 'Untitled'; L.roots.set(rn, (L.roots.get(rn) || 0) + p.m);
+    }
+  }
+  const segC = k => { if (area != null) { const r = store.get(k); return r ? projColor(r) : NOAREA; } const a = k !== '~' && store.get(k), c = a ? ink(a.c) : ink(); return hexOk(c) ? c : NOAREA; };
+  const labs = [...LB.values()].filter(L => L.m > 0).sort((x, y) => y.m - x.m).map(L => ({ ...L, c: ink(L.l.c), by: [...L.by].sort((x, y) => y[1] - x[1]).map(([k, m]) => ({ c: segC(k), m })), roots: [...L.roots].sort((x, y) => y[1] - x[1]) }));
+  return { R, span, area, areaName, areaC, lab, all, labs, groups, gi, gKey, ps: inR, mine, total, ptotal, guessed, prevOk: !!f0 && pa >= f0 && R.k !== 'all', elapsed, any: P.length > 0 };
 }
 
 /* Bins along the range: hours for one day, days up to six weeks, then weeks (Flow) or months */
@@ -155,7 +175,7 @@ const sum = v => v.reduce((a, x) => a + x, 0);
 function niceMax(v) { const s = [30, 60, 120, 180, 240, 360, 480, 600, 720, 960, 1200, 1800, 2400, 3000, 3600, 4800, 6000, 7200, 9000, 12000, 18000, 24000, 36000, 48000]; return s.find(x => x >= v) || Math.ceil(v / 12000) * 12000; }
 const words = R => ({ day: R.label === 'Today' ? 'today' : R.label === 'Yesterday' ? 'yesterday' : 'that day', week: R.label === 'This week' ? 'this week' : R.label === 'Last week' ? 'last week' : 'that week', month: 'in ' + R.label, year: 'in ' + R.label, all: 'so far', custom: 'in these days' }[R.k]);
 const before = R => ({ day: 'the day before', week: 'the week before', month: 'the month before', year: 'the year before', custom: 'the days before' }[R.k] || '');
-const none = M => `<div class="st-none">Nothing recorded ${words(M.R)}${M.area != null ? ` in ${esc(M.areaName)}` : ''}.</div>`;
+const none = M => `<div class="st-none">Nothing recorded ${words(M.R)}${M.lab ? ` with ${esc(M.lab.t || 'this label')}` : ''}${M.area != null ? ` in ${esc(M.areaName)}` : ''}.</div>`;
 
 /* A. The Ledger: one line split by area, then each area with its hours, share and change */
 function ledger(M) {
@@ -164,7 +184,9 @@ function ledger(M) {
   if (M.total && M.prevOk && M.ptotal) { const d = M.total - M.ptotal; const by = R.b >= today() && R.k !== 'day' ? ' by now' : ''; sub = Math.abs(d) < 30 ? `About the same as ${before(R)}${by}` : `${d > 0 ? 'Up' : 'Down'} ${fmtH(Math.abs(d))} from ${before(R)}${by}`; }
   else if (M.total && R.k !== 'day') sub = `${fmtH(M.total / M.elapsed)} a day on average`;
   const filt = M.area != null ? `<button class="st-filter" data-act="st-area" data-id="" style="--pc:${M.areaC}" title="Show every area"><i></i>${esc(M.areaName)}<span aria-hidden="true">×</span></button>` : '';
-  const head = `<div class="st-lh"><div><div class="st-k">${esc(R.label)}</div><div class="st-big">${fmtH(M.total)}</div>${sub ? `<div class="st-sub">${sub}</div>` : ''}</div>${filt}</div>`;
+  const lfilt = M.lab ? `<button class="st-filter lb" data-act="st-label" data-id="" style="--pc:${ink(M.lab.c)}" title="Show all your time"><i></i>${esc(M.lab.t || 'Label')}<span aria-hidden="true">×</span></button>` : '';
+  const share = M.lab && M.total ? `<div class="st-sub">${pct(M.total, M.all)}% of your ${fmtH(M.all)} ${words(R)}${M.area != null ? ` in ${esc(M.areaName)}` : ''}</div>` : '';
+  const head = `<div class="st-lh"><div><div class="st-k">${esc(R.label)}${M.lab ? ` · ${esc(M.lab.t || 'Label')}` : ''}</div><div class="st-big">${fmtH(M.total)}</div>${share}${sub ? `<div class="st-sub">${sub}</div>` : ''}</div>${filt || lfilt ? `<div class="st-filts">${filt}${lfilt}</div>` : ''}</div>`;
   if (!M.total) return head + none(M);
   const g0 = M.groups[0];
   const line = `<div class="st-line">${M.groups.filter(g => g.m).map(g => `<i style="flex:${g.m.toFixed(1)};background:${g.c}"></i>`).join('')}</div>`;
@@ -180,9 +202,22 @@ function ledger(M) {
       + (g.subs.length > 4 ? `<button class="st-row sub more" data-act="st-area" data-id="${g.key}"><span></span><span class="n">${g.subs.length - 4} more</span><span></span><span class="h">${fmtH(sum(g.subs.slice(4).map(s => s.m)))}</span><span class="p"></span><span></span></button>` : '');
     return `<button class="st-row" data-act="${g.act}" data-id="${g.id}" title="${M.area == null ? 'Show only ' + esc(g.name) : 'Open ' + esc(g.name)}"><span class="dot" style="background:${g.c}"></span><span class="n">${esc(g.name)}</span>${spark || '<span></span>'}<span class="h">${fmtH(g.m)}</span><span class="p">${pct(g.m, M.total)}%</span><span class="c">${ch}</span></button>${subs}`;
   }).join('');
-  const lead = `<div class="st-say">Mostly ${esc(g0.name)}, ${pct(g0.m, M.total)}% of your time ${words(R)}.</div>`;
+  const lead = `<div class="st-say">Mostly ${esc(g0.name)}, ${pct(g0.m, M.total)}% of ${M.lab ? 'it' : `your time ${words(R)}`}.</div>`;
   const fixing = !!C.S.stFix, foot = M.guessed >= 5 || fixing ? `<div class="st-foot">${M.guessed >= 1 ? `${fmtH(M.guessed)} of it is guessed, from things checked off without the timer.` : 'Nothing guessed is left here.'} <button class="st-fixb" data-act="st-fix" aria-expanded="${fixing}">${fixing ? 'Done fixing' : 'Fix guessed times'}</button></div>` : '';
-  return head + lead + line + `<div class="st-rows">${rows}</div>` + foot + (fixing ? fixHTML(M) : '');
+  return head + lead + line + `<div class="st-rows">${rows}</div>` + foot + (fixing ? fixHTML(M) : '') + labelsHTML(M);
+}
+/* Under the areas: each label's hours, its share of all the time, and a bar coloured by where that time came from. Tap one to see only it. */
+function labelsHTML(M) {
+  if (M.lab || !M.labs.length) return '';
+  const rows = M.labs.map(L => {
+    const d = L.m - L.pm, ch = !M.prevOk ? '' : Math.abs(d) < 15 ? '<span class="eq">=</span>' : `<span class="${d > 0 ? 'up' : 'dn'}">${d > 0 ? '+' : '−'}${fmtHs(Math.abs(d))}</span>`;
+    const bar = L.by.map(b => `<i style="flex:${b.m.toFixed(1)};background:${b.c}"></i>`).join('') + (M.all > L.m ? `<i class="rest" style="flex:${(M.all - L.m).toFixed(1)}"></i>` : '');
+    const from = L.roots.slice(0, 3).map(([n, m]) => `${esc(n)} ${fmtH(m)}`).join(' · ') + (L.roots.length > 3 ? ` · ${L.roots.length - 3} more` : '');
+    return `<button class="st-lb" data-act="st-label" data-id="${L.l.id}" title="Show only ${esc(L.l.t || 'this label')}" style="--lc:${L.c}">
+      <span class="st-lb-top"><span class="lbl">${esc(L.l.t || 'Label')}</span><span class="h">${fmtH(L.m)}</span><span class="p">${pct(L.m, M.all)}%</span><span class="c">${ch}</span></span>
+      <span class="st-lb-bar">${bar}</span><span class="st-lb-from">${from}</span></button>`;
+  }).join('');
+  return `<div class="st-lbs"><div class="st-lbs-h"><span class="st-k">Labels</span><span class="st-k">of your time ${words(M.R)}</span></div>${rows}</div>`;
 }
 
 /* Fix guessed times: everything in the range that was checked off without the timer and still counts
