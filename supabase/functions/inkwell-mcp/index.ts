@@ -51,17 +51,40 @@ function dbFor(userId: string): Db {
       return (data as Entry[]).map(full);
     },
     kids: (parentIds) => parentIds.length ? all(COLS, (q) => q.in("parent_id", parentIds.slice(0, 200)).eq("deleted", false)) : Promise.resolve([]),
-    async search(words, limit) {
-      let q = sb.from("writing_entries").select(COLS).eq("user_id", userId).eq("deleted", false)
-        .in("kind", ["line", "para", "heading", "scene", "page", "note", "chapter", "world", "project"]);
-      // Every word must appear in the words or the title. Characters that mean
-      // something to the filter are dropped from the word.
-      for (const w of words.map((x) => x.replace(/[\\%_,()"*]/g, "")).filter(Boolean)) {
-        q = q.or(`text.ilike."%${w}%",title.ilike."%${w}%"`);
-      }
-      const { data, error } = await q.order("updated_at", { ascending: false }).limit(limit);
+    async find(o) {
+      const { data, error } = await sb.rpc("inkwell_search", {
+        p_user: userId, p_query: o.query, p_kinds: o.kinds, p_tag: o.tag, p_under: o.under,
+        p_since: o.since, p_until: o.until, p_newest: o.newest, p_limit: o.limit,
+      });
       if (error) throw error;
       return (data as Entry[]).map(full);
+    },
+    async tags(under) {
+      const { data, error } = await sb.rpc("inkwell_tags", { p_user: userId, p_under: under });
+      if (error) throw error;
+      return data;
+    },
+    async rollup() {
+      const { data, error } = await sb.rpc("inkwell_rollup", { p_user: userId });
+      if (error) throw error;
+      return data;
+    },
+    async linkedFrom(ids, limit) {
+      if (!ids.length) return [];
+      const { data, error } = await sb.rpc("inkwell_linked_from", { p_user: userId, p_ids: ids, p_limit: limit });
+      if (error) throw error;
+      return (data as Entry[]).map(full);
+    },
+    async byKind(kinds, limit) {
+      const { data, error } = await sb.from("writing_entries").select(COLS).eq("user_id", userId).in("kind", kinds).eq("deleted", false)
+        .order("updated_at", { ascending: false }).limit(limit);
+      if (error) throw error;
+      return (data as Entry[]).map(full);
+    },
+    async updateAbout(id, patch) {
+      // Only ever one of Claude's own abouts: the kind is part of the match.
+      const { error } = await sb.from("writing_entries").update(patch).eq("user_id", userId).eq("id", id).eq("kind", "about");
+      if (error) throw error;
     },
     async insert(rows) {
       if (!rows.length) return;
