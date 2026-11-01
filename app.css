@@ -549,6 +549,29 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .swatches{display:flex;gap:8px;margin:14px 0 0 36px;flex-wrap:wrap}
 .sw{width:22px;height:22px;border-radius:50%;background:var(--sw);border:2px solid transparent;box-shadow:0 0 0 1px var(--line)}
 .sw.on{border-color:var(--bg);box-shadow:0 0 0 2px var(--sw)}
+/* Labels: a small diamond and a tint of the label's colour, so they never read as an area */
+.lbl{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;line-height:1.3;padding:5px 10px 5px 9px;border-radius:999px;border:1px solid color-mix(in srgb,var(--lc) 50%,transparent);background:color-mix(in srgb,var(--lc) 12%,transparent);color:var(--fg);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.lbl::before{content:"";flex:none;width:6px;height:6px;border-radius:1.5px;background:var(--lc);transform:rotate(45deg)}
+.lbl.inh{opacity:.72;border-style:dashed}
+.lbl .x{color:var(--faint);margin-left:1px}
+button.lbl:hover .x{color:var(--fg)}
+.lb-pick{margin:10px 0 0 36px;border:1px solid var(--edge);border-radius:12px;background:var(--surface);padding:6px;max-width:420px;display:flex;flex-direction:column;gap:2px}
+.lb-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;text-align:left;min-height:38px}
+button.lb-row:hover{background:var(--sunk)}
+.lb-row .tick{margin-left:auto;color:var(--accent);font-weight:600}
+.lb-row.off{opacity:.75}
+.lb-from{margin-left:auto;font-size:12px;color:var(--faint)}
+.lb-row.ed{flex-wrap:wrap;gap:8px 10px;padding:8px}
+.lb-name{flex:1 1 140px;min-width:0;font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--edge);border-radius:8px;padding:6px 8px}
+.lb-sw{display:flex;gap:6px;flex-wrap:wrap}
+.lb-sw .sw{width:20px;height:20px}
+.lb-del{font-size:12.5px;color:var(--muted);padding:6px 8px;border-radius:8px}
+.lb-del:hover{color:var(--danger);background:color-mix(in srgb,var(--danger) 12%,transparent)}
+.lb-new{display:flex;align-items:center;gap:8px;padding:4px 8px;border-top:1px solid var(--line);margin-top:4px}
+.lb-new input{flex:1;min-width:0;border:0;background:transparent;font:inherit;color:var(--fg);padding:8px 0;outline:none}
+.lb-none{font-size:13px;color:var(--muted);padding:8px}
+.lb-foot{border-top:1px solid var(--line);padding:6px 8px 2px;font-size:12.5px}
+@media (max-width:860px){.lb-pick{margin-left:0}}
 .dt-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-top:22px}
 .dt-foot .dt-ask{margin-top:0}
 .dt-del{font-size:13px;color:var(--muted);padding:8px 10px;border-radius:8px}
@@ -1001,6 +1024,22 @@ body.quiet[data-page="stats"] .side{visibility:visible}
 .st-line{display:flex;gap:3px;height:8px}
 .st-line i{border-radius:4px;min-width:3px}
 .st-rows{display:flex;flex-direction:column}
+.st-filts{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.st-filter.lb i{border-radius:1.5px;transform:rotate(45deg);width:6px;height:6px}
+/* Labels under the areas */
+.st-lbs{display:flex;flex-direction:column;margin-top:4px;padding-top:12px;border-top:1px solid var(--line2)}
+.st-lbs-h{display:flex;justify-content:space-between;gap:10px;margin-bottom:4px}
+.st-lb{display:flex;flex-direction:column;gap:6px;padding:10px 4px;text-align:left;border-radius:0;border-top:1px solid var(--line)}
+.st-lbs-h + .st-lb{border-top:0}
+.st-lb:hover{background:var(--sunk)}
+.st-lb-top{display:grid;grid-template-columns:minmax(0,1fr) 62px 38px 42px;gap:10px;align-items:center}
+.st-lb-top .lbl{justify-self:start;padding:3px 9px 3px 8px;font-size:12px;font-weight:600}
+.st-lb-top .h{font:500 12px var(--f-mono);text-align:right;font-variant-numeric:tabular-nums}
+.st-lb-top .p,.st-lb-top .c{font:500 11.5px var(--f-mono);text-align:right;color:var(--muted)}
+.st-lb-bar{display:flex;gap:2px;height:5px;border-radius:3px;overflow:hidden;background:var(--track)}
+.st-lb-bar i{min-width:2px}
+.st-lb-bar i.rest{background:transparent;min-width:0}
+.st-lb-from{font-size:11.5px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .st-row{display:grid;grid-template-columns:10px minmax(0,1fr) 60px 62px 38px 42px;gap:10px;align-items:center;padding:10px 4px;border-top:1px solid var(--line);text-align:left;border-radius:0}
 .st-row:hover{background:var(--sunk)}
 .st-row .dot{width:8px;height:8px;border-radius:50%}

@@ -1021,6 +1021,7 @@ function renderDetail() {
         isProj(n) && !n.rs ? `<button class="chip" data-act="blk-new" data-id="${n.id}" title="A block of time to work on this whole ${n.p ? 'part' : 'project'}">${ICON.cal}<span>Block time</span></button>` : ''])}
       ${occAskHTML(n)}
       ${linkedLine(n)}
+      ${labelsLine(n)}
       ${S.dtpick && !n.r ? pickerHTML(n, 0) : ''}
       ${S.rpEdit ? repeatHTML(n) : ''}
       ${S.waitEdit ? waitPickHTML(n) : ''}
@@ -1142,6 +1143,42 @@ function linkedLine(n) {
   return line('Linked', [w || S.waitEdit ? waitHTML(n) : '', l || S.linkEdit ? linkHTML(n) : '', extra]);
 }
 
+/* Labels (Building, Client work…) cut across areas. An item's own ones come off with ×; the ones it wears because
+   its project does show faded. A repeat's labels are its series'. */
+const lbHost = n => (n.rs ? store.get(n.rs) || n : n);
+const lbPill = (l, more = '') => `style="--lc:${ink(l.c)}"${more}>${esc(l.t || 'Untitled')}`;
+function labelsLine(n) {
+  const L = store.labelsOf(n);
+  const chips = L.map(({ l, from }) => from ? `<span class="lbl inh" title="From ${esc(from.t || 'its project')}" ${lbPill(l)}</span>`
+    : `<button class="lbl" data-act="lb-tog" data-id="${l.id}" title="Take ${esc(l.t)} off" aria-label="Remove label ${esc(l.t)}" ${lbPill(l)}<span class="x" aria-hidden="true">×</span></button>`).join('');
+  return `${line('Labels', [chips, `<button class="chip add" data-act="lb-pick" aria-expanded="${!!S.lbPick}">+ Label</button>`])}${S.lbPick ? labelPickHTML(n, L) : ''}`;
+}
+function labelPickHTML(n, L) {
+  const has = new Map(L.map(x => [x.l.id, x.from])), all = store.labels();
+  const rows = all.map(l => {
+    if (S.lbEdit) return `<div class="lb-row ed"><input id="lbn-${l.id}" class="lb-name" value="${esc(l.t || '')}" aria-label="Label name" autocomplete="off" enterkeyhint="done">
+      <span class="lb-sw" role="group" aria-label="Colour">${store.LABEL_PALETTE.map(c => `<button class="sw${l.c === c ? ' on' : ''}" style="--sw:${ink(c)}" data-act="lb-color" data-id="${l.id}" data-c="${c}" aria-label="Colour ${c}"></button>`).join('')}</span>
+      <button class="lb-del" data-act="lb-del" data-id="${l.id}">Delete</button></div>`;
+    const from = has.get(l.id);
+    return from ? `<div class="lb-row off"><span class="lbl" ${lbPill(l)}</span><span class="lb-from">from ${esc(from.t || 'its project')}</span></div>`
+      : `<button class="lb-row" data-act="lb-tog" data-id="${l.id}" aria-pressed="${has.has(l.id)}"><span class="lbl" ${lbPill(l)}</span>${has.has(l.id) ? '<span class="tick">✓</span>' : ''}</button>`;
+  }).join('');
+  return `<div class="lb-pick">${rows || '<div class="lb-none">No labels yet. Name one below, such as Building or a client.</div>'}
+    ${S.lbEdit ? '' : `<form class="lb-new" data-form="lb-new"><span class="plus-i" aria-hidden="true">+</span><input id="lb-new-in" placeholder="New label" autocomplete="off" aria-label="New label" enterkeyhint="done"></form>`}
+    ${all.length ? `<div class="lb-foot"><button class="link" data-act="lb-edit">${S.lbEdit ? 'Done' : 'Rename, recolour or delete labels'}</button></div>` : ''}</div>`;
+}
+function toggleLabel(n, id) {
+  const h = lbHost(n), cur = h.lb || [], on = cur.includes(id);
+  const lb = on ? cur.filter(x => x !== id) : [...cur, id];
+  if (h.r) store.seriesEdit(h.id, { lb: lb.length ? lb : null }); else store.update(h.id, { lb: lb.length ? lb : null });
+}
+function newLabel(n, name) {
+  const t = name.trim().slice(0, 40); if (!t) return;
+  const old = store.labels().find(l => (l.t || '').trim().toLowerCase() === t.toLowerCase());
+  const l = old || store.create({ k: 'label', t, c: store.nextLabelColor(), m: null });
+  if (!(lbHost(n).lb || []).includes(l.id)) toggleLabel(n, l.id);
+}
+
 /* A habit's colour: its area's (the ringed swatch) or its own, kept in its repeat rule. */
 function habitSwatches(s) {
   const area = s.ar && store.get(s.ar), own = s.r?.hc ? glow(s.r.hc) : null;
@@ -1221,7 +1258,7 @@ function openItem(id, focusTitle = false) {
   // Opened from inside a block: remember the block, so the item can lead back to it (until the panel closes)
   const cur = S.open && nodeOrDay(S.open), nx = nodeOrDay(id);
   if (nx && isBlock(nx)) S.fromBlk = null; else if (cur && isBlock(cur)) S.fromBlk = cur.id; else if (!cur) S.fromBlk = null;
-  if (S.open !== id) { S.occAsk = null; S.addOpen = false; S.rpEdit = false; S.blkFocus = null; S.blkSkip = []; S.blkView = 'next'; }
+  if (S.open !== id) { S.occAsk = null; S.addOpen = false; S.lbPick = false; S.lbEdit = false; S.rpEdit = false; S.blkFocus = null; S.blkSkip = []; S.blkView = 'next'; }
   S.open = id; S.tlEdit = null; S.dtpick = false; S.confirmDel = false; S.linkEdit = false; S.notesEdit = false; S.waitEdit = false; renderDetail();
   if (focusTitle) { const t = document.getElementById('dt-title'); t.focus(); t.select(); }
 }
@@ -1609,6 +1646,11 @@ document.addEventListener('click', e => {
     case 'occ-one': S.occAsk = null; renderDetail(); break;
     case 'occ-every': { const o = S.occAsk; S.occAsk = null; if (o) { const t = short(node(o.id)?.t); store.seriesEdit(o.id, o.patch); toast(`Changed every repeat of ${t}`); } renderDetail(); break; }
     case 'addmenu': S.addOpen = true; renderDetail(); break;
+    case 'lb-pick': S.lbPick = !S.lbPick; S.lbEdit = false; renderDetail(); if (S.lbPick && !store.labels().length) document.getElementById('lb-new-in')?.focus(); break;
+    case 'lb-edit': S.lbEdit = !S.lbEdit; renderDetail(); break;
+    case 'lb-tog': { const n = node(S.open); if (n) toggleLabel(n, id); break; }
+    case 'lb-color': store.update(id, { c: b.dataset.c }); break;
+    case 'lb-del': { const l = store.get(id); store.remove(id); toast(`${l?.t || 'Label'} deleted. Its time stays in its areas.`); break; }
     case 'rpedit': S.rpEdit = !S.rpEdit; renderDetail(); break;
     case 'rp-every': setRepeat({ every: b.dataset.v }); break;
     case 'rp-day': {
@@ -1694,6 +1736,7 @@ document.addEventListener('click', e => {
     case 'st-k': S.stK = b.dataset.v; S.stAt = today(); render(); break;
     case 'st-at': S.stK = b.dataset.k; S.stAt = b.dataset.d; render(); document.getElementById('mbody')?.scrollTo({ top: 0, behavior: 'smooth' }); break;
     case 'st-area': S.stArea = id || null; render(); break;
+    case 'st-label': S.stLabel = id || null; render(); document.querySelector('.st-led')?.scrollIntoView({ block: 'nearest' }); break;
     case 'st-fix': S.stFix = !S.stFix; S.stFixSkip = null; render(); break;
     case 'st-took': { const n = node(id); if (n) { track.setTook(id, +b.dataset.m); toast(`${short(n.t)} took ${fmtDur(+b.dataset.m)}`); } render(); break; }
     case 'st-fix-skip': S.stFixSkip = { ...(S.stFixSkip || {}), [id]: true }; render(); break;
@@ -1776,6 +1819,7 @@ document.addEventListener('submit', e => {
   if (f.id === 'askf') { const q = document.getElementById('askq'); if (q.value.trim()) { ask(q.value.trim()); q.value = ''; } return; }
   const inp = f.querySelector('input'); const v = inp.value.trim();
   if (f.dataset.form === 'link') { saveLink(); return; }
+  if (f.dataset.form === 'lb-new') { const n = node(S.open); if (v && n) { inp.value = ''; inp.blur(); newLabel(n, v); renderDetail(); document.getElementById('lb-new-in')?.focus(); } else inp.blur(); return; }
   if (f.dataset.form === 'wait') { const o = f.querySelector('.wait-opt'); if (o) { S.waitEdit = false; document.activeElement?.blur(); edit(S.open, { w: o.dataset.id }); } return; }
   if (f.dataset.form === 'area-project') { if (v) { makeProject(v, f.dataset.area); inp.value = ''; renderDetail(); inp.scrollIntoView({ block: 'nearest' }); } else inp.blur(); return; }
   if (f.dataset.form === 'blk-add') { // a task in the block's area, or a step in its project
@@ -1861,6 +1905,7 @@ document.addEventListener('change', e => {
   if (t.id === 'rm-free') { setFree(t.value); return; }
   if (t.id === 'st-from' || t.id === 'st-to') { if (t.value) { S[t.id === 'st-from' ? 'stFrom' : 'stTo'] = t.value; render(); } return; }
   if (t.id === 'tl-day' || t.id === 'tl-s' || t.id === 'tl-e') { saveStretch(); return; }
+  if (t.id?.startsWith('lbn-')) { const v = t.value.trim().slice(0, 40); if (v) store.update(t.id.slice(4), { t: v }); else renderDetail(); return; }
   if (t.id === 'ado' && S.open?.startsWith('day:')) { const [, aid, d] = S.open.split(':'), a = node(aid); if (a) store.update(aid, { dg: withDay(a.dg, d, t.value) }); return; }
   const n = S.open && node(S.open); if (!n) return;
   if (t.id === 'dt-title') { if (!n.t.trim()) edit(n.id, { t: n.k === 'area' ? 'New area' : n.c ? 'New project' : 'Untitled' }); else store.updateMany([]); }

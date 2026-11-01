@@ -51,6 +51,8 @@ export type Row = {
   time_pref?: string | null;
   /** A habit: a task (usually repeating) whose time doesn't count toward the week's scheduled hours. */
   habit?: boolean | null;
+  /** The ids of the labels it wears (rows of kind 'label'); its steps wear them too. */
+  labels?: string[] | null;
   deleted: boolean;
 };
 
@@ -110,6 +112,7 @@ export const INSTRUCTIONS = `Daybook is this person's own task and calendar app.
 - Order: every item has a place among its siblings (a project's steps; the projects and standalone tasks of an area; the inbox). position is its place, from 1, and sort is the number that keeps it there; the app's lists show the same order. Lists under a project or area come back in that order. reorder_items puts a project's steps or an area's items in a new order; update_item's position moves one item (first, last, or after another). Priority is an item's rank in its area, counting its projects and standalone tasks together (1 is first), so a standalone task can come before a project; set_project_priority changes it, and it's the order the person sees when dragging in the app's area lists.
 - get_next_task gives what to work on next in an area or project: the first open step in order that isn't waiting on something unfinished or planned for a later day (for an area: its projects and standalone tasks in priority order). A project waiting on something unfinished is skipped as a whole, and the two after it. The app shows the same next task on each area block in List view.
 - A task marked habit (usually a repeating one, such as a daily walk) still shows on its days, but its time doesn't count toward the week's scheduled hours or get_free_hours.
+- Labels (such as Building, Color grading, or a client's name) cut across areas: a project stays in its area and also wears labels, so Inkwell is Filmmaking time and Building time at once. A label on a project counts for all its steps; a single task can wear its own. Items show the labels they wear; set_labels changes them, and list_labels gives each label's recorded hours for a range, split by area and project. Use them to answer "how much time went into X" across areas, or to see how much of the week a kind of work is taking.
 - Say what you changed in plain words, since the person sees your reply, not the tool calls.`;
 
 const str = (description: string) => ({ type: "string", description });
@@ -375,6 +378,19 @@ export const TOOLS = [
     },
   },
   {
+    name: "list_labels",
+    title: "List labels and their time",
+    description: "Every label (such as Building or a client) with the hours recorded under it from from to to (default: this week so far), split by area and by project, and the items that wear it.",
+    inputSchema: { type: "object", properties: { from: str("First day, YYYY-MM-DD. Defaults to this Monday."), to: str("Last day, YYYY-MM-DD. Defaults to today.") } },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "set_labels",
+    title: "Set an item's labels",
+    description: "Sets the labels a task or project wears, by name, replacing its own ones (labels it gets from its project stay). A name that isn't a label yet becomes a new one. On a repeat, it changes the whole series.",
+    inputSchema: { type: "object", required: ["id", "labels"], properties: { id: str("The item's id."), labels: { type: "array", items: { type: "string" }, description: "Label names, such as [\"Building\"]. An empty list takes its own labels off." } } },
+  },
+  {
     name: "get_area_progress",
     title: "Get area progress by day",
     description: "For each day from from to to (at most 62 days) and each area: the target hours, the hours logged (time recorded on the area itself, on anything in it, and on blocks for it), and which tasks or projects the time went to.",
@@ -563,8 +579,8 @@ function repeatArg(v: unknown, start: string): Rule {
   return r;
 }
 // What a stored repeat shares with its series, and what a change to the series hands down to them
-const SHARED: (keyof Row)[] = ["parent_id", "title", "notes", "start_min", "after_min", "duration_min", "sort", "day_sort", "color", "link", "area_id", "waits_on", "kind", "focus_on"];
-const FOLLOW: (keyof Row)[] = ["parent_id", "title", "notes", "start_min", "duration_min", "color", "link", "waits_on", "area_id", "focus_on"];
+const SHARED: (keyof Row)[] = ["parent_id", "title", "notes", "start_min", "after_min", "duration_min", "sort", "day_sort", "color", "link", "area_id", "waits_on", "kind", "focus_on", "labels"];
+const FOLLOW: (keyof Row)[] = ["parent_id", "title", "notes", "start_min", "duration_min", "color", "link", "waits_on", "area_id", "focus_on", "labels"];
 
 /** Order among siblings: sort, then (for equal sorts) the order they were made in. */
 const bySort = (a: Row, b: Row) => (a.sort || 0) - (b.sort || 0);
@@ -584,8 +600,12 @@ class Tree {
   raw: Row[];
   /** Blocks of area time, kept apart from the items (see blockTree). */
   blockRows: Row[];
+  /** Labels (Building, a client…), which cut across areas. */
+  labelRows: Row[];
   constructor(all: Row[]) {
     this.raw = all;
+    this.labelRows = all.filter((r) => r.kind === "label" && !r.deleted).sort(bySort);
+    all = all.filter((r) => r.kind !== "label");
     this.blockRows = all.filter((r) => r.kind === "block");
     all = all.filter((r) => r.kind !== "block");
     this.areas = all.filter((r) => r.kind === "area" && !r.deleted).sort((a, b) => a.sort - b.sort);
@@ -641,6 +661,16 @@ class Tree {
   /** The blocks as a tree of their own, so repeating blocks work out their repeats the way tasks do. */
   blockTree() { const b = new Tree(this.blockRows.map((r) => ({ ...r, kind: null }))); b.tz = this.tz; return b; }
   children = (id: string) => this.kids.get(id) ?? [];
+  /** Every label an item wears: its own, its project's (all the way up), and for a repeat, its series'. */
+  labelsOf(r: Row): Row[] {
+    const out: Row[] = [], seen = new Set<string>();
+    let h: Row | undefined = r.series_id ? this.byId.get(r.series_id) ?? r : r;
+    for (let i = 0; h && i < 60; i++) {
+      for (const id of h.labels ?? []) { const l = this.labelRows.find((x) => x.id === id); if (l && !seen.has(id)) { seen.add(id); out.push(l); } }
+      h = h.parent_id ? this.byId.get(h.parent_id) : undefined;
+    }
+    return out;
+  }
   areaOf = (r: Row) => (r.parent_id == null && r.area_id ? this.areas.find((a) => a.id === r.area_id) : undefined);
   area(v: unknown): Row {
     const name = typeof v === "string" ? v.trim().toLowerCase() : "";
@@ -739,6 +769,7 @@ class Tree {
     if (r.hard_deadline) o.hard_deadline = true;
     if (r.waits_on) { const w = this.byId.get(r.waits_on); if (w) o.waiting_on = { id: w.id, title: w.title }; }
     if (r.link) o.link = r.link;
+    { const lb = this.labelsOf(r).map((l) => l.title); if (lb.length) o.labels = lb; }
     if (this.isHabit(r)) o.habit = true;
     if (this.byId.get(r.id) === r) { // its place in its list (repeats sit on their days instead)
       o.position = this.position(r); o.sort = r.sort;
@@ -1068,6 +1099,7 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
       return runBlocks(name, args, t, db, today());
     case "get_area_targets": case "set_area_targets": case "get_area_progress":
       return runTargets(name, args, t, db);
+    case "list_labels": case "set_labels": t.tz = await db.timeZone(); return runLabels(name, args, db, t, today);
     case "update_item": {
       const r = { ...t.get(args.id) };
       const changed: Row[] = [];
@@ -1385,6 +1417,75 @@ async function runTargets(name: string, args: Record<string, unknown>, t: Tree, 
         return { area: a.title, target_hours: hoursOf(target), ...(ov ? { target_overridden: true } : {}), logged_hours: hoursOf(logged), ...(a.time_pref ? { time_pref: a.time_pref } : {}), ...(a.days_done?.includes(d) ? { done_for_day: true } : {}), tasks };
       }).filter(Boolean);
       return { date: d, weekday: wd, areas };
+    }),
+  };
+}
+
+/* Labels cut across areas: list_labels adds up their time, set_labels puts them on an item */
+const LABEL_COLORS = ["#C9A6FF", "#E58FB0", "#8FD0E5", "#E5C48F", "#A6E59B", "#F0A07A", "#9BA8FF", "#D9D9D9"];
+async function runLabels(name: string, args: Record<string, unknown>, db: Db, t: Tree, today: () => string) {
+  if (name === "set_labels") {
+    const r0 = t.get(args.id), r = r0.series_id ? t.byId.get(r0.series_id) ?? r0 : r0;
+    if (!Array.isArray(args.labels)) throw new Bad("labels must be a list of names, such as [\"Building\"].");
+    const names = [...new Set(args.labels.map((x) => String(x ?? "").trim().slice(0, 40)).filter(Boolean))];
+    const made: Row[] = [], ids: string[] = [];
+    for (const n of names) {
+      let l = [...t.labelRows, ...made].find((x) => x.title.trim().toLowerCase() === n.toLowerCase());
+      if (!l) {
+        const used = new Set([...t.labelRows, ...made].map((x) => x.color));
+        l = newRow({ kind: "label", title: n, color: LABEL_COLORS.find((c) => !used.has(c)) ?? LABEL_COLORS[(t.labelRows.length + made.length) % LABEL_COLORS.length], duration_min: 60 });
+        made.push(l);
+      }
+      if (!ids.includes(l.id)) ids.push(l.id);
+    }
+    const item = { ...r, labels: ids.length ? ids : null };
+    // Stored repeats that still had the series' labels follow it
+    const occ = [...(t.occ.get(r.id)?.values() ?? [])].filter((o) => !o.deleted && !o.done && JSON.stringify(o.labels ?? null) === JSON.stringify(r.labels ?? null)).map((o) => ({ ...o, labels: item.labels }));
+    await db.save([...made, item, ...occ]);
+    const t2 = t.with([...made, item, ...occ]);
+    return { item: { id: item.id, title: item.title }, labels: t2.labelsOf(item).map((l) => l.title), ...(made.length ? { new_labels: made.map((l) => l.title) } : {}) };
+  }
+  // list_labels
+  let from = has(args, "from") ? dayArg(args.from, "from") : null; const to = has(args, "to") ? dayArg(args.to, "to") : today();
+  if (!from) { from = to; for (let i = 0; i < 6 && weekdayOf(from) !== "mon"; i++) from = addDays(from, -1); }
+  if (to < from) throw new Bad("to is before from.");
+  const all = new Map(t.raw.map((r) => [r.id, r]));
+  const areaName = (r: Row) => { let h: Row | undefined = r; for (let i = 0; h && i < 50; i++) { if (h.kind === "area") return h.title; if (!h.parent_id) return h.area_id ? all.get(h.area_id)?.title ?? "No area" : "No area"; h = all.get(h.parent_id); } return "No area"; };
+  const topOf = (r: Row) => { let h = r; for (let i = 0; h.parent_id && i < 50; i++) { const p = all.get(h.parent_id); if (!p || p.kind === "area") break; h = p; } return h.title; };
+  const start = Date.parse(from + "T00:00:00Z") - 36 * 3600000, end = Date.parse(addDays(to, 1) + "T00:00:00Z") + 36 * 3600000;
+  const M = new Map<string, { m: number; areas: Map<string, number>; projects: Map<string, number> }>();
+  let total = 0;
+  for (const r of t.raw) {
+    if (!r.time_log?.length || (r.deleted && !r.occurs_on)) continue;
+    let h: Row | undefined = r.series_id ? all.get(r.series_id) ?? r : r;
+    if (h.kind === "block") h = h.focus_on ? all.get(h.focus_on) : undefined;
+    if (!h || h.kind === "label") continue;
+    const labs = h.kind === "area" ? [] : t.labelsOf(h);
+    let m = 0;
+    for (const e of r.time_log) {
+      let a = Date.parse(e.start); const b = e.end ? Date.parse(e.end) : Date.now();
+      if (!(b > a) || b < start || a > end) continue;
+      while (a < b) {
+        const z = zoned(a, t.tz), next = Date.parse(addDays(z.date, 1) + "T00:00:00Z") - z.off * 60000, c = Math.min(b, next > a ? next : b);
+        if (z.date >= from && z.date <= to) m += (c - a) / 60000;
+        a = c;
+      }
+    }
+    if (m <= 0) continue;
+    total += m;
+    for (const l of labs) {
+      const x = M.get(l.id) ?? { m: 0, areas: new Map(), projects: new Map() }; M.set(l.id, x);
+      x.m += m; const an = areaName(h), pn = h.kind === "area" ? "(the area itself)" : topOf(h);
+      x.areas.set(an, (x.areas.get(an) ?? 0) + m); x.projects.set(pn, (x.projects.get(pn) ?? 0) + m);
+    }
+  }
+  const split = (mp: Map<string, number>) => [...mp].filter(([, m]) => m >= 1).sort((a, b) => b[1] - a[1]).map(([name, m]) => ({ name, hours: hoursOf(m) }));
+  return {
+    from, to, time_zone: t.tz ?? "UTC", all_hours: hoursOf(total),
+    labels: t.labelRows.map((l) => {
+      const x = M.get(l.id);
+      const wearing = [...t.byId.values()].filter((r) => (r.labels ?? []).includes(l.id)).map((r) => ({ id: r.id, title: r.title }));
+      return { label: l.title, hours: hoursOf(x?.m ?? 0), share_of_all: total ? Math.round((x?.m ?? 0) / total * 100) + "%" : "0%", by_area: x ? split(x.areas) : [], by_project: x ? split(x.projects) : [], worn_by: wearing };
     }),
   };
 }
