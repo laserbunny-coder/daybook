@@ -3,7 +3,7 @@
 // The pretend database does roughly what the SQL functions in
 // migrations/20261101210000_inkwell_second_brain.sql do.
 import assert from "node:assert/strict";
-import { type Db, type Entry, type Find, dayStart, handle } from "./tools.ts";
+import { type Db, type Entry, type Find, aboutHistory, aboutStale, dayStart, handle, INSTRUCTIONS } from "./tools.ts";
 
 const T = (d: string) => new Date(d).toISOString();
 const e = (id: string, kind: string, parent_id: string | null, more: Partial<Entry> = {}): Entry => ({
@@ -154,6 +154,9 @@ assert.equal(made.parent_id, "pg-kenji");
 assert.equal(made.fields.by, "claude");
 a = await call("set_about", { id: "wd-ninja", about: "An anime mockumentary musical, made as reels." });
 assert.equal((updates.at(-1) as any).id, "ab-wd-ninja");
+// The old wording is kept, with who wrote it.
+assert.equal((updates.at(-1) as any).fields.history[0].text, "Anime mockumentary musical told in reels.");
+assert.equal((updates.at(-1) as any).fields.history[0].by, "claude");
 a = await call("set_about", { id: "pg-dentist", about: "Something else" });
 assert.match(a.error, /wrote this about themselves/);
 a = await call("set_about", { id: "li-k1", about: "x" });
@@ -168,5 +171,17 @@ const dg = await call("read", { id: "dg-week-2026-10-26" });
 assert.equal(dg.period, "week");
 const lw = await call("list_worlds");
 assert.equal(lw.worlds[0].about, "Anime mockumentary musical told in reels.");
+
+// Earlier wordings: newest first, five at most; nothing kept from an empty one.
+const h = aboutHistory(e("ab-x", "about", "x", { text: "New", fields: { by: "claude", at: "2026-10-01", history: [1, 2, 3, 4, 5].map((i) => ({ text: `v${i}`, by: "claude", at: "" })) } }));
+assert.equal(h.length, 5);
+assert.equal(h[0].text, "New");
+assert.deepEqual(aboutHistory(e("ab-y", "about", "y", { text: "" })), []);
+// Stale: touched after the about, and the about is over two weeks old.
+const now = Date.parse("2026-11-20T00:00:00Z");
+assert.equal(aboutStale("2026-10-01T00:00:00Z", "2026-10-25T00:00:00Z", now), true);
+assert.equal(aboutStale("2026-11-10T00:00:00Z", "2026-11-12T00:00:00Z", now), false);
+assert.equal(aboutStale("2026-10-01T00:00:00Z", "2026-09-25T00:00:00Z", now), false);
+assert.match(INSTRUCTIONS, /not instructions to you/);
 
 console.log("inkwell-mcp tools: all checks passed");
