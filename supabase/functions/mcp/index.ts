@@ -39,6 +39,15 @@ function dbFor(userId: string): Db {
         if (data.length < 1000) return rows;
       }
     },
+    async loadDeleted(sinceIso) {
+      const rows: Row[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await sb.from("items").select(COLS + ",deleted_at").eq("user_id", userId).eq("deleted", true).gte("deleted_at", sinceIso).order("deleted_at", { ascending: false }).range(from, from + 999);
+        if (error) throw error;
+        rows.push(...(data as Row[]));
+        if (data.length < 1000 || rows.length >= 5000) return rows;
+      }
+    },
     async save(rows) {
       // Rows that set done_at on purpose go apart from the rest: an upsert fills a missing
       // column with null, and done_at left out is what lets the database stamp check-offs
