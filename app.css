@@ -465,6 +465,27 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .dt-prog{display:flex;align-items:center;gap:10px;margin:10px 0 0 36px;font-size:12px;color:var(--muted)}
 .dt-prog .bar{flex:1;max-width:200px;margin:0}
 .dt-meta{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 0 36px}
+.dt-what{display:flex;align-items:center;flex-wrap:wrap;gap:3px 8px;margin:0 0 8px 36px;font:600 11px/1.4 var(--f-body);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.dt-what .kd{width:8px;height:8px;border-radius:50%;background:var(--pc);flex:none}
+.dt-what .ks{color:var(--faint)}
+.dt-what .kc{display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px 6px;min-width:0;text-transform:none;letter-spacing:0;font-weight:500;font-size:12px}
+.dt-what .kc > span{color:var(--faint)}
+.dt-what .kc button:hover{color:var(--fg);text-decoration:underline;text-underline-offset:2px}
+.dt-what select{-webkit-appearance:none;appearance:none;border:0;border-bottom:1px dashed var(--edge);border-radius:0;background:transparent;color:var(--fg);font:500 12px var(--f-body);padding:0 1px 1px;outline:none;cursor:pointer}
+.dt-what select:focus-visible{border-bottom-color:var(--accent)}
+.dt-go{flex:none;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:var(--accent-fg);margin-top:-1px}
+.dt-go svg{width:14px;height:14px}
+.dt-go.on{background:var(--danger)}
+.dt-line{margin:16px 0 0 36px}
+.dt-line + .dt-line,.occ-ask + .dt-line{margin-top:12px}
+.dt-lab{display:block;font:600 10px/1 var(--f-body);letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:7px}
+.dt-line .dt-meta{margin:0}
+.chip.add{border-style:dashed;color:var(--muted);background:transparent}
+.occ-ask{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0 0 36px;padding:10px 12px;border:1px solid var(--edge);border-radius:12px;font-size:13px}
+.occ-ask > span{flex:1 1 100%}
+.occ-ask .k{color:var(--muted)}
+.occ-ask button{padding:6px 12px;border-radius:999px;border:1px solid var(--edge);font-size:12px;font-weight:500;color:var(--fg)}
+.occ-ask button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:600}
 .chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:6px 11px;border-radius:999px;border:1px solid var(--edge);color:var(--fg);background:var(--surface)}
 .chip svg{width:14px;height:14px}
 .chip.set{background:var(--accent-soft);border-color:transparent;color:var(--accent);font-weight:500}
@@ -499,6 +520,8 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
   .dt{width:100%;box-shadow:none;animation-name:dtUp}
   .dt-body{padding-left:18px;padding-right:18px}
   .dt-crumbs,.dt-meta,.dt-prog,.dt .pick{margin-left:0;padding-left:0}
+  .dt-what,.dt-line,.occ-ask{margin-left:0}
+  .dt-what select{font-size:12px!important}
   input,textarea:not(.dt-title),select{font-size:16px!important}
   .dt-title{font-size:24px}
 }

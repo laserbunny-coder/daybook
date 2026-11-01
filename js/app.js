@@ -315,7 +315,6 @@ function blockDetail(el, b, same) {
       <div class="dt-kind"><span class="pdot"></span>${b.v ? 'Area day' : blockKind(b) + ' time'}${b.rs || b.r ? ' · repeats' : ''}</div>
       <div class="dt-head"><button class="bk-title" data-act="open" data-id="${t?.id || ''}">${esc(blockTitle(b))}</button></div>
       <div class="bk-when">${day === today() ? 'Today' : `${DAYL[pd(day).getDay()]} ${fmtShort(day)}`}${b.v ? (t?.tp ? ` · best in the ${t.tp}` : '') : b.s != null ? ` · ${fmtT(b.s)} – ${fmtT(b.s + (b.m || 60))}` : ' · any time'}</div>
-      ${ser && b.rs ? `<div class="rp-scope" role="group" aria-label="Changes apply to"><span>Changes apply to</span><button data-act="scope" data-v="one" aria-pressed="${S.scope !== 'all'}">This one</button><button data-act="scope" data-v="all" aria-pressed="${S.scope === 'all'}">All repeats</button></div>` : ''}
       <div class="bk-fill"><div class="bk-bar"><i></i></div><span>${b.done && !w ? 'Skipped' : `${fmtDur(w)} ${b.v ? 'logged' : 'worked'}${len ? ` of ${fmtDur(len)}` : ''}`}</span>
         ${past ? '' : `${busy ? `<button class="chip rec-chip on" data-act="rec" data-id="${busy.id}">${ICON.stop}<span>Stop</span></button>` : `<button class="chip rec-chip${rec ? ' on' : ''}" data-act="rec" data-id="${recId}">${rec ? ICON.stop : ICON.play}<span>${rec ? 'Recording · Stop' : 'Start'}</span></button>`}`}</div>
       ${rec && t ? `<div class="dt-note bk-hint">Recording general ${esc(blockTitle(b))} time. Tap ▶ on what you're working on to put the time on that task.</div>` : ''}
@@ -328,6 +327,7 @@ function blockDetail(el, b, same) {
         <label class="chip"><span class="k">For</span><select id="dt-dur">${durs.sort((a, c) => a - c).map(m => `<option value="${m}"${(b.m || 60) === m ? ' selected' : ''}>${fmtDur(m)}</option>`).join('')}</select></label>
         <button class="chip rp-chip${ser ? ' set' : ''}" data-act="rpedit" aria-expanded="${S.rpEdit}">${ICON.rep}<span>${ser ? esc(ruleText(ser.r, ser.d)) : 'Repeat'}</span></button>
       </div>
+      ${occAskHTML(b)}
       ${S.dtpick && !b.r ? pickerHTML(b, 0) : ''}
       ${S.rpEdit ? repeatHTML(b) : ''}
       ${b.r ? '' : timeHTML(b)}
@@ -997,31 +997,28 @@ function renderDetail() {
   if (!durs.includes(n.m || 60)) durs.push(n.m || 60);
   const count = leaves(n.id).length - (kids.length ? 0 : 1);
   const ser = store.seriesOf(n)?.r ? store.seriesOf(n) : null, rp = !!ser || !!n.rs; // a repeating task, or one of its repeats
+  const recOk = canRec(n) && (n.p == null || n.d || track.isRec(n) || (!hasKids(n.id) && inBlockNow(n))), recOn = recOk && track.isRec(n);
   setDetail(el, `<div class="dt-back" data-act="close"></div>
   <section class="dt${same ? ' still' : ''}" role="dialog" aria-modal="true" aria-label="${esc(n.t)}" style="--pc:${colorOf(n)}">
     <div class="dt-top">${fromB ? `<span class="dt-nav"><button class="dt-up" data-act="open" data-id="${fromB.id}">${ICON.prev}<span>${esc(blockTitle(fromB))} time</span></button>${up ? `<button class="dt-up dt-par" data-act="open" data-id="${up.id}"><span>${esc(up.t)}</span></button>` : ''}</span>` : `<button class="dt-up" data-act="${up ? 'open' : 'close'}" data-id="${up ? up.id : ''}">${ICON.prev}<span>${up ? esc(up.t) : 'Back'}</span></button>`}<button class="ib" data-act="close" aria-label="Close">${ICON.close}</button></div>
     <div class="dt-body vscroll" data-id="${n.id}">
-      ${anc.length > 1 ? `<div class="dt-crumbs">${anc.map(a => `<button data-act="open" data-id="${a.id}">${esc(a.t)}</button>`).join('<span>›</span>')}</div>` : ''}
-      <div class="dt-head">${ckHTML(n)}<textarea id="dt-title" class="dt-title" rows="1" aria-label="Title" placeholder="Name it" enterkeyhint="done">${esc(n.t)}</textarea></div>
-      ${ser && n.rs ? `<div class="rp-scope" role="group" aria-label="Changes apply to"><span>Changes apply to</span><button data-act="scope" data-v="one" aria-pressed="${S.scope !== 'all'}">This one</button><button data-act="scope" data-v="all" aria-pressed="${S.scope === 'all'}">All repeats</button></div>` : ''}
-      ${n.r ? '<div class="dt-note rp-note">Changes here go to every repeat. Check off each one on its day.</div>' : ''}
+      ${whatLine(n, anc, kids, ser, rp)}
+      <div class="dt-head">${ckHTML(n)}<textarea id="dt-title" class="dt-title" rows="1" aria-label="Title" placeholder="Name it" enterkeyhint="done">${esc(n.t)}</textarea>${recOk ? `<button class="dt-go${recOn ? ' on' : ''}" data-act="rec" data-id="${n.id}" aria-label="${recOn ? 'Stop recording' : 'Start recording time'}" title="${recOn ? 'Recording · Stop' : 'Start'}">${recOn ? ICON.stop : ICON.play}</button>` : ''}</div>
       ${kids.length ? `<div class="dt-prog"><div class="bar"><i style="width:${pct}%"></i></div><span>${pr.done} of ${pr.total} done</span></div>` : ''}
-      <div class="dt-meta">
-        ${canRec(n) && (n.p == null || n.d || track.isRec(n) || (!hasKids(n.id) && inBlockNow(n))) ? `<button class="chip rec-chip${track.isRec(n) ? ' on' : ''}" data-act="rec" data-id="${n.id}">${track.isRec(n) ? ICON.stop : ICON.play}<span>${track.isRec(n) ? 'Recording · Stop' : 'Start'}</span></button>` : recUp(n)}
-        ${n.r ? '' : `<button class="chip${n.d ? ' set' : ''}" data-act="dtpick">${ICON.cal}<span>${n.d ? whenLabel(n) : 'Add to a day'}</span></button>`}
-        ${kids.length || n.c ? '' : `<button class="chip rp-chip${ser ? ' set' : ''}" data-act="rpedit" aria-expanded="${S.rpEdit}">${ICON.rep}<span>${ser ? esc(ruleText(ser.r, ser.d)) : 'Repeat'}</span></button>`}
-        ${kids.length || n.c ? '' : `<label class="chip"><span class="k">Takes about</span><select id="dt-dur">${durs.sort((a, b) => a - b).map(m => `<option value="${m}"${(n.m || 60) === m ? ' selected' : ''}>${fmtDur(m)}</option>`).join('')}</select></label>`}
-        ${!kids.length && !n.c && (n.done || n.am) && !track.real(n).length ? `<label class="chip took${n.am ? ' set' : ''}"><span class="k">Took</span><input type="number" id="dt-took" inputmode="numeric" min="1" max="10080" placeholder="${n.m || 60}" value="${n.am || ''}" aria-label="Minutes it really took"><span class="k">min</span></label>` : ''}
-        ${kids.length || n.c ? `<label class="chip${n.st ? ' set' : ''}"><span class="k">Starts</span><input type="date" id="dt-start" value="${n.st || ''}"${n.due ? ` max="${n.due}"` : ''}></label>` : ''}
-        ${kids.length || n.c || n.due || n.ms ? `<label class="chip${n.due ? ' set' : ''}"><span class="k">Due</span><input type="date" id="dt-due" value="${n.due || ''}"${n.st ? ` min="${n.st}"` : ''}></label>` : ''}
-        ${kids.length || n.c || rp ? '' : `<button class="chip ms-chip${n.ms ? ' set' : ''}" data-act="ms" aria-pressed="${!!n.ms}">${ICON.ms}<span>Milestone</span></button>`}
-        ${rp && ser ? `<button class="chip hb-chip${ser.hb ? ' set' : ''}" data-act="habit" aria-pressed="${!!ser.hb}" title="A habit still shows on its days, but its time doesn't count toward the week's hours on the Roadmap">Habit</button>` : ''}
-        ${n.ms && !kids.length && !n.c && !rp ? `<button class="chip hd-chip${n.hd ? ' set' : ''}" data-act="hd" aria-pressed="${!!n.hd}" title="A date that can't move">Hard deadline</button>` : ''}
-        ${isProj(n) && !n.rs ? `<button class="chip" data-act="blk-new" data-id="${n.id}" title="A block of time to work on this whole ${n.p ? 'part' : 'project'}">${ICON.cal}<span>Block time</span></button>` : ''}
-        ${waitHTML(n)}
-        ${linkHTML(n)}
-        ${n.p == null && !n.rs ? `<label class="chip"><span class="k">Area</span><select id="dt-area">${store.areas().map(a => `<option value="${a.id}"${areaOf(n) === a.id ? ' selected' : ''}>${esc(a.t || 'Untitled area')}</option>`).join('')}<option value=""${areaOf(n) ? '' : ' selected'}>No area</option></select></label>` : ''}
-      </div>
+      ${line('When', [
+        recOk ? '' : recUp(n),
+        n.r ? '' : `<button class="chip${n.d ? ' set' : ''}" data-act="dtpick">${ICON.cal}<span>${n.d ? whenLabel(n) : 'Add to a day'}</span></button>`,
+        kids.length || n.c ? '' : `<label class="chip"><span class="k">Takes about</span><select id="dt-dur">${durs.sort((a, b) => a - b).map(m => `<option value="${m}"${(n.m || 60) === m ? ' selected' : ''}>${fmtDur(m)}</option>`).join('')}</select></label>`,
+        kids.length || n.c ? '' : `<button class="chip rp-chip${ser ? ' set' : ''}" data-act="rpedit" aria-expanded="${S.rpEdit}">${ICON.rep}<span>${ser ? esc(ruleText(ser.r, ser.d)) : 'Repeat'}</span></button>`,
+        rp && ser ? `<button class="chip hb-chip${ser.hb ? ' set' : ''}" data-act="habit" aria-pressed="${!!ser.hb}" title="A habit moves to the Habits card, and its time doesn't count toward the week's work hours on the Roadmap">Habit</button>` : '',
+        !kids.length && !n.c && (n.done || n.am) && !track.real(n).length ? `<label class="chip took${n.am ? ' set' : ''}"><span class="k">Took</span><input type="number" id="dt-took" inputmode="numeric" min="1" max="10080" placeholder="${n.m || 60}" value="${n.am || ''}" aria-label="Minutes it really took"><span class="k">min</span></label>` : '',
+        kids.length || n.c ? `<label class="chip${n.st ? ' set' : ''}"><span class="k">Starts</span><input type="date" id="dt-start" value="${n.st || ''}"${n.due ? ` max="${n.due}"` : ''}></label>` : '',
+        kids.length || n.c || n.due || n.ms ? `<label class="chip${n.due ? ' set' : ''}"><span class="k">Due</span><input type="date" id="dt-due" value="${n.due || ''}"${n.st ? ` min="${n.st}"` : ''}></label>` : '',
+        kids.length || n.c || rp ? '' : `<button class="chip ms-chip${n.ms ? ' set' : ''}" data-act="ms" aria-pressed="${!!n.ms}">${ICON.ms}<span>Milestone</span></button>`,
+        n.ms && !kids.length && !n.c && !rp ? `<button class="chip hd-chip${n.hd ? ' set' : ''}" data-act="hd" aria-pressed="${!!n.hd}" title="A date that can't move">Hard deadline</button>` : '',
+        isProj(n) && !n.rs ? `<button class="chip" data-act="blk-new" data-id="${n.id}" title="A block of time to work on this whole ${n.p ? 'part' : 'project'}">${ICON.cal}<span>Block time</span></button>` : ''])}
+      ${occAskHTML(n)}
+      ${linkedLine(n)}
       ${S.dtpick && !n.r ? pickerHTML(n, 0) : ''}
       ${S.rpEdit ? repeatHTML(n) : ''}
       ${S.waitEdit ? waitPickHTML(n) : ''}
@@ -1097,11 +1094,50 @@ function setRepeat(patch) {
   if (s?.r) store.update(s.id, { r: cleanRule({ ...s.r, ...patch }, s.d) });
   else { const d = n.d || today(); store.update(n.id, { r: cleanRule(patch, d), d, done: false }); }
 }
-// In an open repeat, a change goes to it alone or to its whole series, as picked at the top of the panel
+/* In an open repeat, the name, notes, link and waiting on go to every repeat. Moving its day or changing
+   its time or length changes just this one, then asks underneath whether every repeat should follow. */
+const ASK = ['d', 's', 'm'];
 function edit(id, patch, quiet) {
   const n = node(id);
-  if (S.open === id && S.scope === 'all' && n?.rs && store.seriesOf(n)?.r) store.seriesEdit(id, patch);
-  else store.update(id, patch, quiet);
+  if (S.open !== id || !n?.rs || !store.seriesOf(n)?.r) return store.update(id, patch, quiet);
+  if (ASK.some(k => k in patch)) {
+    const keep = {}; for (const k of ASK) if (k in patch) keep[k] = patch[k];
+    if ('d' in keep) { delete keep.s; } // a new day: only the day follows, each repeat keeps its time
+    S.occAsk = { id, patch: S.occAsk?.id === id ? { ...S.occAsk.patch, ...keep } : keep };
+    return store.update(id, patch, quiet);
+  }
+  store.seriesEdit(id, patch);
+  const m = node(id), left = {}; for (const k in patch) if ((m?.[k] ?? null) !== (patch[k] ?? null)) left[k] = patch[k];
+  if (Object.keys(left).length) store.update(id, left, quiet); // this repeat had its own value: it follows too
+}
+/* Asked after a day, time or length change on one repeat: keep it to this one, or change every repeat */
+function occAskHTML(n) {
+  const a = S.occAsk; if (!a || a.id !== n.id) return '';
+  const p = a.patch, bits = [];
+  if ('d' in p) bits.push(p.d ? `moved to ${p.d === today() ? 'today' : dayShort(p.d)}` : 'taken off the plan');
+  if ('s' in p) bits.push(p.s != null ? `time changed to ${fmtT(p.s)}` : 'time cleared');
+  if ('m' in p) bits.push(`length changed to ${fmtDur(p.m)}`);
+  const txt = bits.join(', '); if (!txt || !p.d && 'd' in p) return '';
+  return `<div class="occ-ask" role="group" aria-label="Which repeats"><span>${txt[0].toUpperCase() + txt.slice(1)}. <span class="k">Just this one, or every repeat?</span></span><button class="on" data-act="occ-one">Just this one</button><button data-act="occ-every">Every repeat</button></div>`;
+}
+/* One labelled line of chips (When, Linked). Nothing at all when it has nothing in it. */
+const line = (lab, parts) => { const h = parts.filter(Boolean).join(''); return h ? `<div class="dt-line"><span class="dt-lab">${lab}</span><div class="dt-meta">${h}</div></div>` : ''; };
+/* What it is and where it lives, above the title: Habit · Personal, Task · Filmmaking › Short film */
+function whatLine(n, anc, kids, ser, rp) {
+  const word = ser?.hb ? 'Habit' : rp ? 'Repeating task' : kids.length || n.c ? 'Project' : n.ms ? 'Milestone' : 'Task';
+  let where = '';
+  if (anc.length) where = `<span class="kc">${anc.map(a => `<button data-act="open" data-id="${a.id}">${esc(a.t || 'Untitled')}</button>`).join('<span>›</span>')}</span>`;
+  else if (n.p == null && !n.rs) where = `<label class="kc"><select id="dt-area" aria-label="Area">${store.areas().map(a => `<option value="${a.id}"${areaOf(n) === a.id ? ' selected' : ''}>${esc(a.t || 'Untitled area')}</option>`).join('')}<option value=""${areaOf(n) ? '' : ' selected'}>No area</option></select></label>`;
+  else { const a = ser?.ar && store.get(ser.ar); if (a) where = `<span class="kc">${esc(a.t)}</span>`; }
+  return `<div class="dt-what"><i class="kd"></i>${word}${where ? `<span class="ks">·</span>${where}` : ''}</div>`;
+}
+/* Waiting on and the link show once they're set. Until then they wait behind one "+ Add". */
+function linkedLine(n) {
+  const w = n.w && node(n.w), l = n.link && safeLink(n.link);
+  const freeW = !w && !S.waitEdit, freeL = !l && !S.linkEdit;
+  const extra = !freeW && !freeL ? '' : S.addOpen ? `${freeW ? `<button class="chip" data-act="waitedit">${ICON.wait}<span>Waiting on…</span></button>` : ''}${freeL ? `<button class="chip" data-act="editlink">${ICON.link}<span>Add link</span></button>` : ''}`
+    : `<button class="chip add" data-act="addmenu" aria-expanded="false">+ Add</button>`;
+  return line('Linked', [w || S.waitEdit ? waitHTML(n) : '', l || S.linkEdit ? linkHTML(n) : '', extra]);
 }
 
 /* A habit's colour: its area's (the ringed swatch) or its own, kept in its repeat rule. */
@@ -1183,7 +1219,7 @@ function openItem(id, focusTitle = false) {
   // Opened from inside a block: remember the block, so the item can lead back to it (until the panel closes)
   const cur = S.open && nodeOrDay(S.open), nx = nodeOrDay(id);
   if (nx && isBlock(nx)) S.fromBlk = null; else if (cur && isBlock(cur)) S.fromBlk = cur.id; else if (!cur) S.fromBlk = null;
-  if (S.open !== id) { S.scope = 'one'; S.rpEdit = false; S.blkFocus = null; S.blkSkip = []; S.blkView = 'next'; }
+  if (S.open !== id) { S.occAsk = null; S.addOpen = false; S.rpEdit = false; S.blkFocus = null; S.blkSkip = []; S.blkView = 'next'; }
   S.open = id; S.tlEdit = null; S.dtpick = false; S.confirmDel = false; S.linkEdit = false; S.notesEdit = false; S.waitEdit = false; renderDetail();
   if (focusTitle) { const t = document.getElementById('dt-title'); t.focus(); t.select(); }
 }
@@ -1556,9 +1592,11 @@ document.addEventListener('click', e => {
       const t = document.getElementById('dt-notes'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
       break;
     }
-    case 'editlink': S.linkEdit = true; renderDetail(); document.getElementById('dt-link')?.focus(); break;
+    case 'editlink': S.linkEdit = true; S.addOpen = false; renderDetail(); document.getElementById('dt-link')?.focus(); break;
     case 'dtpick': S.dtpick = !S.dtpick; renderDetail(); break;
-    case 'scope': S.scope = b.dataset.v; renderDetail(); break;
+    case 'occ-one': S.occAsk = null; renderDetail(); break;
+    case 'occ-every': { const o = S.occAsk; S.occAsk = null; if (o) { const t = short(node(o.id)?.t); store.seriesEdit(o.id, o.patch); toast(`Changed every repeat of ${t}`); } renderDetail(); break; }
+    case 'addmenu': S.addOpen = true; renderDetail(); break;
     case 'rpedit': S.rpEdit = !S.rpEdit; renderDetail(); break;
     case 'rp-every': setRepeat({ every: b.dataset.v }); break;
     case 'rp-day': {
@@ -1567,12 +1605,12 @@ document.addEventListener('click', e => {
       if (days.includes(d) && days.length === 1) break; // keeps at least one day
       setRepeat({ days: days.includes(d) ? days.filter(x => x !== d) : [...days, d] }); break;
     }
-    case 'rp-off': { const t = store.stopRepeat(S.open); if (t) { S.open = t; S.rpEdit = false; S.scope = 'one'; toast(`${short(node(t).t)} no longer repeats`); } break; }
+    case 'rp-off': { const t = store.stopRepeat(S.open); if (t) { S.open = t; S.rpEdit = false; S.occAsk = null; toast(`${short(node(t).t)} no longer repeats`); } break; }
     case 'occ-all': if (occAll) { const o = occAll; occAll = null; const t = short(node(o.id)?.t); store.seriesEdit(o.id, o.patch); toast(`Changed every repeat of ${t}`); } break;
     case 'habit': { const s = store.seriesOf(node(S.open)); if (s) store.update(s.id, { hb: !s.hb }); break; }
     case 'ms': { const n = node(S.open); store.update(n.id, n.ms ? { ms: false, hd: false } : { ms: true }); break; }
     case 'hd': { const n = node(S.open); store.update(n.id, { hd: !n.hd }); break; }
-    case 'waitedit': S.waitEdit = true; renderDetail(); document.getElementById('dt-wait')?.focus(); break;
+    case 'waitedit': S.waitEdit = true; S.addOpen = false; renderDetail(); document.getElementById('dt-wait')?.focus(); break;
     case 'setwait': S.waitEdit = false; document.activeElement?.blur(); edit(S.open, { w: id }); break;
     case 'unwait': edit(S.open, { w: null }); break;
     case 'dtbreak': {
