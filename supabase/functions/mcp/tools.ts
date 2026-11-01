@@ -46,6 +46,7 @@ export type Row = {
   week_minutes?: number | null;
   /** An area's target minutes for each weekday, such as { mon: 180, wed: 0 }. */
   day_targets?: Record<string, number> | null;
+  days_done?: string[] | null;
   /** When in the day the area fits best: morning, afternoon or evening (a hint only). */
   time_pref?: string | null;
   /** A habit: a task (usually repeating) whose time doesn't count toward the week's scheduled hours. */
@@ -1381,7 +1382,7 @@ async function runTargets(name: string, args: Record<string, unknown>, t: Tree, 
         const logged = [...items.values()].reduce((x, y) => x + y, 0);
         if (!target && logged < 1) return null;
         const tasks = [...items.entries()].filter(([, m]) => m >= 1).sort((x, y) => y[1] - x[1]).map(([id, m]) => { const r = all.get(id)!; const p = projOf(r); return { id, title: nameOf(r), ...(p ? { project: p } : {}), hours: hoursOf(m) }; });
-        return { area: a.title, target_hours: hoursOf(target), ...(ov ? { target_overridden: true } : {}), logged_hours: hoursOf(logged), ...(a.time_pref ? { time_pref: a.time_pref } : {}), tasks };
+        return { area: a.title, target_hours: hoursOf(target), ...(ov ? { target_overridden: true } : {}), logged_hours: hoursOf(logged), ...(a.time_pref ? { time_pref: a.time_pref } : {}), ...(a.days_done?.includes(d) ? { done_for_day: true } : {}), tasks };
       }).filter(Boolean);
       return { date: d, weekday: wd, areas };
     }),
