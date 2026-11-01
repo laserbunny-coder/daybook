@@ -17,6 +17,7 @@ import * as kingdom from './kingdom.js';
 import * as blocks from './blocks.js';
 import * as aday from './areaday.js';
 import * as habits from './habits.js';
+import * as took from './took.js';
 import { cleanRule, ruleText, splitOcc, WEEK } from './repeat.js';
 import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fd, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
 import { ancestors, blockTitle, children, colorOf, dayItems, glow, hasKids, ink, isBlock, isDone, isProj, leaves, node, PALETTE, progress, rootOf, targetOf, within } from './tree.js';
@@ -306,7 +307,7 @@ function blockDetail(el, b, same) {
   if (t && S.blkView !== 'all' && !b.r) {
     const na = S.blkAdded && node(S.blkAdded) && within(node(S.blkAdded), b.fo) ? node(S.blkAdded) : null, nOn = na && track.isRec(na);
     work += `<form class="dt-add bk-add" data-form="blk-add" data-t="${t.id}"><span class="plus-i" aria-hidden="true">+</span><input id="bk-add-in" placeholder="Add a task to ${esc(t.t || 'this')}" autocomplete="off" aria-label="Add a task to ${esc(t.t || 'this')}" enterkeyhint="done"></form>`
-      + (na && !na.done ? `<div class="bk-added" style="--pc:${colorOf(na)}"><span>Added <button data-act="open" data-id="${na.id}">${esc(na.t)}</button></span><button class="chip" data-act="rec" data-id="${na.id}">${nOn ? ICON.stop : ICON.play}<span>${nOn ? 'Stop' : 'Start'}</span></button><button class="chip" data-act="blk-spent" data-id="${na.id}">+ Time already spent</button></div>` : '');
+      + (na && !na.done ? `<div class="bk-added" style="--pc:${colorOf(na)}"><span>Added <button data-act="open" data-id="${na.id}">${esc(na.t)}</button></span><button class="chip" data-act="rec" data-id="${na.id}">${nOn ? ICON.stop : ICON.play}<span>${nOn ? 'Stop' : 'Start'}</span></button><button class="chip" data-act="blk-did" data-id="${na.id}" title="Check it off now and say how long it took">Already did it</button></div>` : '');
   }
   const busy = r && r.id !== recId && within(r, b.fo) ? r : null;
   setDetail(el, `<div class="dt-back" data-act="close"></div>
@@ -1431,6 +1432,7 @@ function describe(st) {
   if ('c' in b) return `Changed the color of ${t}`;
   if ('r' in b && a.r && b.r && (a.r.hc || '') !== (b.r.hc || '') && JSON.stringify({ ...a.r, hc: 0 }) === JSON.stringify({ ...b.r, hc: 0 })) return `Changed the color of ${t}`;
   if ('r' in b) return !a.r ? `${t} no longer repeats` : b.r ? `Changed how ${t} repeats` : `Made ${t} repeat`;
+  if ('tl' in b) { const e = (a.tl || []).filter(x => x.est).pop(); if (e && !(b.tl || []).some(x => x.est && x.start === e.start && x.end === e.end)) return `${t} took ${fmtDur(Math.round((Date.parse(e.end) - Date.parse(e.start)) / 60000))}`; }
   if ('tl' in b) return live(b.tl) && !live(a.tl) ? `Stopped recording ${t}` : `Changed the time on ${t}`;
   if ('d' in b || 's' in b || 'ar' in b || 'a' in b) return `Moved ${t}`;
   if ('m' in b) return `Changed the length of ${t}`;
@@ -1489,13 +1491,22 @@ function habitTick(id) {
   const p = { ...track.donePatch(n, false), da: new Date().toISOString() }, hm = store.seriesOf(n)?.r?.mins, now = Date.now();
   if (hm && !track.real(n).length) p.tl = [{ start: new Date(now - hm * 60000).toISOString(), end: new Date(now).toISOString(), guess: true }];
   store.update(n.id, p);
+  if (hm || track.real(n).length) askTook(id, hm || 15); // a habit set to "no time", never timed, just ticks
+}
+/* Right after a check-off, ask how long it really took (took.js). Not when something around it holds the time:
+   its project's timer, or its area's or block's, already recorded it. */
+function askTook(id, plan) {
+  const n = node(id); if (!n?.done) { took.hideFor(id); return; }
+  const r = track.running();
+  if (r && r.id !== id && (ancestors(n).some(a => a.id === r.id) || (r.k === 'area' && (n.ar === r.id || rootOf(n)?.ar === r.id)) || (isBlock(r) && r.fo && within(n, r.fo)))) return;
+  took.ask(id, plan ?? n.pl?.duration_min ?? n.m);
 }
 function toggle(id) {
-  const n = node(id); if (n.rs && habits.isHabit(n)) { habitTick(id); return; }
-  if (n.rs) { check(n); if (node(id)?.done) toast(`${short(n.t)} done${placedText(id)}`); return; } // a repeat is checked off on its own
+  const n = node(id); if (n.rs && habits.isHabit(n)) { const was = n.done; habitTick(id); if (was) askTook(id); return; }
+  if (n.rs) { check(n); if (node(id)?.done) { toast(`${short(n.t)} done${placedText(id)}`); askTook(id); } else askTook(id); return; } // a repeat is checked off on its own
   const anc = ancestors(n); const before = anc.map(isDone), was = isDone(n);
   if (hasKids(id) || n.c) { const all = isDone(n); store.updateMany(leaves(id).filter(l => !l.c && !l.r).map(l => [l.id, { done: !all }])); }
-  else check(n);
+  else { check(n); askTook(id); }
   // Projects that just finished move to when they were really worked on; reopened ones go back to their plan (same undo step)
   [...anc.map((a, i) => [a, before[i]]), [n, was]].forEach(([a, b]) => {
     if (!(hasKids(a.id) || a.c) || isDone(a) === b) return;
@@ -1656,6 +1667,7 @@ document.addEventListener('click', e => {
     case 'tl-edit': S.tlEdit = +b.dataset.i; renderDetail(); break;
     case 'tl-close': S.tlEdit = null; renderDetail(); break;
     case 'tl-del': { const i = +b.dataset.i; S.tlEdit = null; track.remove(S.open, i); break; }
+    case 'blk-did': S.blkAdded = null; toggle(id); askTook(id, 60); renderDetail(); break; // done already: check it off, then the how-long sheet asks
     case 'blk-spent': { // open the new task with a stretch of time to fill in, and a way back to the block
       S.fromBlk = S.open; S.blkAdded = null; S.open = id; track.addTime(id); const tl = node(id)?.tl || [];
       S.tlEdit = tl.reduce((k, e, i) => e.end && (k < 0 || Date.parse(e.end) >= Date.parse(tl[k].end)) ? i : k, -1); renderDetail(); break;
@@ -1682,6 +1694,9 @@ document.addEventListener('click', e => {
     case 'st-k': S.stK = b.dataset.v; S.stAt = today(); render(); break;
     case 'st-at': S.stK = b.dataset.k; S.stAt = b.dataset.d; render(); document.getElementById('mbody')?.scrollTo({ top: 0, behavior: 'smooth' }); break;
     case 'st-area': S.stArea = id || null; render(); break;
+    case 'st-fix': S.stFix = !S.stFix; S.stFixSkip = null; render(); break;
+    case 'st-took': { const n = node(id); if (n) { track.setTook(id, +b.dataset.m); toast(`${short(n.t)} took ${fmtDur(+b.dataset.m)}`); } render(); break; }
+    case 'st-fix-skip': S.stFixSkip = { ...(S.stFixSkip || {}), [id]: true }; render(); break;
     case 'st-card': stats.showCard(b.dataset.v); break;
     case 'st-mode': S.stMode = b.dataset.v; saveUI(); render(); break;
     case 'hb-tick': habitTick(id); break;
@@ -1757,6 +1772,7 @@ document.addEventListener('click', e => {
 function openAI() { aiPeek = false; if (quietLook()) { setStrip(false); document.body.classList.remove('ai-off'); return; } if (phone()) { if (S.tab !== 'ask') { S.tab = 'ask'; renderTabs(); } } else document.body.classList.remove('ai-off'); }
 document.addEventListener('submit', e => {
   const f = e.target; e.preventDefault();
+  if (f.dataset.form === 'took') return; // the how-long sheet handles its own
   if (f.id === 'askf') { const q = document.getElementById('askq'); if (q.value.trim()) { ask(q.value.trim()); q.value = ''; } return; }
   const inp = f.querySelector('input'); const v = inp.value.trim();
   if (f.dataset.form === 'link') { saveLink(); return; }

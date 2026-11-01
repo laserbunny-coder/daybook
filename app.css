@@ -2372,3 +2372,57 @@ body.td-shell .td-sbtns .td-pill,.td-sbtns .td-pill{top:auto;right:auto;left:aut
 .hbn-t{width:100%;font:500 22px/1.25 var(--f-display);background:none;border:0;border-bottom:1px solid var(--edge);padding:6px 0;color:var(--fg)}
 .hbn-k{flex-wrap:wrap}
 @media (max-width:860px){body.quiet .qmode{right:6px}body.quiet .qmode button{padding:8px 7px}}
+
+/* How long did it take? (took.js): a small sheet right after a check-off, above the timer and the tab bar */
+body{--took-b:calc(24px + env(safe-area-inset-bottom,0px))}
+body.recording{--took-b:calc(102px + env(safe-area-inset-bottom,0px))}
+body.rec-open{--took-b:calc(146px + env(safe-area-inset-bottom,0px))}
+@media (max-width:860px){
+  body{--took-b:calc(100px + env(safe-area-inset-bottom,0px))}
+  body.quiet{--took-b:calc(24px + env(safe-area-inset-bottom,0px))}
+  body.recording{--took-b:calc(182px + env(safe-area-inset-bottom,0px))}
+  body.quiet.recording{--took-b:calc(108px + env(safe-area-inset-bottom,0px))}
+  body.rec-open{--took-b:calc(226px + env(safe-area-inset-bottom,0px))}
+  body.quiet.rec-open{--took-b:calc(152px + env(safe-area-inset-bottom,0px))}
+  body.recording:has(.detail:not([hidden])){--took-b:calc(96px + env(safe-area-inset-bottom,0px))}
+}
+.took{position:fixed;left:50%;bottom:var(--took-b);transform:translate(-50%,16px);opacity:0;z-index:201;width:min(440px,calc(100% - 20px));background:var(--pop);border:1px solid var(--edge);border-radius:18px;padding:12px 12px 12px 14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 12px 34px rgba(0,0,0,.35);transition:opacity .2s,transform .2s}
+.took.show{opacity:1;transform:translate(-50%,0)}
+body.took-on #toast.toast{bottom:calc(var(--took-b) + var(--took-h,120px) + 10px)}
+.tk-q{font-size:13.5px;color:var(--muted);line-height:1.35}
+.tk-q b{color:var(--fg);font-weight:600}
+.tk-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.tk-c{font:600 14px/1 var(--f-body);color:var(--fg);background:var(--pill);box-shadow:var(--pill-sh);border:1px solid transparent;border-radius:999px;min-height:40px;min-width:46px;padding:0 12px;display:inline-flex;align-items:center;justify-content:center;gap:5px;font-variant-numeric:tabular-nums}
+.tk-c small{font-size:10.5px;font-weight:500;color:var(--faint);text-transform:uppercase;letter-spacing:.06em}
+.tk-c.plan{background:transparent;border-color:var(--edge)}
+.tk-c.on{background:var(--accent);color:var(--accent-fg)}
+.tk-c.on small{color:inherit;opacity:.7}
+@media (hover:hover){.tk-c:hover{border-color:var(--edge);background:var(--hover)}}
+.tk-c:active{background:var(--hover)}
+.tk-bar{display:flex;align-items:center;gap:6px}
+.tk-sm{font-size:12px;color:var(--faint);flex:1;min-width:0}
+.tk-sp{flex:1}
+.tk-b{font:600 13.5px/1 var(--f-body);border-radius:999px;padding:11px 16px;background:var(--accent);color:var(--accent-fg);flex:none}
+.tk-b.q{background:transparent;color:var(--muted);padding-inline:10px}
+.tk-type input{width:96px;font:600 18px/1 var(--f-body);color:var(--fg);background:var(--sunk);border:1px solid var(--edge);border-radius:10px;padding:9px 10px;outline:none}
+.tk-type input:focus{border-color:var(--accent)}
+.took button:focus-visible,.tk-type input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* A habit's own timer on the Habits card */
+.hb-row .rec-b{width:30px;height:30px}
+.hb-live{color:var(--danger)!important;font-weight:600}
+@media (hover:hover){.hb-row:hover>.rec-b{opacity:1}}
+/* Stats: fix guessed times */
+.st-fixb{color:var(--accent);font-weight:600;font-size:12px;margin-left:4px;text-decoration:underline;text-underline-offset:2px}
+.st-fix{display:flex;flex-direction:column;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.st-fix-say{font-size:13px;color:var(--muted);margin:0}
+.st-fix-say b{color:var(--fg);font-weight:600}
+.st-fx{display:flex;flex-direction:column;gap:7px;padding:10px 0;border-bottom:1px solid var(--line)}
+.st-fx:last-of-type{border-bottom:0}
+.st-fx-h{display:flex;align-items:baseline;gap:8px;min-width:0}
+.st-fx-h .dot{width:8px;height:8px;border-radius:50%;flex:none;align-self:center}
+.st-fx-t{font-weight:600;font-size:14px;color:var(--fg);text-align:left;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st-fx-w{font-size:12px;color:var(--faint);margin-left:auto;flex:none;white-space:nowrap}
+.st-fx-c{display:flex;flex-wrap:wrap;gap:6px}
+.st-fx-c .tk-c{min-height:36px;font-size:13px}
+.tk-skip{background:transparent!important;color:var(--faint)!important;border-color:var(--line)!important}
+.tk-pl{color:var(--faint);white-space:nowrap}

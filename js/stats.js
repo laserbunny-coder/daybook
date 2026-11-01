@@ -6,6 +6,7 @@
 // the timer) counts toward the hours, since the work was done, but never toward Pace.
 import * as store from './store.js';
 import * as track from './track.js';
+import * as took from './took.js';
 import { add, DAYL, daysBetween, esc, fd, fmtShort, MON, nowMin, pd, today, weekStart } from './util.js';
 import { children, hasKids, ink, leaves, projColor, rootOf, targetOf } from './tree.js';
 
@@ -180,8 +181,33 @@ function ledger(M) {
     return `<button class="st-row" data-act="${g.act}" data-id="${g.id}" title="${M.area == null ? 'Show only ' + esc(g.name) : 'Open ' + esc(g.name)}"><span class="dot" style="background:${g.c}"></span><span class="n">${esc(g.name)}</span>${spark || '<span></span>'}<span class="h">${fmtH(g.m)}</span><span class="p">${pct(g.m, M.total)}%</span><span class="c">${ch}</span></button>${subs}`;
   }).join('');
   const lead = `<div class="st-say">Mostly ${esc(g0.name)}, ${pct(g0.m, M.total)}% of your time ${words(R)}.</div>`;
-  const foot = M.guessed >= 5 ? `<div class="st-foot">${fmtH(M.guessed)} of it is guessed, from tasks checked off without the timer.</div>` : '';
-  return head + lead + line + `<div class="st-rows">${rows}</div>` + foot;
+  const fixing = !!C.S.stFix, foot = M.guessed >= 5 || fixing ? `<div class="st-foot">${M.guessed >= 1 ? `${fmtH(M.guessed)} of it is guessed, from things checked off without the timer.` : 'Nothing guessed is left here.'} <button class="st-fixb" data-act="st-fix" aria-expanded="${fixing}">${fixing ? 'Done fixing' : 'Fix guessed times'}</button></div>` : '';
+  return head + lead + line + `<div class="st-rows">${rows}</div>` + foot + (fixing ? fixHTML(M) : '');
+}
+
+/* Fix guessed times: everything in the range that was checked off without the timer and still counts
+   as planned, newest first, each with the same one-tap lengths as the sheet after a check-off. */
+export function guessedIn(a, b, area = null) {
+  const out = [];
+  for (const n of store.logged()) {
+    if (n.k === 'block' || n.k === 'area') continue;
+    const e = [...n.tl].reverse().find(x => x.guess && x.end); if (!e) continue;
+    const d = fd(new Date(e.end)); if (d < a || d > b) continue;
+    const host = n.rs ? (store.get(n.rs) || n) : n, root = rootOf(host);
+    if (area != null && areaKey(root) !== area) continue;
+    out.push({ n, e, d, m: track.mins(e), root, host });
+  }
+  return out.sort((x, y) => Date.parse(y.e.end) - Date.parse(x.e.end));
+}
+function fixHTML(M) {
+  const S = C.S, skip = S.stFixSkip || {}, all = guessedIn(M.R.a, M.R.b, M.area), L = all.filter(x => !skip[x.n.id]);
+  if (!L.length) return `<div class="st-fix"><p class="st-fix-say">${all.length ? 'Only the ones you left are still guessed.' : 'Every check-off here has a real time now.'}</p></div>`;
+  const rows = L.slice(0, 40).map(({ n, d, m, root, host }) => {
+    const c = root.k === 'area' ? ink(root.c) : projColor(root), where = root.id !== host.id ? root.t || '' : host.ar && store.get(host.ar)?.t || '';
+    return `<div class="st-fx" style="--pc:${c}"><div class="st-fx-h"><i class="dot" style="background:${c}"></i><button class="st-fx-t" data-act="open" data-id="${n.id}">${esc(n.t || 'Untitled')}</button><span class="st-fx-w">${esc(DAYL[pd(d).getDay()].slice(0, 3))} ${esc(fmtShort(d))}${where ? ' · ' + esc(where) : ''}</span></div>
+      <div class="st-fx-c">${took.chipsHTML(n.id, m, 'st-took')}<button class="tk-c tk-skip" data-act="st-fix-skip" data-id="${n.id}" title="Leave it counted as planned">Leave it</button></div></div>`;
+  }).join('');
+  return `<div class="st-fix"><p class="st-fix-say">${L.length} guessed. Tap roughly how long each really took. The outlined time is what it counts now.</p>${rows}${L.length > 40 ? `<p class="st-fix-say">${L.length - 40} more after these.</p>` : ''}</div>`;
 }
 
 /* Share: areas on the inner ring, their projects on the outer one, the total in the middle */
