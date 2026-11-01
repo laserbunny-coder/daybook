@@ -19,8 +19,8 @@ export const sync = { state: 'local', pending: 0 }; // local | syncing | saved |
 
 const ROW = { p: 'parent_id', t: 'title', notes: 'notes', done: 'done', d: 'day', s: 'start_min', m: 'duration_min', o: 'sort', c: 'color', due: 'due', link: 'link', a: 'after_min', ds: 'day_sort', k: 'kind', ar: 'area_id', st: 'start', ms: 'milestone', hd: 'hard_deadline', w: 'waits_on', am: 'actual_minutes', tl: 'time_log', pl: 'planned', r: 'repeat_rule', rs: 'series_id', oc: 'occurs_on', fo: 'focus_on', wk: 'week_minutes', hb: 'habit', dg: 'day_targets', tp: 'time_pref', dd: 'days_done', lb: 'labels', x: 'deleted' };
 const toRow = n => { const r = { id: n.id }; for (const [k, col] of Object.entries(ROW)) r[col] = n[k] ?? (k === 'done' || k === 'x' || k === 'ms' || k === 'hd' ? false : k === 'm' ? 60 : k === 'o' ? 0 : null); return r; };
-// done_at (da) is read but never written: the database stamps it when an item is checked off
-const fromRow = r => { const n = { id: r.id }; for (const [k, col] of Object.entries(ROW)) n[k] = r[col]; n.da = r.done_at ?? null; return n; };
+// done_at (da) and deleted_at (xa) are read but never written: the database stamps them when an item is checked off or deleted
+const fromRow = r => { const n = { id: r.id }; for (const [k, col] of Object.entries(ROW)) n[k] = r[col]; n.da = r.done_at ?? null; n.xa = r.deleted_at ?? null; return n; };
 
 function emit() { saveCache(); for (const f of listeners) f(); }
 function saveCache() { if (cacheKey) lsSet(cacheKey, { nodes: [...nodes.values()], dirty: [...dirty], cursor }); }
@@ -58,7 +58,10 @@ export const logged = () => [...nodes.values()].filter(n => !n.x && n.tl?.length
 export const peek = id => nodes.get(id);
 export const get = id => { const n = nodes.get(id); return n && !n.x ? n : ghost(id); };
 
-function touch(n) { nodes.set(n.id, n); IX = null; if (sb) { dirty.add(n.id); scheduleFlush(); } }
+// When it was deleted, for the Trash, the way the database stamps it (the server's stamp replaces this once it's saved).
+// A repeat a rule change took away (no occurs_on) wasn't deleted by anyone.
+const stampX = n => { if (!n.x || (n.rs && !n.oc)) n.xa = null; else if (!n.xa) n.xa = new Date().toISOString(); };
+function touch(n) { stampX(n); nodes.set(n.id, n); IX = null; if (sb) { dirty.add(n.id); scheduleFlush(); } }
 
 /* Repeating tasks (see repeat.js). A series' repeats are worked out from its rule; the ones that were
    changed, checked off or skipped are stored, and those stand in for the worked-out ones on their dates. */
@@ -215,15 +218,47 @@ export function update(id, patch, quiet = false) {
   set(id, patch); if (quiet) saveCache(); else emit();
 }
 export function updateMany(changes) { for (const [id, patch] of changes) set(id, patch); emit(); }
-/** Deletes an item and everything under it. */
+// A recording still running on something deleted stops then, so it doesn't go on counting
+const stopLog = n => { if (n.tl?.some(e => !e.end)) { const end = new Date().toISOString(); n.tl = n.tl.map(e => e.end ? e : { ...e, end }); } };
+/** Deletes an item and everything under it (and the time blocks planned for it). Nothing is lost: it goes to the Trash. */
 export function remove(id) {
-  const o = get(id); if (o?.rs) { const n = own(id); mark(id); n.x = true; touch(n); emit(); return; } // just this repeat: skipped
+  const o = get(id); if (o?.rs) { const n = own(id); mark(id); n.x = true; stopLog(n); touch(n); emit(); return; } // just this repeat: skipped
   const n0 = nodes.get(id);
-  const kill = i => { const n = nodes.get(i); if (!n) return; mark(i); n.x = true; touch(n); for (const c of [...nodes.values()]) if ((c.p === i || c.rs === i) && !c.x) kill(c.id); };
+  const kill = i => { const n = nodes.get(i); if (!n) return; mark(i); n.x = true; stopLog(n); touch(n); for (const c of [...nodes.values()]) if ((c.p === i || c.rs === i || (c.k === 'block' && c.fo === i && n.k !== 'area')) && !c.x) kill(c.id); };
   kill(id);
   if (n0?.k === 'label') for (const c of nodes.values()) if (!c.x && c.lb?.includes(id)) { mark(c.id); c.lb = c.lb.filter(x => x !== id); if (!c.lb.length) c.lb = null; touch(c); } // a label that goes comes off everything that wore it
   if (n0?.k === 'area') for (const c of nodes.values()) if (c.ar === id && !c.x) { mark(c.id); c.ar = null; if (c.c === 'area') c.c = n0.c; touch(c); } // its projects stay, with no area, keeping the colour they had
   emit();
+}
+
+/* The Trash: what was deleted in the last 30 days (the server clears out older things). Something deleted together
+   with what it belongs to (a project's steps, a series' repeats, a project's time blocks) is part of that one entry. */
+export const TRASH_DAYS = 30;
+const NEAR = 5000; // a project and its steps are stamped within moments of each other
+const hostsOf = n => [n.p, n.rs, n.k === 'block' ? n.fo : null].filter(Boolean);
+const together = (a, b) => a.xa && b.xa && Math.abs(Date.parse(a.xa) - Date.parse(b.xa)) <= NEAR;
+const gone = () => { const since = Date.now() - TRASH_DAYS * 864e5; return [...nodes.values()].filter(n => n.x && n.xa && Date.parse(n.xa) >= since && !(n.rs && !n.oc)); };
+/** What went with a deleted item: everything hanging from it that was deleted at the same moment. */
+function withIt(n, G = gone()) {
+  const out = [], seen = new Set([n.id]);
+  for (let grew = true; grew;) { grew = false; for (const c of G) if (!seen.has(c.id) && hostsOf(c).some(h => seen.has(h)) && together(c, n)) { seen.add(c.id); out.push(c); grew = true; } }
+  return out;
+}
+/** The Trash, newest first: [{ n, steps }] for each thing deleted on its own (areas, labels and time blocks aren't listed). */
+export function trash() {
+  const G = gone();
+  return G.filter(n => !['area', 'label', 'block'].includes(n.k) && !hostsOf(n).some(h => { const p = nodes.get(h); return p?.x && together(p, n); }))
+    .sort((a, b) => b.xa.localeCompare(a.xa))
+    .map(n => ({ n, steps: withIt(n, G).filter(c => c.k !== 'block' && !c.rs).length }));
+}
+/** Brings something back from the Trash, with what was deleted along with it. If it sat inside something that's deleted too,
+    that comes back as well (just that, not its other deleted steps), so it has somewhere to show. One step, so Undo takes it back. */
+export function untrash(id) {
+  const n = nodes.get(id); if (!n?.x) return null;
+  const back = [n, ...withIt(n)];
+  for (let h = hostsOf(n).map(x => nodes.get(x)).find(x => x?.x), i = 0; h && i < 50; h = hostsOf(h).map(x => nodes.get(x)).find(x => x?.x), i++) if (!back.includes(h)) back.push(h);
+  for (const r of back) { mark(r.id); r.x = false; touch(r); }
+  emit(); return { n, count: back.length };
 }
 export const snapshot = () => JSON.stringify([...nodes.values()]);
 /** Puts everything back the way a snapshot had it (used by Ask Claude's Undo). */

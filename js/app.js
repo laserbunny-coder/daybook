@@ -402,10 +402,10 @@ function footHTML() {
       <div class="acct">${esc(user.email || '')}</div>
       <div class="sync ${store.sync.state}">${SYNC_TEXT[store.sync.state] || ''}</div>
       <div>${c.connected && !c.reconnect ? 'Google Calendar connected (read-only).' : 'Google Calendar isn\'t connected.'} ${!c.connected || c.reconnect ? '<button class="link" data-act="signin">Connect it</button>' : ''}</div>
-      <div class="foot-acts"><button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="mcp">Connect to Claude</button><button class="link" data-act="signout">Sign out</button></div><div class="foot-set"><button class="link" data-act="min">${S.min ? 'Leave Quiet' : 'Go Quiet'}</button><button class="link" data-act="games">${S.games ? 'Hide game modes' : 'Game modes'}</button></div>${mcpHTML()}</div>`;
+      <div class="foot-acts"><button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="trash">Trash</button><button class="link" data-act="mcp">Connect to Claude</button><button class="link" data-act="signout">Sign out</button></div><div class="foot-set"><button class="link" data-act="min">${S.min ? 'Leave Quiet' : 'Go Quiet'}</button><button class="link" data-act="games">${S.games ? 'Hide game modes' : 'Game modes'}</button></div>${mcpHTML()}</div>`;
   }
   return `<div class="side-f">Sample data, stored only on this device. Drag anything onto the plan, or back here to unschedule it.
-    <div class="foot-acts">${configured ? '<button class="link" data-act="signin">Sign in with Google</button>' : ''}<button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="reset">Reset sample data</button></div><div class="foot-set"><button class="link" data-act="min">${S.min ? 'Leave Quiet' : 'Go Quiet'}</button><button class="link" data-act="games">${S.games ? 'Hide game modes' : 'Game modes'}</button></div></div>`;
+    <div class="foot-acts">${configured ? '<button class="link" data-act="signin">Sign in with Google</button>' : ''}<button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="trash">Trash</button><button class="link" data-act="reset">Reset sample data</button></div><div class="foot-set"><button class="link" data-act="min">${S.min ? 'Leave Quiet' : 'Go Quiet'}</button><button class="link" data-act="games">${S.games ? 'Hide game modes' : 'Game modes'}</button></div></div>`;
 }
 /* Areas group the top-level projects, and tasks that belong to an area without being part of a project.
    Such a task becomes a project in that area as soon as it gets steps. A project whose area is gone shows under "No area";
@@ -1319,7 +1319,7 @@ function render() {
   cancelAnimationFrame(raf); raf = 0;
   const ae = document.activeElement; const fid = ae && ae.id && !document.getElementById('detail').contains(ae) ? ae.id : null;
   const val = fid ? ae.value : null;
-  renderSide(); renderMain(); renderTabs(); renderDetail(); renderRec(); renderNote(); renderNotes(); renderNeeds(); renderMsgs(); saveUI();
+  renderSide(); renderMain(); renderTabs(); renderDetail(); renderRec(); renderNote(); renderNotes(); renderNeeds(); renderTrash(); renderMsgs(); saveUI();
   if (S.view === 'week' && W?.jump && placeDay(W.jump, 0)) { W.jump = null; stripTitle(); } // a phone only lays the plan out once its tab is set
   if (S.adding) { const i = document.getElementById('add-in'); if (i) { if (fid === 'add-in') i.value = val; i.focus({ preventScroll: true }); } }
   else if (fid && fid !== 'askq') { const i = document.getElementById(fid); if (i) { if (val != null && 'value' in i) i.value = val; i.focus({ preventScroll: true }); } }
@@ -1428,6 +1428,32 @@ function renderNotes() {
   notesEl.h = h; notesEl.innerHTML = h; notesEl.hidden = false;
   if (!first) notesEl.querySelector('.dt').classList.add('still');
   notesEl.querySelector('.dt-body').scrollTop = sc;
+}
+
+/* Trash: what was deleted in the last 30 days, in the app or by Claude, newest first. Restore brings it back with
+   whatever was deleted along with it (a project's steps, a series' repeats). After 30 days it's cleared out for good. */
+const trashEl = document.createElement('div'); trashEl.id = 'trash'; trashEl.className = 'detail notes trash'; trashEl.hidden = true; document.body.appendChild(trashEl);
+function trashWhere(n) {
+  const host = n.rs ? store.peek(n.rs) : n, bits = [];
+  for (let h = host?.p ? store.peek(host.p) : null, i = 0; h && i < 50; h = h.p ? store.peek(h.p) : null, i++) bits.unshift(h.t || 'Untitled');
+  if (!bits.length && host?.ar) { const a = store.peek(host.ar); if (a?.k === 'area') bits.push(a.t); }
+  return bits.join(' › ');
+}
+function renderTrash() {
+  if (!S.trashOpen) { trashEl.hidden = true; trashEl.innerHTML = ''; trashEl.h = null; return; }
+  const L = store.trash();
+  const rows = L.length ? L.map(({ n, steps }) => {
+    const s = n.rs ? store.peek(n.rs) : null, t = n.t || s?.t || 'Untitled', where = trashWhere(n);
+    const what = n.rs ? `The repeat on ${n.oc === today() ? 'today' : DAYN[pd(n.oc).getDay()] + ' ' + fmtShort(n.oc)}` : n.r ? 'Repeating, with all its repeats' : steps ? `Project, with ${steps} step${steps === 1 ? '' : 's'}` : '';
+    const meta = [what, where].filter(Boolean).map(esc).join(' · ');
+    return `<article class="tr-row"><div class="tr-main"><b>${esc(t)}</b>${meta ? `<span class="tr-meta">${meta}</span>` : ''}<small>Deleted ${noteWhen(n.xa).replace(/^(Today|Yesterday)/, w => w.toLowerCase())}</small></div><button class="tr-back" data-act="tr-restore" data-id="${esc(n.id)}">Restore</button></article>`;
+  }).join('') : `<div class="n-empty">Nothing deleted in the last ${store.TRASH_DAYS} days. Whatever you or Claude delete waits here for ${store.TRASH_DAYS} days, so you can bring it back.</div>`;
+  const h = `<div class="dt-back" data-act="trash-close"></div><div class="dt nl"><div class="dt-top"><h2 class="nl-t">Trash</h2><div class="nl-acts"><button class="ib" data-act="trash-close" aria-label="Close">${ICON.close}</button></div></div><div class="dt-body vscroll">${L.length ? `<p class="tr-say">Kept for ${store.TRASH_DAYS} days, then cleared out for good.</p>` : ''}${rows}</div></div>`;
+  if (trashEl.h === h) return;
+  const first = trashEl.hidden, sc = first ? 0 : trashEl.querySelector('.dt-body')?.scrollTop || 0;
+  trashEl.h = h; trashEl.innerHTML = h; trashEl.hidden = false;
+  if (!first) trashEl.querySelector('.dt').classList.add('still');
+  trashEl.querySelector('.dt-body').scrollTop = sc;
 }
 
 /* Needs you (js/notes.js): what's waiting on the person across their Claude projects, raised by threads through the
@@ -1843,9 +1869,12 @@ document.addEventListener('click', e => {
     case 'signin': signIn(); break;
     case 'demo': enterDemo(); break;
     case 'signout': client.auth.signOut(); break;
-    case 'notes': setStrip(false); S.needsOpen = false; S.notesOpen = !S.notesOpen; render(); break;
+    case 'notes': setStrip(false); S.needsOpen = false; S.trashOpen = false; S.notesOpen = !S.notesOpen; render(); break;
     case 'notes-close': S.notesOpen = false; render(); break;
-    case 'needs': setStrip(false); S.notesOpen = false; S.needsOpen = !S.needsOpen; render(); break;
+    case 'trash': setStrip(false); S.notesOpen = false; S.needsOpen = false; S.trashOpen = !S.trashOpen; if (S.trashOpen && phone()) setDrawer?.(false); render(); break;
+    case 'trash-close': S.trashOpen = false; render(); break;
+    case 'tr-restore': { const r = store.untrash(id); if (r) toast(`Restored ${short(r.n.t || store.peek(r.n.rs)?.t || 'item')}${r.count > 1 ? ` and ${r.count - 1} more with it` : ''}`); break; }
+    case 'needs': setStrip(false); S.notesOpen = false; S.trashOpen = false; S.needsOpen = !S.needsOpen; render(); break;
     case 'needs-close': S.needsOpen = false; render(); break;
     case 'need-clear': clearNeed(id); break;
     case 'need-back': notes.setCleared(id, false); toast('Back on the list'); break;
@@ -1903,6 +1932,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && S.linkEdit) { S.linkEdit = false; document.activeElement?.blur(); renderDetail(); return; }
   if (e.key === 'Escape' && S.new) { closeNew(); return; }
   if (e.key === 'Escape' && S.notesOpen && !S.open) { S.notesOpen = false; render(); return; }
+  if (e.key === 'Escape' && S.trashOpen && !S.open) { S.trashOpen = false; render(); return; }
   if (e.key === 'Escape' && S.needsOpen && !S.open) { S.needsOpen = false; render(); return; }
   if (e.key === 'Escape') { if (S.adding) { S.adding = null; render(); } else if (S.open) { S.open = null; renderDetail(); } else if (quiet() && !D && !S.qstrip && !qSide && document.body.classList.contains('ai-off') && (roadShown() || statsShown() || qProjects())) { leaveRoad(); W = null; render(); } else if (quiet() && !D) quietAway(); }
   // Q turns Quiet on and off, anywhere outside a text box
@@ -2334,7 +2364,7 @@ async function boot() {
     if (session?.provider_refresh_token) {
       client.rpc('save_google_token', { refresh: session.provider_refresh_token }).then(() => calendar.ensure(add(today(), -7), add(today(), 28), true));
     }
-    if (event === 'SIGNED_OUT') { store.stopCloud(); notes.stop(); S.notesOpen = false; S.needsOpen = false; user = null; S.demo = false; saveUI(); showWelcome(true); }
+    if (event === 'SIGNED_OUT') { store.stopCloud(); notes.stop(); S.notesOpen = false; S.needsOpen = false; S.trashOpen = false; user = null; S.demo = false; saveUI(); showWelcome(true); }
     else if (event === 'SIGNED_IN' && session?.user && (!user || user.id !== session.user.id)) enterCloud(session.user);
   });
   const { data: { session } } = await client.auth.getSession();

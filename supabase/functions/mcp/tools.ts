@@ -54,6 +54,8 @@ export type Row = {
   /** The ids of the labels it wears (rows of kind 'label'); its steps wear them too. */
   labels?: string[] | null;
   deleted: boolean;
+  /** When it was deleted (the database stamps it); only on rows from loadDeleted. */
+  deleted_at?: string | null;
 };
 
 /** How a series repeats. days: 0 is Sunday. dom: day of the month. until: its last day. */
@@ -62,6 +64,8 @@ export type Rule = { every: "day" | "weekday" | "week" | "month" | "days" | "tim
 export type Db = {
   /** Every item this person has that isn't deleted, plus skipped repeats (deleted, with occurs_on). */
   load(): Promise<Row[]>;
+  /** Deleted items (deleted_at stamped) deleted since this ISO time, newest first: the Trash. */
+  loadDeleted(sinceIso: string): Promise<Row[]>;
   /** Inserts or replaces these items. */
   save(rows: Row[]): Promise<void>;
   /** The Roadmap's free hours per week, null when never set. */
@@ -113,6 +117,7 @@ export const INSTRUCTIONS = `Daybook is this person's own task and calendar app.
 - get_next_task gives what to work on next in an area or project: the first open step in order that isn't waiting on something unfinished or planned for a later day (for an area: its projects and standalone tasks in priority order). A project waiting on something unfinished is skipped as a whole, and the two after it. The app shows the same next task on each area block in List view.
 - A task marked habit (usually a repeating one, such as a daily walk) still shows on its days, but its time doesn't count toward the week's scheduled hours or get_free_hours.
 - Labels (such as Building, Color grading, or a client's name) cut across areas: a project stays in its area and also wears labels, so Inkwell is Filmmaking time and Building time at once. A label on a project counts for all its steps; a single task can wear its own. Items show the labels they wear; set_labels changes them, and list_labels gives each label's recorded hours for a range, split by area and project. Use them to answer "how much time went into X" across areas, or to see how much of the week a kind of work is taking.
+- Deleting: delete_item removes a task or project the way the app's Delete does. It's a soft delete: the item goes to the app's Trash for 30 days (then it's cleared out for good), and restore_item brings it back. A project goes with all its steps (and any area-time blocks planned for it), and restoring it brings those back together. For a repeating task, a repeat's id (series id~date) skips just that day, and the series_id deletes the whole series. list_deleted shows what's in the Trash. Deleted items are left out of everything else: lists, next task, area progress, the Roadmap, the week's hours and recorded time. Only delete when the person asks, or clearly agrees, and say what you deleted; prefer checking off something that was done, since deleting it drops it from their record.
 - Say what you changed in plain words, since the person sees your reply, not the tool calls.`;
 
 const str = (description: string) => ({ type: "string", description });
@@ -464,6 +469,26 @@ export const TOOLS = [
         project_id: str("The project or sub-project. Give this or area."),
       },
     },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "delete_item",
+    title: "Delete a task or project",
+    description: "Deletes a task or project the way the app does: it goes to the Trash (nothing is lost; restore_item brings it back for 30 days). A project goes with all its steps, and with any area-time blocks planned for it. For a repeating task, pass one repeat's id (series id~date) to skip just that day, or the series_id to delete the whole series with all its repeats. Areas and labels aren't deleted here; time blocks go with remove_block.",
+    inputSchema: { type: "object", required: ["id"], properties: { id: str("The item's id: a task, a project, one repeat (series id~date), or a whole series (its series_id).") } },
+    annotations: { destructiveHint: true },
+  },
+  {
+    name: "restore_item",
+    title: "Restore from the Trash",
+    description: "Brings back something deleted in the last 30 days (by you or in the app): a task, a project with the steps that were deleted along with it, a whole series with its repeats, or one skipped repeat. If it sat inside a project that's also deleted, that project comes back too (without its other deleted steps). list_deleted gives the ids.",
+    inputSchema: { type: "object", required: ["id"], properties: { id: str("The id of the deleted item, from list_deleted or from what delete_item returned.") } },
+  },
+  {
+    name: "list_deleted",
+    title: "What's in the Trash",
+    description: "Lists what was deleted recently (in the app or by you), newest first: each deleted task, project, series or single repeat with when it was deleted, where it was, and how many steps went with it. The app keeps these for 30 days in its Trash, then clears them out.",
+    inputSchema: { type: "object", properties: { days: { type: "integer", description: "How many days back to look, 1 to 30. Default 30." } } },
     annotations: { readOnlyHint: true },
   },
 ];
@@ -1100,6 +1125,8 @@ export async function runTool(name: string, args: Record<string, unknown>, db: D
     case "get_area_targets": case "set_area_targets": case "get_area_progress":
       return runTargets(name, args, t, db);
     case "list_labels": case "set_labels": t.tz = await db.timeZone(); return runLabels(name, args, db, t, today);
+    case "delete_item": case "restore_item": case "list_deleted":
+      t.tz = await db.timeZone(); return runTrash(name, args, t, db);
     case "update_item": {
       const r = { ...t.get(args.id) };
       const changed: Row[] = [];
@@ -1296,6 +1323,78 @@ async function runBlocks(name: string, args: Record<string, unknown>, t: Tree, d
   throw new Bad(`Unknown tool ${name}`);
 }
 
+/* The Trash: deleting keeps the row (deleted, and the database stamps deleted_at), so it can be restored for 30 days. */
+const NEAR = 5000; // things deleted together (a project and its steps) are stamped within moments of each other
+const ago = (a: string | null | undefined, b: string | null | undefined) => (a && b ? Math.abs(Date.parse(a) - Date.parse(b)) : Infinity);
+/** The rows a row hangs from: its project, its series, and for a block the project it's time for. */
+const hostsOf = (r: Row) => [r.parent_id, r.series_id, r.kind === "block" ? r.focus_on : null].filter((x): x is string => !!x);
+const closeOpen = (r: Row): Row => (r.time_log?.some((e) => !e.end) ? { ...r, time_log: r.time_log.map((e) => (e.end ? e : { ...e, end: new Date().toISOString() })) } : r);
+async function runTrash(name: string, args: Record<string, unknown>, t: Tree, db: Db): Promise<unknown> {
+  const strip = (r: Row) => { const c = { ...r }; delete c.deleted_at; delete c.done_at; return c; };
+  if (name === "delete_item") {
+    const id = typeof args.id === "string" ? args.id.trim() : "";
+    if (t.areas.some((a) => a.id === id)) throw new Bad("That's an area. Areas are deleted in the app (their projects stay, with no area).");
+    if (t.labelRows.some((l) => l.id === id)) throw new Bad("That's a label. set_labels takes it off items; labels themselves are deleted in the app.");
+    if (t.blockRows.some((b) => b.id === id) || /~\d{4}-\d{2}-\d{2}$/.test(id) && t.blockRows.some((b) => b.id === id.replace(/~.*$/, ""))) throw new Bad("That's a time block; use remove_block.");
+    const r = t.get(id);
+    if (r.series_id) { // one repeat: skipped, the rest of the series stays
+      await db.save([strip(closeOpen({ ...r, deleted: true }))]);
+      return { deleted: { id: r.id, title: r.title, what: "one repeat", day: r.occurs_on, series_id: r.series_id }, note: "Just this day; the rest of the series stays. restore_item with this id brings it back." };
+    }
+    const kill = t.flat([r]), ids = new Set(kill.map((x) => x.id));
+    const rows: Row[] = [...kill];
+    for (const o of t.occLive.values()) if (o.series_id && ids.has(o.series_id)) rows.push(o); // stored repeats keep their days, so restoring brings them back as they were
+    const blocks = t.blockRows.filter((b) => !b.deleted && b.focus_on && ids.has(b.focus_on));
+    rows.push(...blocks);
+    await db.save(rows.map((x) => strip(closeOpen({ ...x, deleted: true }))));
+    const what = t.isProject(r) ? "project" : r.repeat_rule ? "repeating task (every repeat)" : "task";
+    return { deleted: { id: r.id, title: r.title, what, ...(kill.length > 1 ? { steps_deleted: kill.length - 1 } : {}), ...(blocks.length ? { time_blocks_removed: blocks.filter((b) => !b.series_id).length } : {}) }, note: "It's in the app's Trash for 30 days; restore_item with this id brings it back." };
+  }
+  const days = has(args, "days") ? Number(args.days) : 30;
+  if (!Number.isInteger(days) || days < 1 || days > 30) throw new Bad("days must be a whole number from 1 to 30.");
+  const gone = await db.loadDeleted(new Date(Date.now() - (name === "list_deleted" ? days : 30) * 864e5).toISOString());
+  const byId = new Map(gone.map((r) => [r.id, r]));
+  const live = new Map(t.raw.filter((r) => !r.deleted).map((r) => [r.id, r]));
+  const any = (id: string) => byId.get(id) ?? live.get(id);
+  /** What went with it: rows hanging from it (all the way down) deleted at the same moment. */
+  const withIt = (r: Row) => {
+    const out: Row[] = [], seen = new Set([r.id]);
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const c of gone) if (!seen.has(c.id) && hostsOf(c).some((h) => seen.has(h)) && ago(c.deleted_at, r.deleted_at) <= NEAR) { seen.add(c.id); out.push(c); grew = true; }
+    }
+    return out;
+  };
+  /** Deleted on its own, not as part of something else deleted at the same moment. */
+  const own = (r: Row) => !hostsOf(r).some((h) => { const p = byId.get(h); return p && ago(p.deleted_at, r.deleted_at) <= NEAR; });
+  const pathOf = (r: Row) => { const a: string[] = []; let h = r.series_id ? any(r.series_id) : r; for (let i = 0; h?.parent_id && i < 50; i++) { h = any(h.parent_id); if (h) a.unshift(h.title); } return { path: a.join(" › "), top: h }; };
+  const out = (r: Row) => {
+    const kids = withIt(r).filter((c) => c.kind !== "block" && !c.series_id);
+    const { path, top } = pathOf(r), area = top && !top.parent_id && top.area_id ? t.areas.find((a) => a.id === top.area_id)?.title : undefined;
+    const what = r.series_id ? "one repeat" : kids.length || (!r.parent_id && r.color) ? "project" : r.repeat_rule ? "repeating task" : "task";
+    return { id: r.id, title: r.title || (r.series_id ? any(r.series_id)?.title : "") || "Untitled", what, deleted_at: localStamp(r.deleted_at!, t.tz), ...(path ? { project: path } : {}), ...(area ? { area } : {}), ...(kids.length ? { steps: kids.length } : {}), ...(r.series_id ? { day: r.occurs_on, series_id: r.series_id } : r.day && !r.repeat_rule ? { day: r.day } : {}), ...(r.done ? { done: true } : {}) };
+  };
+  const shown = (r: Row) => r.kind !== "area" && r.kind !== "label" && r.kind !== "block";
+  if (name === "list_deleted") {
+    const L = gone.filter((r) => shown(r) && own(r));
+    return { deleted: L.slice(0, 100).map(out), ...(L.length ? {} : { note: `Nothing deleted in the last ${days} days.` }), ...(L.length > 100 ? { more: L.length - 100 } : {}) };
+  }
+  // restore_item
+  const id = typeof args.id === "string" ? args.id.trim() : "";
+  const r = byId.get(id);
+  if (!r) throw new Bad(live.has(id) || t.byId.has(id) ? "That item isn't deleted." : `Nothing deleted in the last 30 days has the id ${JSON.stringify(args.id)}. list_deleted shows what's there.`);
+  if (!shown(r)) throw new Bad("Areas, labels and time blocks can't be restored here.");
+  const back = [r, ...withIt(r)];
+  // Whatever it hangs from that's deleted too comes back as well (just that row), so it has somewhere to show
+  const up: Row[] = [];
+  for (let h = hostsOf(r).map((x) => byId.get(x)).find(Boolean), i = 0; h && i < 50; h = hostsOf(h).map((x) => byId.get(x)).find(Boolean), i++) if (!back.includes(h) && !up.includes(h)) up.push(h);
+  await db.save([...back, ...up].map((x) => ({ ...strip(x), deleted: false, deleted_at: null })));
+  const after = t.with([...back, ...up].map((x) => ({ ...strip(x), deleted: false })));
+  let item: unknown; try { item = after.describe(after.get(r.id)); } catch { item = { id: r.id, title: r.title }; }
+  const steps = back.filter((c) => c !== r && c.kind !== "block" && !c.series_id).length;
+  return { restored: item, ...(steps ? { steps_restored: steps } : {}), ...(up.length ? { also_restored: up.map((x) => ({ id: x.id, title: x.title })), note: "It sat inside something that was deleted too, so that came back as well." } : {}) };
+}
+
 /* Daily area targets */
 const WDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 const WORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
@@ -1388,7 +1487,7 @@ async function runTargets(name: string, args: Record<string, unknown>, t: Tree, 
   const L = new Map<string, Map<string, Map<string, number>>>();
   const start = Date.parse(from + "T00:00:00Z") - 36 * 3600000, end = Date.parse(addDays(to, 1) + "T00:00:00Z") + 36 * 3600000;
   for (const r of t.raw) {
-    if (!r.time_log?.length || (r.deleted && !r.occurs_on)) continue;
+    if (!r.time_log?.length || r.deleted) continue; // deleted things, skipped repeats too, never count
     const aid = areaIdOf(r); if (!aid) continue;
     const key = r.series_id && all.get(r.series_id) ? r.series_id : r.id;
     for (const e of r.time_log) {
@@ -1456,7 +1555,7 @@ async function runLabels(name: string, args: Record<string, unknown>, db: Db, t:
   const M = new Map<string, { m: number; areas: Map<string, number>; projects: Map<string, number> }>();
   let total = 0;
   for (const r of t.raw) {
-    if (!r.time_log?.length || (r.deleted && !r.occurs_on)) continue;
+    if (!r.time_log?.length || r.deleted) continue; // deleted things, skipped repeats too, never count
     let h: Row | undefined = r.series_id ? all.get(r.series_id) ?? r : r;
     if (h.kind === "block") h = h.focus_on ? all.get(h.focus_on) : undefined;
     if (!h || h.kind === "label") continue;
