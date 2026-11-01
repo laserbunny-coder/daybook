@@ -27,7 +27,7 @@ export const look = () => document.documentElement.dataset.look === 'paper' ? 'p
 export const ink = c => { const g = glow(c || '#B9BCD0'); return INKS[look()][g.toUpperCase()] || g; };
 /* A project's colour is its own, or 'area' to wear its area's colour. Tasks wear their project's; a task right in an area wears the area's. */
 export const projColor = p => ink((p.c === 'area' || (!p.c && p.ar) ? store.get(p.ar)?.c : p.c) || '#B9BCD0');
-export const colorOf = n => n?.k === 'block' ? blockColor(n) : projColor(rootOf(n));
+export const colorOf = n => { if (n?.k === 'block') return blockColor(n); const s = n?.rs ? store.get(n.rs) : n; return s?.hb && s.r?.hc ? ink(s.r.hc) : projColor(rootOf(n)); }; // a habit can wear its own colour
 /* Time blocks: a stretch of time for a whole area or project (fo names it). The block wears its colour. */
 export const isBlock = n => n?.k === 'block';
 export const targetOf = b => { const t = b?.fo && store.get(b.fo); return t && !t.x ? t : null; };

@@ -54,7 +54,7 @@ export type Row = {
 };
 
 /** How a series repeats. days: 0 is Sunday. dom: day of the month. until: its last day. */
-export type Rule = { every: "day" | "weekday" | "week" | "month" | "days" | "times"; days?: number[]; interval?: number; dom?: number; n?: number; per?: "week" | "month"; until?: string; off?: [string, string][]; mins?: number };
+export type Rule = { every: "day" | "weekday" | "week" | "month" | "days" | "times"; days?: number[]; interval?: number; dom?: number; n?: number; per?: "week" | "month"; until?: string; off?: [string, string][]; mins?: number; hc?: string };
 
 export type Db = {
   /** Every item this person has that isn't deleted, plus skipped repeats (deleted, with occurs_on). */
