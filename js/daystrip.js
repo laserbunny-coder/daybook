@@ -5,7 +5,7 @@
    still to do. Tapping that line sets the work hours (kept with the account, so every device agrees). */
 import * as store from './store.js';
 import * as aday from './areaday.js';
-import { timedOn } from './calendar.js';
+import { eventsOn, timedOn } from './calendar.js';
 import { esc, fmtDur, fmtT, lsGet, lsSet, nowMin, pd, today } from './util.js';
 import { colorOf } from './tree.js';
 
@@ -21,6 +21,23 @@ export function setHours(from, to) {
   W = h; lsSet(KEY, W); save?.(W); return true;
 }
 export const toggleEdit = () => { editing = !editing; };
+// Tapping an event on the strip (or an all-day pill) shows its full name and times under the strip; tapping it again hides them
+let sel = null;
+export const pick = k => { sel = sel === k ? null : k; };
+const okColor = c => /^#[0-9a-f]{3,8}$/i.test(c || '');
+const tint = e => okColor(e.color) ? `--c:${e.color}` : '';
+const evTimes = e => e.allDay ? 'All day' : `${fmtT(e.s)} to ${fmtT(e.s + (e.m || 0))}`;
+/** All-day events as small pills in their calendar colour, above the strip. */
+function allDay(d, A) {
+  return A.length ? `<div class="ds-ad">${A.map((e, i) => `<button class="ds-adp${sel === `${d}|a${i}` ? ' sel' : ''}" style="${tint(e)}" data-act="ds-ev" data-k="${d}|a${i}" title="${esc(e.t || 'All day')}">${esc(e.t || 'All day')}</button>`).join('')}</div>` : '';
+}
+function caption(d, E, A) {
+  if (!sel || !sel.startsWith(d + '|')) return '';
+  const k = sel.slice(d.length + 1), e = k[0] === 'a' ? A[+k.slice(1)] : E[+k.slice(1)];
+  if (!e) return '';
+  const n = d === today() ? nowMin() : null, soon = !e.allDay && n != null && e.s > n ? ` \u00b7 in ${fmtDur(e.s - n)}` : '';
+  return `<div class="ds-cap" style="${tint(e)}"><span class="pdot"></span><b>${esc(e.t || 'Busy')}</b><small>${evTimes(e)}${soon}</small></div>`;
+}
 
 const fmtTT = m => fmtT(m % 1440 === 0 && m ? 1439 : m).replace('11:59pm', 'midnight');
 
@@ -64,18 +81,26 @@ export function html(d) {
   for (const w of wins) {
     const s = isT ? Math.max(w.s, n) : w.s; if (w.e <= s || (past)) continue;
     if (w === cur) { const left = w.e - n, why = next && next.s === w.e ? `until ${esc(next.t || 'the next event')}` : 'until the end of the work day';
-      parts.push(box('ds-cur', s, w.e, `<span><b>${fmtDur(left)}</b><small>left</small></span>`, ` title="${fmtDur(left)} ${why}"`)); }
+      parts.push(box('ds-cur', s, w.e, '', ` title="${fmtDur(left)} ${why}"`)); }
     else if (P(w.e) - P(s) > 11) parts.push(box('ds-gap', s, w.e, fmtDur(w.e - s)));
   }
-  for (const e of E) { const w = P(e.s + (e.m || 0)) - P(e.s), t = e.t || 'Busy'; parts.push(box(`ds-ev${inEv === e ? ' now' : ''}`, e.s, e.s + (e.m || 0), w > t.length * 1.7 ? esc(t) : '', ` title="${esc(t)} · ${fmtT(e.s)} to ${fmtT(e.s + (e.m || 0))}"`)); }
+  E.forEach((e, i) => { const w = P(e.s + (e.m || 0)) - P(e.s), t = e.t || 'Busy', k = `${d}|e${i}`;
+    parts.push(box(`ds-ev${inEv === e ? ' now' : ''}${sel === k ? ' sel' : ''}`, e.s, e.s + (e.m || 0), w > t.length * 1.7 ? esc(t) : '', ` data-act="ds-ev" data-k="${k}" role="button" title="${esc(t)} · ${evTimes(e)}"`).replace('" data-act', `${tint(e) ? ';' + tint(e) : ''}" data-act`)); });
   for (const x of ST) parts.push(`<i class="ds-sw" style="left:${P(x.s).toFixed(2)}%;width:${Math.max(.6, P(x.e) - P(x.s)).toFixed(2)}%;--pc:${x.c}"></i>`);
   if (isT && n >= a && n <= z) parts.push(`<i class="ds-nw" style="left:${P(n).toFixed(2)}%"></i>`);
-  // Times under the bar: now, then when each event ahead starts (dropped where they'd crowd)
-  const marks = isT && n >= a && n <= z ? [{ m: n, now: 1 }] : [{ m: a }];
-  for (const e of E) if (!isT || e.s > n) marks.push({ m: e.s });
-  if (!isT || W.to > n) marks.push({ m: W.to });
-  let lastP = -99; const ticks = marks.sort((x, y) => P(x.m) - P(y.m)).filter(t => { const p = P(t.m); if (p - lastP < (t.now ? 0 : 11)) return false; lastP = p; return true; })
-    .map(t => `<span class="${t.now ? 'ds-tnow' : ''}" style="left:${P(t.m).toFixed(2)}%">${fmtT(t.m)}</span>`).join('');
+  // Under the bar: each event ahead, its time and name in its colour (dropped where they'd crowd, cut short to fit)
+  const ahead = E.map((e, i) => ({ e, i, p: P(e.s) })).filter(x => !isT || x.e.s > n).filter(x => x.p < 100);
+  const kept = []; for (const x of ahead) if (!kept.length || x.p - kept[kept.length - 1].p >= 9) kept.push(x);
+  const names = kept.map((x, j) => { const nx = kept[j + 1], prev = kept[j - 1], right = !nx && x.p > 72;
+    const pos = right ? `right:0;max-width:calc(${(100 - (prev ? prev.p + 9 : 0)).toFixed(2)}% - 8px)` : `left:${x.p.toFixed(2)}%;max-width:calc(${((nx ? nx.p : 100) - x.p).toFixed(2)}% - 8px)`;
+    return `<button class="ds-nm" style="${pos}${tint(x.e) ? ';' + tint(x.e) : ''}" data-act="ds-ev" data-k="${d}|e${x.i}"><i>${fmtT(x.e.s)}</i>${esc(x.e.t || 'Busy')}</button>`; }).join('');
+  // Then the time now with the countdown, so it never gets squeezed inside a small stretch
+  let tick;
+  if (isT && n >= a && n <= z) {
+    const left = cur ? cur.e - n : 0, why = cur ? (next && next.s === cur.e ? `until ${esc(next.t || 'the next event')}` : 'left in the work day') : '';
+    tick = `<span class="ds-tnow" style="left:${P(n).toFixed(2)}%">${fmtT(n)}${cur ? ` \u00b7 <b>${fmtDur(left)}</b> ${why}` : ''}</span>`;
+  } else tick = `<span style="left:0">${fmtT(a)}</span>`;
+  const ticks = tick;
   // Open time left against the area goals still to do
   let fit = '';
   if (!past) {
@@ -92,7 +117,8 @@ export function html(d) {
       fit += `<div class="ds-hours"><span>Work hours</span><select id="ds-from" aria-label="Work day starts">${opts(W.from, 240, 840)}</select><span>to</span><select id="ds-to" aria-label="Work day ends">${opts(W.to, 720, 1440)}</select><button class="tb" data-act="ds-hours">Done</button></div>`;
     }
   }
-  return `<div class="ds${isT ? ' today' : ''}${past ? ' past' : ''}"><div class="ds-bar" role="img" aria-label="${isT && cur ? `${fmtDur(cur.e - n)} free${next && next.s === cur.e ? ' until ' + esc(next.t || 'the next event') : ''}` : 'The day'}">${parts.join('')}</div><div class="ds-ticks">${ticks}</div>${fit}</div>`;
+  const A = eventsOn(d).filter(e => e.allDay);
+  return `<div class="ds${isT ? ' today' : ''}${past ? ' past' : ''}">${allDay(d, A)}<div class="ds-bar" role="img" aria-label="${isT && cur ? `${fmtDur(cur.e - n)} free${next && next.s === cur.e ? ' until ' + esc(next.t || 'the next event') : ''}` : 'The day'}">${parts.join('')}</div>${names ? `<div class="ds-names">${names}</div>` : ''}<div class="ds-ticks">${ticks}</div>${caption(d, E, A)}${fit}</div>`;
 }
 
 /** A day's work windows and what's left: open minutes in the work hours (from now on, for today) and goal minutes still to do. */
@@ -111,10 +137,12 @@ export function mini(d) {
   let p = (W.from > A ? box('ds-off', A, W.from) : '') + (W.to < Z ? box('ds-off', W.to, Z) : '');
   if (I.isT) p += box('ds-gone', A, I.n);
   if (I.cur) p += box('ds-cur', I.n, I.cur.e);
-  for (const e of I.E) p += box('ds-ev', e.s, e.s + (e.m || 0));
+  for (const e of I.E) p += box('ds-ev', e.s, e.s + (e.m || 0)).replace('%"', `%${tint(e) ? ';' + tint(e) : ''}"`);
   for (const x of stretches(d)) p += `<i class="ds-sw" style="left:${P(x.s)}%;width:${Math.max(1, P(x.e) - P(x.s))}%;--pc:${x.c}"></i>`;
   if (I.isT && I.n >= A && I.n <= Z) p += `<i class="ds-nw" style="left:${P(I.n)}%"></i>`;
-  return `<div class="ds ds-mini"><div class="ds-bar">${p}</div>${chip(d, I)}</div>`;
+  const AD = eventsOn(d).filter(e => e.allDay);
+  // all-day pills go under the chip, so the strips of the week still line up
+  return `<div class="ds ds-mini"><div class="ds-bar">${p}</div>${chip(d, I)}${AD.length ? `<div class="ds-ad">${AD.map(e => `<span class="ds-adp" style="${tint(e)}" title="${esc(e.t || 'All day')}">${esc(e.t || 'All day')}</span>`).join('')}</div>` : ''}</div>`;
 }
 /** The fit line as a small chip that opens the day: worked time on past days, open time against goals ahead. */
 export function chip(d, I = info(d)) {
