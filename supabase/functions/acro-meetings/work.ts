@@ -6,8 +6,8 @@
 //                       with HQ's business context (settings/brief, open tasks) and Michael's own rules
 //                       (settings/meetings.rules, edited on the board's "Meeting rules"), plus what Claude
 //                       could do itself: each goes up as a card on HQ's Review (approvals, kind "change",
-//                       action "ad-new" | "reel-new" | "claude-job"), and one yes there starts the work on
-//                       Michael's PC (video/watch.py in the acro-hq repo). Nothing is made before that yes.
+//                       action "ad-new" | "reel-new" | "claude-job" | "claude-build"), and one yes there starts the
+//                       work: on Michael's PC (acro-hq video/jobs.py) or, for claude-build, by Claude in the cloud. Nothing is made before that yes.
 // A step claims its meeting first (status writing/thinking, lockedUntil), so two runs never do the same one,
 // and a run that dies is picked up again once the lock runs out.
 import type { Said } from "../inkwell/speech.ts";
@@ -25,8 +25,8 @@ const AREAS = ["Content", "Social", "Ads", "Live", "Admin"];
 const SCHOOLS = ["Flip & Dance", "Cheer", "Both"];
 const DEFAULT_TITLE = "Meeting recording";
 // What Claude can be asked to do from a meeting, and the HQ card action each becomes (acro-hq HANDOFF "Meeting recordings").
-const JOBS = ["ad", "reel", "other"];
-const ACTION: Record<string, string> = { ad: "ad-new", reel: "reel-new", other: "claude-job" };
+const JOBS = ["ad", "reel", "build", "other"];
+const ACTION: Record<string, string> = { ad: "ad-new", reel: "reel-new", build: "claude-build", other: "claude-job" };
 const HINT = "A business meeting between Michael and Nate, who run two online acrobatics schools on Skool: Flippin' Dance Acrobatics and Better Tumbling for Cheerleaders.";
 const TERMS = ["Acro HQ", "Flip & Dance", "Flippin' Dance Acrobatics", "Better Tumbling for Cheerleaders", "Skool", "SkoolKit", "Instagram", "TikTok", "Meta Ads", "acro", "cheer", "tumbling"];
 
@@ -41,9 +41,9 @@ The write-out is split by speaker (S0, S1, …) by a machine that sometimes spli
 - title: a short name for the meeting in plain words, like "Summer camp and ad budget". No date.
 - summary: 3 to 8 short points in plain words: what was talked about, what was worked out, and what's still open. Keep their own terms and names. No Markdown.
 - decisions: each thing they agreed on or settled, one short sentence each. Only real decisions, not ideas floated.
-- tasks: each thing someone said they'd do, or that clearly needs doing, as a short title starting with a verb. assignee: who will do it (one of the team), or "" if nobody took it. area: Content (videos and posts to make), Social (social accounts), Ads (paid ads), Live (live classes and events) or Admin (everything else). school: "Flip & Dance", "Cheer", or "Both" if it's for both or unclear. due: a date (YYYY-MM-DD) only if one was said, worked out from the meeting date, else "". notes: what's needed to do it, from the meeting: context, and where they apply the direct links and short numbered steps (the board's standing rule for every task). Never invent links or steps that weren't said or aren't obvious.
+- tasks: things only a PERSON can do (Michael and Nate decided this, Nov 2): filming, being on camera, logging in to an account or approving access, paying, buying, talking to people, coaching, choosing between options only they can judge. Each as a short title starting with a verb. assignee: who will do it (one of the team), or "" if nobody took it. area: Content (videos and posts to make), Social (social accounts), Ads (paid ads), Live (live classes and events) or Admin (everything else). school: "Flip & Dance", "Cheer", or "Both" if it's for both or unclear. due: a date (YYYY-MM-DD) only if one was said, worked out from the meeting date, else "". notes: what's needed to do it, from the meeting: context, and where they apply the direct links and short numbered steps (the board's standing rule for every task). Never invent links or steps that weren't said or aren't obvious.
 - Don't suggest a task that's already open on the board (the list is given); mention it in notes of a related task if the meeting changed it.
-- claude: work Claude can do by itself for them, that came up in the meeting (they asked for it, or said they want it). Each goes on the board as a card they approve with one tap, and the yes starts the work. type "ad": make new video ads (Claude writes ad edit plans from their real footage and renders them; each ad still needs its own approval before it goes into Meta Ads, paused). type "reel": make social reels (a skill, a format such as breakdown, slow-mo, progression, one-drill or mistake-fix, an angle). type "other": anything else Claude can do with files and writing alone, such as drafting captions, a Skool post, an email, a plan, a script or a shot list (it can't film, post, spend, message anyone or change accounts). title: what Claude will make, starting with a verb ("Make 2 ads for dance moms about ..."). why: one sentence on what was said. ask: what happens on yes, in plain words. count: how many (1 to 3; 1 for "other"). notes: everything from the meeting Claude needs to do it well: who it's for, the angle, skill, format, hook, offer, what to avoid. Only what was said; leave this empty when they asked Claude for nothing. A task a person will do goes in tasks, not here.
+- claude: everything else that should get done: anything they'd simply ask Claude to do, whether they said "Claude" or not ("let's set up a schedule", "we should run that now", "this is broken", "it should also..."). Michael and Nate want these as one-tap Approve cards, never as tasks for themselves: the yes starts the work. Prefer this over a task whenever Claude could do it. type "build": anything that needs the code, the board, the numbers (Meta, Instagram, TikTok, Skool), scheduled tasks or automations: build or change a feature, fix a bug, set up or change a schedule, run an analysis or the weekly review now, change how suggestions or the daily reels work (rules, prompts, settings). Claude in the cloud does it with the full repo and connectors. type "ad": make new video ads (Claude writes ad edit plans from their real footage and renders them; each ad still needs its own approval before it goes into Meta Ads, paused). type "reel": make social reels (a skill, a format such as breakdown, slow-mo, progression, one-drill or mistake-fix, an angle). type "other": pure writing Claude can do from what it already knows, with no numbers or code: drafting captions, a Skool post, an email, a script or a shot list (done on Michael's PC). When a job needs data, code or a schedule, it's "build". Claude can't film, post, spend, message anyone or change accounts: those parts are tasks. title: what Claude will make, starting with a verb ("Make 2 ads for dance moms about ..."). why: one sentence on what was said. ask: what happens on yes, in plain words. count: how many (1 to 3; 1 for "build" and "other"). notes: everything from the meeting Claude needs to do it well: who it's for, the angle, skill, format, hook, offer, what to avoid. Only what was said; leave this empty when they asked Claude for nothing. A task only a person can do goes in tasks, not here; when a job has a person part (e.g. approve access), put the job here and the person part in tasks.
 - Use only what was said. Never invent tasks, decisions, names or details.
 - Michael's own rules for meeting notes come last, if there are any. Follow them; where they conflict with the above, they win.`;
 
@@ -115,7 +115,7 @@ export function tidy(out: Record<string, any>, team: string[]) {
     })).filter((t) => t.title).slice(0, 30),
     jobs: arr(out.claude).map((j: any) => ({
       type: JOBS.includes(j?.type) ? j.type : "other", title: str(j?.title, 200), why: str(j?.why, 600), ask: str(j?.ask, 400),
-      school: SCHOOLS.includes(j?.school) ? j.school : "Both", count: j?.type === "other" ? 1 : Math.max(1, Math.min(3, Number(j?.count) || 1)), notes: str(j?.notes, 3000),
+      school: SCHOOLS.includes(j?.school) ? j.school : "Both", count: j?.type === "other" || j?.type === "build" ? 1 : Math.max(1, Math.min(3, Number(j?.count) || 1)), notes: str(j?.notes, 3000),
     })).filter((j) => j.title).slice(0, 8),
   };
 }
@@ -124,6 +124,7 @@ type Job = ReturnType<typeof tidy>["jobs"][number];
 const ASK: Record<string, string> = {
   ad: "On yes: Claude makes the ads on Michael's PC from your footage and puts each one on Review. Each still needs its own Approve... before it goes into Meta Ads (paused).",
   reel: "On yes: Claude makes the reels on Michael's PC and puts each one on Review > To post, for its own yes before it posts.",
+  build: "On yes: Claude picks it up in the cloud within the hour (7 AM to 11 PM), does it with the repo and connectors, and says what it did on this card. Anything that would post or spend still waits for its own yes.",
   other: "On yes: Claude does it on Michael's PC and puts what it made on this card (and in the repo).",
 };
 
