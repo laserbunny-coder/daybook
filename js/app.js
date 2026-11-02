@@ -472,10 +472,11 @@ function dayGaps(d) {
   return { E, gaps };
 }
 function listHTML(d, wide = false) {
-  const { E, gaps } = dayGaps(d);
+  const { gaps } = dayGaps(d);
   const chips = g => g.filter(n => !(n.rs && habits.isHabit(n))).map(n => chipHTML(n, { time: true, min: S.min })).join(''); // habits live in their own card
   const all = eventsOn(d).filter(e => e.allDay).map(evRow).join('');
-  const body = chips(gaps[0]) + E.map((e, i) => evRow(e) + chips(gaps[i + 1])).join('');
+  // Timed events no longer sit in the list (the strip and Timeline show them); tasks keep the same order around them
+  const body = gaps.map(chips).join('');
   const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a task to ${esc(dayShort(d))}"><span aria-hidden="true">+</span>${body ? '' : ' Add a task'}</button>`;
   const list = `<div class="list${body ? '' : ' empty'}" data-drop="list" data-date="${d}">${body}${adder}</div>`;
   // A computer's Day view uses the width: strip across the top, area cards side by side, Habits in a column of their own
@@ -2070,9 +2071,10 @@ function moveDrag(x, y) {
     // Over the time grid the dashed outline stands in for the item, so the floating copy hides
     ind.innerHTML = `<div class="ind-t">${esc(node(D.id).t || 'Untitled')}${asBlk ? ' time' : ''}</div><div class="ind-time">${fmtT(min)} – ${fmtT(min + dur)}</div>`; D.g.classList.add('off');
   } else if (type === 'list') {
-    // Rows are tasks and calendar events; count how many of each come before the drop point
-    const rows = [...t.querySelectorAll(':scope > .item:not(.dragging), :scope > .evr')]; let i = rows.findIndex(it => { const r = it.getBoundingClientRect(); return y < r.top + r.height / 2; }); if (i < 0) i = rows.length;
-    const before = rows.slice(0, i); D.gap = before.filter(r => r.classList.contains('evr')).length; D.idx = before.length - D.gap;
+    // Rows are tasks only; a drop joins the stretch between events of the task right above it
+    const rows = [...t.querySelectorAll(':scope > .item:not(.dragging)')]; let i = rows.findIndex(it => { const r = it.getBoundingClientRect(); return y < r.top + r.height / 2; }); if (i < 0) i = rows.length;
+    const gs = dayGaps(t.dataset.date).gaps, up = rows[i - 1]?.dataset.id;
+    D.gap = up ? Math.max(0, gs.findIndex(g => g.some(x => x.id === up))) : 0; D.idx = gs.slice(0, D.gap).flat().filter(x => x.id !== D.id).length + (up ? gs[D.gap].filter(x => x.id !== D.id).findIndex(x => x.id === up) + 1 : 0);
     if (rows[i]) t.insertBefore(ins, rows[i]); else t.appendChild(ins); t.classList.add('over');
   } else t.classList.add('over');
 }
