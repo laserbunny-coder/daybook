@@ -145,6 +145,7 @@ export function html(d) {
     if (w === cur) { const left = w.e - n, why = next && next.s === w.e ? `until ${esc(next.t || 'the next event')}` : 'until the end of the work day';
       parts.push(box('ds-cur', s, w.e, '', ` title="${fmtDur(left)} ${why}"`)); }
   }
+  if (isT && !cur && !inEv && next && !past) parts.push(box('ds-cur ds-free', n, next.s, '', ` title="${fmtDur(next.s - n)} free until ${esc(next.t || 'the next event')}"`));
   // The free time between one event and the next, work hours or not (say from Desk until Bed); the stretch you're in has its countdown under the bar
   if (!past) { let end = null;
     // the work day's start and finish count as edges too, but only before the first event and after the last
@@ -169,7 +170,9 @@ export function html(d) {
   let tick;
   if (isT && n >= a && n <= z) {
     const left = cur ? cur.e - n : 0, why = cur ? (next && next.s === cur.e ? `until ${esc(next.t || 'the next event')}` : 'left in the work day') : '';
-    tick = `<span class="ds-tnow" style="left:${P(n).toFixed(2)}%">${fmtT(n)}${cur ? ` \u00b7 <b>${fmtDur(left)}</b> ${why}` : ''}</span>`;
+    // Outside work hours: in an event, say until when; otherwise the free time until the next event
+    const extra = cur ? ` \u00b7 <b>${fmtDur(left)}</b> ${why}` : inEv ? ` \u00b7 ${esc(inEv.t || 'Busy')} until ${fmtT(inEv.s + (inEv.m || 0))}` : next ? ` \u00b7 <b>${fmtDur(next.s - n)}</b> free until ${esc(next.t || 'the next event')}` : '';
+    tick = `<span class="ds-tnow" style="left:${P(n).toFixed(2)}%">${fmtT(n)}${extra}</span>`;
   } else tick = `<span style="left:0">${fmtT(a)}</span>`;
   const ticks = tick;
   // Open time left against the area goals still to do
