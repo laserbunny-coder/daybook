@@ -6,21 +6,61 @@
 import * as store from './store.js';
 import * as aday from './areaday.js';
 import { eventsOn, timedOn } from './calendar.js';
-import { esc, fmtDur, fmtT, lsGet, lsSet, nowMin, pd, today } from './util.js';
+import { add, esc, fmtDur, fmtT, lsGet, lsSet, nowMin, pd, today } from './util.js';
 import { colorOf } from './tree.js';
 
-const KEY = 'daybook-work-hours', DEF = { from: 480, to: 1080 };
-let W = lsGet(KEY, DEF), save = null, editing = false;
+/* Work hours. from/to are the usual day; week can give a weekday its own hours or the day off ({off:1});
+   days holds one-date changes (YYYY-MM-DD), which win over the week. Kept with the account. */
+const KEY = 'daybook-work-hours', DEF = { from: 480, to: 1080 }, WD = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const ok = h => h && Number.isFinite(+h.from) && Number.isFinite(+h.to) && +h.from >= 0 && +h.to <= 1440 && +h.from < +h.to;
-if (!ok(W)) W = DEF;
+const okDay = h => h && (h.off === 1 || h.off === true || ok(h));
+const clean = h => {
+  if (!ok(h)) return null;
+  const out = { from: +h.from, to: +h.to }, cut = add(today(), -60);
+  const week = Object.fromEntries(Object.entries(h.week || {}).filter(([k, v]) => WD.includes(k) && okDay(v)).map(([k, v]) => [k, v.off ? { off: 1 } : { from: +v.from, to: +v.to }]));
+  const days = Object.fromEntries(Object.entries(h.days || {}).filter(([k, v]) => /^\d{4}-\d{2}-\d{2}$/.test(k) && k >= cut && okDay(v)).map(([k, v]) => [k, v.off ? { off: 1 } : { from: +v.from, to: +v.to }]));
+  if (Object.keys(week).length) out.week = week; if (Object.keys(days).length) out.days = days;
+  return out;
+};
+let W = clean(lsGet(KEY, DEF)) || DEF, save = null, editing = false, weekEdit = false;
 export const hours = () => W;
 /** Hours set on another device (or by Claude) arrive with the account; f saves changes made here. */
-export function useHours(h, f) { if (f) save = f; if (ok(h) && (h.from !== W.from || h.to !== W.to)) { W = { from: +h.from, to: +h.to }; lsSet(KEY, W); } }
-export function setHours(from, to) {
-  const h = { from: from ?? W.from, to: to ?? W.to }; if (!ok(h)) return false;
-  W = h; lsSet(KEY, W); save?.(W); return true;
+export function useHours(h, f) { if (f) save = f; const c = clean(h); if (c && JSON.stringify(c) !== JSON.stringify(W)) { W = c; lsSet(KEY, W); } }
+const commit = h => { const c = clean(h); if (!c) return false; W = c; lsSet(KEY, W); save?.(W); return true; };
+const wkey = d => WD[pd(d).getDay()];
+/** A weekday's usual hours, or null when it's a day off. */
+export const usualOn = d => { const w = W.week?.[wkey(d)]; return w ? (w.off ? null : w) : { from: W.from, to: W.to }; };
+/** The hours for one date: a change for that date, else the weekday's usual. null = not working. */
+export const hoursOn = d => { const x = W.days?.[d]; return x ? (x.off ? null : x) : usualOn(d); };
+export const isChanged = d => !!W.days?.[d];
+/** Change one date's start or finish by 'by' minutes (half an hour a tap). */
+export function stepDay(d, end, by) {
+  const h = { ...(hoursOn(d) || usualOn(d) || { from: W.from, to: W.to }) }; h[end] = Math.max(0, Math.min(1440, h[end] + by));
+  if (!ok(h)) return false;
+  const u = usualOn(d), days = { ...W.days };
+  if (u && u.from === h.from && u.to === h.to) delete days[d]; else days[d] = { from: h.from, to: h.to };
+  return commit({ ...W, days });
 }
-export const toggleEdit = () => { editing = !editing; };
+export function dayOff(d, off) {
+  const days = { ...W.days }, u = usualOn(d);
+  if (off) { if (u) days[d] = { off: 1 }; else delete days[d]; }
+  else { if (u) delete days[d]; else days[d] = { from: W.from, to: W.to }; }
+  return commit({ ...W, days });
+}
+export const dayUsual = d => { const days = { ...W.days }; delete days[d]; return commit({ ...W, days }); };
+/** Weekly hours: k is mon..sun; v is {from,to}, {off:1}, or a part of {from,to}. */
+export function setWeek(k, v) {
+  const cur = W.week?.[k] && !W.week[k].off ? W.week[k] : { from: W.from, to: W.to };
+  const nv = v.off ? { off: 1 } : { ...cur, ...v }; if (!v.off && !ok(nv)) return false;
+  return commit({ ...W, week: { ...W.week, [k]: nv } });
+}
+export function copyMonday() {
+  const m = W.week?.mon || { from: W.from, to: W.to };
+  return commit({ ...W, week: { ...W.week, tue: m, wed: m, thu: m, fri: m } });
+}
+export function setHours(from, to) { return commit({ ...W, from: from ?? W.from, to: to ?? W.to }); }
+export const toggleEdit = () => { editing = !editing; if (!editing) weekEdit = false; };
+export const toggleWeek = () => { weekEdit = !weekEdit; };
 // Tapping an event on the strip (or an all-day pill) shows its full name and times under the strip; tapping it again hides them
 let sel = null;
 export const pick = k => { sel = sel === k ? null : k; };
@@ -66,17 +106,17 @@ export function goalsLeft(d) {
 
 export function html(d) {
   const E = timedOn(d).filter(e => e.s + (e.m || 0) > 0 && e.s < 1440), T = today(), isT = d === T, past = d < T;
-  const ST = stretches(d), n = isT ? nowMin() : null;
-  let a = Math.min(W.from, ...E.map(e => e.s), ...ST.map(x => x.s)), z = Math.max(W.to, ...E.map(e => e.s + (e.m || 0)));
+  const ST = stretches(d), n = isT ? nowMin() : null, H = hoursOn(d), off = !H, h = H || { from: 720, to: 720 };
+  let a = Math.min(H ? h.from : 480, ...E.map(e => e.s), ...ST.map(x => x.s)), z = Math.max(H ? h.to : 1080, ...E.map(e => e.s + (e.m || 0)));
   a = Math.max(0, Math.floor(a / 60) * 60); z = Math.min(1440, Math.ceil(z / 60) * 60);
   // Today: what's gone takes the first 14%, the rest of the day the other 86%
   const squeeze = isT && n > a + 30 && n < z - 30, K = 14;
   const P = m => { m = Math.max(a, Math.min(z, m)); return squeeze ? (m <= n ? (m - a) / (n - a) * K : K + (m - n) / (z - n) * (100 - K)) : (m - a) / (z - a) * 100; };
   const box = (cls, s, e, inner = '', extra = '') => `<div class="${cls}" style="left:${P(s).toFixed(2)}%;width:${(P(e) - P(s)).toFixed(2)}%"${extra}>${inner}</div>`;
-  const from = isT ? Math.min(W.from, Math.max(a, n)) : W.from, wins = windows(E, from, W.to);
+  const from = isT && H ? Math.min(h.from, Math.max(a, n)) : h.from, wins = H ? windows(E, from, h.to) : [];
   const cur = isT && wins.find(w => w.s <= n && n < w.e), next = isT ? E.find(e => e.s > n) : null, inEv = isT && E.find(e => e.s <= n && n < e.s + (e.m || 0));
   const parts = [];
-  if (W.from > a) parts.push(box('ds-off', a, W.from)); if (W.to < z) parts.push(box('ds-off', W.to, z));
+  if (off) parts.push(box('ds-off', a, z)); else { if (h.from > a) parts.push(box('ds-off', a, h.from)); if (h.to < z) parts.push(box('ds-off', h.to, z)); }
   if (squeeze) parts.push(box('ds-gone', a, n));
   for (const w of wins) {
     const s = isT ? Math.max(w.s, n) : w.s; if (w.e <= s || (past)) continue;
@@ -109,16 +149,29 @@ export function html(d) {
   let fit = '';
   if (!past) {
     const open = wins.reduce((t, w) => t + Math.max(0, w.e - Math.max(w.s, isT ? n : 0)), 0), goals = Math.round(goalsLeft(d));
-    const over = isT && n >= W.to;
-    const lead = over ? `<span>Work day ended at <b>${fmtTT(W.to)}</b></span>` : `<span>Open time ${isT ? 'left ' : ''}<b>${fmtDur(open)}</b></span>`;
-    const g = goals ? `<span>Goals left <b>${fmtDur(goals)}</b></span>${over ? '' : `<span class="${open >= goals ? 'ok' : 'short'}">${open >= goals ? fmtDur(open - goals) + ' spare' : fmtDur(goals - open) + ' short'}</span>`}` : `<span>${aday.cardsOn(d).some(c => c.target > 0) ? 'Area goals all met' : 'No area goals'}</span>`;
-    fit = `<button class="ds-fit" data-act="ds-hours" aria-expanded="${editing}" title="Change today's goals or your work hours (${fmtT(W.from)} to ${fmtTT(W.to)})">${lead}${g}<span class="ds-adj">${editing ? 'Close' : 'Adjust'}</span></button>`;
+    const over = !off && isT && n >= h.to;
+    const lead = off ? `<span><b>Not a work day</b></span>` : over ? `<span>Work day ended at <b>${fmtTT(h.to)}</b></span>` : `<span>Open time ${isT ? 'left ' : ''}<b>${fmtDur(open)}</b></span>`;
+    const g = goals ? `<span>Goals left <b>${fmtDur(goals)}</b></span>${over || off ? '' : `<span class="${open >= goals ? 'ok' : 'short'}">${open >= goals ? fmtDur(open - goals) + ' spare' : fmtDur(goals - open) + ' short'}</span>`}` : `<span>${aday.cardsOn(d).some(c => c.target > 0) ? 'Area goals all met' : 'No area goals'}</span>`;
+    fit = `<button class="ds-fit" data-act="ds-hours" aria-expanded="${editing}" title="Change this day's hours or goals${H ? ` (${fmtT(h.from)} to ${fmtTT(h.to)})` : ''}">${lead}${g}<span class="ds-adj">${editing ? 'Close' : 'Adjust'}</span></button>`;
     if (editing) {
       // Today's goals, quick to change for this day only (30 minutes a tap); "usual" puts the weekday's hours back
       const rows = aday.areas().map(x => ({ a: x, t: aday.targetOn(x, d), u: Math.max(0, +(x.dg?.[aday.keyOf(d)] || 0)), o: aday.isOverride(x.dg, d) })).filter(r => r.t > 0 || r.u > 0 || r.o);
       if (rows.length) fit += `<div class="ds-goals"><div class="ds-gl">${isT ? 'Today\u2019s' : 'This day\u2019s'} goals <small>for this day only</small></div>${rows.map(r => `<div class="ds-g" style="--pc:${colorOf(r.a)}"><span class="pdot"></span><span class="ds-gn">${esc(r.a.t || 'Untitled area')}${r.o ? `<small>usually ${r.u ? fmtDur(r.u) : 'none'}</small>` : ''}</span><button class="ib" data-act="ds-goal" data-id="${r.a.id}" data-d="${d}" data-by="-30" aria-label="Less ${esc(r.a.t)} time"${r.t ? '' : ' disabled'}>\u2212</button><b>${r.t ? fmtDur(r.t) : 'Off'}</b><button class="ib" data-act="ds-goal" data-id="${r.a.id}" data-d="${d}" data-by="30" aria-label="More ${esc(r.a.t)} time">+</button>${r.o ? `<button class="ds-usual" data-act="ds-goal" data-id="${r.a.id}" data-d="${d}" data-by="usual">Usual</button>` : '<span class="ds-usual"></span>'}</div>`).join('')}</div>`;
+      // This day's hours first: start and finish, half an hour a tap; Usual puts the weekday's hours back
+      const day = isT ? 'Today\u2019s' : 'This day\u2019s', u = usualOn(d), chg = isChanged(d);
+      const step = (lab, end) => `<div class="ds-g"><span class="ds-gn">${lab}</span><button class="ib" data-act="ds-step" data-d="${d}" data-end="${end}" data-by="-30" aria-label="${lab} earlier">\u2212</button><b>${fmtTT(h[end])}</b><button class="ib" data-act="ds-step" data-d="${d}" data-end="${end}" data-by="30" aria-label="${lab} later">+</button><span class="ds-usual"></span></div>`;
+      const usual = u ? `usually ${fmtT(u.from)} to ${fmtTT(u.to)}` : 'usually a day off';
+      const hrs = `<div class="ds-goals ds-dh"><div class="ds-gl">${day} hours <small>${chg ? usual : 'for this day only'}</small>${chg ? `<button class="ds-usual" data-act="ds-dayusual" data-d="${d}">Usual</button>` : ''}</div>${off ? `<div class="ds-g"><span class="ds-gn">Not working${isT ? ' today' : ''}</span><button class="tb" data-act="ds-dayoff" data-d="${d}" data-off="0">Work ${isT ? 'today' : 'this day'}</button></div>` : step('Start', 'from') + step('Finish', 'to') + `<button class="ds-link" data-act="ds-dayoff" data-d="${d}" data-off="1">Take ${isT ? 'today' : 'this day'} off</button>`}</div>`;
+      fit = fit.replace('<div class="ds-goals">', hrs + '<div class="ds-goals">');
+      if (!rows.length) fit += hrs;
+      // The weekly schedule, one tap deeper
       const opts = (v, lo, hi) => { let o = ''; for (let m = lo; m <= hi; m += 30) o += `<option value="${m}"${m === v ? ' selected' : ''}>${fmtTT(m)}</option>`; return o; };
-      fit += `<div class="ds-hours"><span>Work hours</span><select id="ds-from" aria-label="Work day starts">${opts(W.from, 240, 840)}</select><span>to</span><select id="ds-to" aria-label="Work day ends">${opts(W.to, 720, 1440)}</select><button class="tb" data-act="ds-hours">Done</button></div>`;
+      const ORD = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'], NM = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
+      const wk = k => { const v = W.week?.[k]; return v ? v : { from: W.from, to: W.to }; };
+      const total = ORD.reduce((t, k) => { const v = wk(k); return t + (v.off ? 0 : v.to - v.from); }, 0);
+      fit += weekEdit ? `<div class="ds-week"><div class="ds-gl">Weekly hours <small>about ${fmtDur(total)} a week</small></div>${ORD.map(k => { const v = wk(k);
+        return `<div class="ds-wr${v.off ? ' off' : ''}"><span class="ds-wd">${NM[k]}</span><span class="ds-wsel">${v.off ? 'Not working' : `<select class="ds-wsel-f" data-wk="${k}" data-end="from" aria-label="${NM[k]} start">${opts(v.from, 240, 840)}</select><span>to</span><select data-wk="${k}" data-end="to" aria-label="${NM[k]} finish">${opts(v.to, 600, 1440)}</select>`}</span><button class="ds-tg" data-act="ds-wkon" data-wk="${k}" aria-pressed="${!v.off}" aria-label="Work on ${NM[k]}"></button></div>`; }).join('')}<div class="ds-wfoot"><button class="ds-link" data-act="ds-copymon">Copy Monday to weekdays</button><button class="tb" data-act="ds-week">Done</button></div></div>`
+        : `<button class="ds-link ds-wlink" data-act="ds-week">Weekly hours \u203a</button>`;
     }
   }
   const A = eventsOn(d).filter(e => e.allDay);
@@ -128,17 +181,17 @@ export function html(d) {
 /** A day's work windows and what's left: open minutes in the work hours (from now on, for today) and goal minutes still to do. */
 export function info(d) {
   const E = timedOn(d).filter(e => e.s + (e.m || 0) > 0 && e.s < 1440), T = today(), isT = d === T, past = d < T, n = isT ? nowMin() : null;
-  const wins = windows(E, isT ? Math.min(W.from, Math.max(0, n)) : W.from, W.to);
+  const H = hoursOn(d), wins = H ? windows(E, isT ? Math.min(H.from, Math.max(0, n)) : H.from, H.to) : [];
   const cur = isT ? wins.find(w => w.s <= n && n < w.e) || null : null, next = isT ? E.find(e => e.s > n) || null : null;
   const open = past ? 0 : wins.reduce((t, w) => t + Math.max(0, w.e - Math.max(w.s, isT ? n : 0)), 0);
-  return { E, isT, past, n, wins, cur, next, open, goals: Math.round(goalsLeft(d)), hasGoals: aday.cardsOn(d).some(c => c.target > 0) };
+  return { E, isT, past, n, wins, cur, next, open, off: !H, H, goals: Math.round(goalsLeft(d)), hasGoals: aday.cardsOn(d).some(c => c.target > 0) };
 }
 /** Week view: the strip without labels, and the fit line as a small chip that opens the day (where it can be adjusted). */
 export function mini(d) {
-  const I = info(d), a = Math.min(W.from, ...I.E.map(e => e.s)), z = Math.max(W.to, ...I.E.map(e => e.s + (e.m || 0)));
+  const I = info(d), h = I.H || { from: 720, to: 720 }, a = Math.min(I.H ? h.from : 480, ...I.E.map(e => e.s)), z = Math.max(I.H ? h.to : 1080, ...I.E.map(e => e.s + (e.m || 0)));
   const A = Math.max(0, Math.floor(a / 60) * 60), Z = Math.min(1440, Math.ceil(z / 60) * 60), P = m => ((Math.max(A, Math.min(Z, m)) - A) / (Z - A) * 100).toFixed(2);
   const box = (c, s, e) => `<div class="${c}" style="left:${P(s)}%;width:${(P(e) - P(s)).toFixed(2)}%"></div>`;
-  let p = (W.from > A ? box('ds-off', A, W.from) : '') + (W.to < Z ? box('ds-off', W.to, Z) : '');
+  let p = I.off ? box('ds-off', A, Z) : (h.from > A ? box('ds-off', A, h.from) : '') + (h.to < Z ? box('ds-off', h.to, Z) : '');
   if (I.isT) p += box('ds-gone', A, I.n);
   if (I.cur) p += box('ds-cur', I.n, I.cur.e);
   for (const e of I.E) p += box('ds-ev', e.s, e.s + (e.m || 0)).replace('%"', `%${tint(e) ? ';' + tint(e) : ''}"`);
@@ -152,6 +205,7 @@ export function mini(d) {
 export function chip(d, I = info(d)) {
   let f;
   if (I.past) { const w = Math.round(Object.values(aday.loggedOn(d)).reduce((t, o) => t + o.min, 0)); f = w ? `<span>Worked <b>${fmtDur(w)}</b></span>` : ''; }
+  else if (I.off) f = `<span>Day off${I.goals ? `, <b>${fmtDur(I.goals)}</b> goals` : ''}</span>`;
   else f = `<span><b>${fmtDur(I.open)}</b> open${I.goals ? `, <b>${fmtDur(I.goals)}</b> goals` : ''}</span>${I.goals ? `<span class="${I.open >= I.goals ? 'ok' : 'short'}">${I.open >= I.goals ? fmtDur(I.open - I.goals) + ' spare' : fmtDur(I.goals - I.open) + ' short'}</span>` : ''}`;
   return f ? `<button class="ds-chip" data-act="goday" data-d="${d}" title="Open this day">${f}</button>` : '';
 }

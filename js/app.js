@@ -1831,6 +1831,12 @@ document.addEventListener('click', e => {
     case 'hb-tick': habitTick(id); break;
     case 'ds-hours': daystrip.toggleEdit(); render(); break;
     case 'ds-ev': daystrip.pick(b.dataset.k); render(); break;
+    case 'ds-step': daystrip.stepDay(b.dataset.d, b.dataset.end, +b.dataset.by); render(); break;
+    case 'ds-dayusual': daystrip.dayUsual(b.dataset.d); render(); break;
+    case 'ds-dayoff': daystrip.dayOff(b.dataset.d, b.dataset.off === '1'); render(); break;
+    case 'ds-week': daystrip.toggleWeek(); render(); break;
+    case 'ds-wkon': { const k = b.dataset.wk; daystrip.setWeek(k, b.getAttribute('aria-pressed') === 'true' ? { off: 1 } : {}); render(); break; }
+    case 'ds-copymon': daystrip.copyMonday(); render(); break;
     case 'ds-goal': { const a = node(id), d = b.dataset.d, by = b.dataset.by; if (!a) break; // a day's area goal, for that day only
       const usual = Math.max(0, +(a.dg?.[aday.keyOf(d)] || 0)), v = by === 'usual' ? '' : Math.max(0, Math.min(960, aday.targetOn(a, d) + +by));
       store.update(id, { dg: withDay(a.dg, d, v !== '' && v === usual ? '' : v) }); break; }
@@ -2000,7 +2006,7 @@ document.addEventListener('change', e => {
   if (t.id === 'dt-hm') { const s = store.seriesOf(node(S.open)); if (s?.r) store.update(s.id, { r: cleanRule({ ...s.r, mins: +t.value || 0 }, s.d) }); return; }
   if (t.dataset.pickdate) { if (t.value) setDay(t.dataset.pickdate, t.value); return; }
   if (t.id === 'rm-free') { setFree(t.value); return; }
-  if (t.id === 'ds-from' || t.id === 'ds-to') { daystrip.setHours(t.id === 'ds-from' ? +t.value : null, t.id === 'ds-to' ? +t.value : null); render(); return; }
+  if (t.dataset?.wk) { daystrip.setWeek(t.dataset.wk, { [t.dataset.end]: +t.value }); render(); return; } // weekly hours
   if (t.id === 'st-from' || t.id === 'st-to') { if (t.value) { S[t.id === 'st-from' ? 'stFrom' : 'stTo'] = t.value; render(); } return; }
   if (t.id === 'tl-day' || t.id === 'tl-s' || t.id === 'tl-e') { saveStretch(); return; }
   if (t.id?.startsWith('lbn-')) { const v = t.value.trim().slice(0, 40); if (v) store.update(t.id.slice(4), { t: v }); else renderDetail(); return; }
