@@ -2581,3 +2581,20 @@ body.took-on #toast.toast{bottom:calc(var(--took-b) + var(--took-h,120px) + 10px
 /* Recorded time: a rounded band through the middle of the bar, in the colour of what was worked on */
 .ds-bar .ds-sw{top:32%;bottom:32%;height:auto;border-radius:5px;background:color-mix(in srgb,var(--pc) 75%,transparent);box-shadow:inset 0 0 0 1px var(--pc)}
 .ds-mini .ds-bar .ds-sw{top:28%;bottom:28%;height:auto;border-radius:3px}
+/* Work hours in the Adjust panel: this day's start and finish, and the weekly schedule one tap deeper */
+.ds-gl{display:flex;align-items:baseline;gap:4px}
+.ds-gl .ds-usual{margin-left:auto;width:auto}
+.ds-dh{border-bottom:1px solid var(--line);padding-bottom:8px}
+.ds-link{color:var(--accent);font-size:12.5px;justify-self:start;padding:4px 0}
+.ds-wlink{margin:6px 2px 0}
+.ds-week{display:grid;gap:2px;padding:8px 2px 4px;border-top:1px solid var(--line);margin-top:6px}
+.ds-wr{display:grid;grid-template-columns:38px 1fr auto;align-items:center;gap:8px;min-height:40px;font-size:13px}
+.ds-wd{color:var(--muted)}
+.ds-wsel{display:flex;flex-wrap:wrap;gap:6px;align-items:center;color:var(--faint);font-size:12px}
+.ds-wsel select{background:var(--track);color:var(--fg);border:1px solid var(--line2);border-radius:7px;padding:4px 5px;font:inherit;font-size:13px}
+.ds-tg{width:38px;height:22px;border-radius:999px;background:var(--line2);position:relative;flex:none}
+.ds-tg::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--muted);transition:left .15s}
+.ds-tg[aria-pressed="true"]{background:var(--accent)}
+.ds-tg[aria-pressed="true"]::after{left:19px;background:var(--fg)}
+.ds-wfoot{display:flex;justify-content:space-between;align-items:center;padding-top:6px}
+@media (prefers-reduced-motion:reduce){.ds-tg::after{transition:none}}
