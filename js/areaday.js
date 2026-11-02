@@ -17,6 +17,8 @@ export const areas = () => store.areas();
 const pick = (o, d) => o && d in o ? o[d] : o?.[keyOf(d)];
 export const targetOn = (a, d) => Math.max(0, +(pick(a?.dg, d) || 0));
 export const isOverride = (o, d) => !!o && d in o;
+/** Skipped that day: "Just this day" set to none. Its card leaves the List even if some time was logged (the time still counts in Stats). */
+export const skipped = (a, d) => isOverride(a?.dg, d) && !(+a.dg[d] > 0);
 /** The week's target from Monday w: each day's target, overrides included. Without w, the usual weekdays. */
 export const weekTarget = (a, w) => !a?.dg ? null : (w ? [0, 1, 2, 3, 4, 5, 6].reduce((t, i) => t + targetOn(a, add(w, i)), 0) : ORDER.reduce((t, k) => t + Math.max(0, +(a.dg[k] || 0)), 0)) || null;
 
@@ -46,7 +48,7 @@ export function loggedOn(d) {
 export function cardsOn(d) {
   const L = loggedOn(d), pr = a => a.tp ? PREFS.indexOf(a.tp) : 1;
   const cards = areas().map(a => ({ a, target: targetOn(a, d), min: Math.round(L[a.id]?.min || 0), hb: Math.round(L[a.id]?.hb || 0) }))
-    .filter(c => c.target > 0 || c.min > 0)
+    .filter(c => (c.target > 0 || c.min > 0) && !skipped(c.a, d))
     .sort((x, y) => (x.target > 0 ? 0 : 1) - (y.target > 0 ? 0 : 1) || pr(x.a) - pr(y.a) || (x.a.o ?? 0) - (y.a.o ?? 0));
   return cards;
 }

@@ -318,7 +318,7 @@ function blockDetail(el, b, same) {
       <div class="dt-head"><button class="bk-title" data-act="open" data-id="${t?.id || ''}">${esc(blockTitle(b))}</button></div>
       <div class="bk-when">${day === today() ? 'Today' : `${DAYL[pd(day).getDay()]} ${fmtShort(day)}`}${b.v ? (t?.tp ? ` · best in the ${t.tp}` : '') : b.s != null ? ` · ${fmtT(b.s)} – ${fmtT(b.s + (b.m || 60))}` : ' · any time'}</div>
       <div class="bk-fill"><div class="bk-bar"><i></i></div><span>${b.done && !w ? 'Skipped' : `${fmtDur(w)} ${b.v ? 'logged' : 'worked'}${len ? ` of ${fmtDur(len)}` : ''}`}</span>
-        ${past ? '' : `${busy ? `<button class="chip rec-chip on" data-act="rec" data-id="${busy.id}">${ICON.stop}<span>Stop</span></button>` : `<button class="chip rec-chip${rec ? ' on' : ''}" data-act="rec" data-id="${recId}">${rec ? ICON.stop : ICON.play}<span>${rec ? 'Recording · Stop' : 'Start'}</span></button>`}`}</div>
+        ${past ? '' : `${busy ? `<button class="chip rec-chip on" data-act="rec" data-id="${busy.id}">${ICON.stop}<span>Stop</span></button>` : `<button class="chip rec-chip${rec ? ' on' : ''}" data-act="rec" data-id="${recId}">${rec ? ICON.stop : ICON.play}<span>${rec ? 'Recording · Stop' : 'Start'}</span></button>`}`}${b.v && t ? `<button class="chip" data-act="ad-skip" data-id="${t.id}" data-d="${b.d}" title="Take ${esc(t.t)} off this day">Skip ${b.d === today() ? 'today' : 'this day'}</button>` : ''}</div>
       ${rec && t ? `<div class="dt-note bk-hint">Recording general ${esc(blockTitle(b))} time. Tap ▶ on what you're working on to put the time on that task.</div>` : ''}
       ${ask ? askHTML(b) : ''}
       ${b.r ? '<div class="dt-note rp-note">This is the repeating block itself. Open one of its days on the plan to work in it.</div>' : `<div class="dt-sec bk-sec">${S.blkView === 'all' ? 'Everything' : focus ? 'One thing at a time' : 'What to work on'}${t ? `<span class="seg bk-seg" role="group" aria-label="Show"><button data-act="blk-view" data-v="next" aria-pressed="${S.blkView !== 'all'}">Next steps</button><button data-act="blk-view" data-v="all" aria-pressed="${S.blkView === 'all'}">Everything</button></span>` : ''}</div>${work}`}
@@ -1258,6 +1258,7 @@ function areaDetail(el, n, same) {
 </div>
       <div class="dt-sub">Hours each day</div>
       <div class="ad-grid">${aday.ORDER.map(k => adSelect('ad-' + k, +(n.dg?.[k] || 0), k)).join('')}</div>
+      ${aday.skipped(n, today()) ? `<div class="dt-note">Skipped today. <button class="link" data-act="ad-unskip" data-id="${n.id}" data-d="${today()}">Bring it back</button></div>` : ''}
       <div class="dt-meta"><label class="chip${n.tp ? ' set' : ''}"><span class="k">Best in the</span><select id="dt-tp" aria-label="Best time of day">${['', ...aday.PREFS].map(v => `<option value="${v}"${(n.tp || '') === v ? ' selected' : ''}>${v || 'any time'}</option>`).join('')}</select></label></div>
       <div class="dt-note">Each day with hours shows a ${esc(n.t || 'area')} card at the top of the List: start its timer as often as you like, and time on anything in the area counts too. You can also drag the area's name onto your plan to block a set time.</div>
       ${weekBar(n)}
@@ -1777,6 +1778,8 @@ document.addEventListener('click', e => {
     case 'q-report': quest.closeReport(b.dataset.w, false); render(); break;
     case 'q-remind': if (b.dataset.v === 'info') { toast(remind.state().txt, '', 7000); break; } if (b.dataset.v === 'off' && b.classList.contains('q-pill')) { toast('Reminders are on here.', '<button data-act="q-remind" data-v="off">Turn off</button>', 7000); break; } if (b.dataset.v === 'on') remind.enable(later).then(r => { if (r === 'on') toast('Reminders are on. A test one is on its way.'); else if (r === 'error') toast("Couldn't turn reminders on. Try again in a moment."); else toast(remind.state().txt, '', 7000); }); else remind.disable(later); break;
     case 'rec': if (track.isRec(node(id))) track.stop(id); else { const a = node(id); if (a?.k === 'area' && aday.doneOn(a, today())) store.update(id, { dd: aday.withDone(a, today(), false) }); track.start(id); } break; // starting an area again opens it back up for the day
+    case 'ad-skip': { const a = node(id), d = b.dataset.d; if (!a) break; if (track.isRec(a)) track.stop(id); store.update(id, { dg: withDay(a.dg, d, 0), dd: aday.withDone(a, d, false) }); S.open = null; S.fromBlk = null; renderDetail(); break; } // takes the area off that day: its card leaves the List, logged time stays
+    case 'ad-unskip': { const a = node(id), d = b.dataset.d; if (a) store.update(id, { dg: withDay(a.dg, d, '') }); break; }
     case 'ad-done': { const a = node(id), d = b.dataset.d; if (a) store.update(id, { dd: aday.withDone(a, d, !aday.doneOn(a, d)) }); break; }
     case 'rec-stop': { const r = track.running(); if (r) track.stop(r.id); break; }
     case 'rec-done': { const r = track.running(); if (r) toggle(r.id); break; }
