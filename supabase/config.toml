@@ -47,3 +47,7 @@ verify_jwt = true
 # Gristlemaw's voice: checks the sign-in itself, or the server's own secret for making tryouts.
 [functions.voice]
 verify_jwt = false
+
+# Acro HQ's meeting recordings: woken by HQ and by the database job; it only looks, through HQ's connector.
+[functions.acro-meetings]
+verify_jwt = false
