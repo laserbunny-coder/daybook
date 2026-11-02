@@ -20,7 +20,7 @@ const OUTLINE_SCHEMA = {
   properties: { outline: { type: "array", items: { type: "string" } } },
 };
 
-const HINT = "Someone thinking out loud: journaling about their day, talking through an idea, or dictating a story, a scene or dialogue for a film or show.";
+export const HINT = "Someone thinking out loud: journaling about their day, talking through an idea, or dictating a story, a scene or dialogue for a film or show.";
 
 // Every recording is written out by speech.ts (ElevenLabs, with OpenAI as the
 // backup). `terms` are names to listen for, such as the people and places in

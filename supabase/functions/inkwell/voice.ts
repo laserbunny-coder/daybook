@@ -13,7 +13,8 @@
 //   { mode: "voice-delete-mode", id } -> { ok }
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import { admin, json } from "../_shared/common.ts";
-import { transcribe } from "./capture.ts";
+import { HINT } from "./capture.ts";
+import { type Heard, hear } from "./speech.ts";
 import { refsIn, tagFor } from "./enrich.ts";
 import { deleteMode, type Mode, type Model, MODEL_IDS, modelOf, modesOf, saveMode } from "../scribe/modes.ts";
 
@@ -27,6 +28,9 @@ const SYSTEM = `You turn a recording into the writing its speaker meant, in the 
 - Spoken layout: "new paragraph" starts a new block; "next scene" or "new scene" starts a new scene, so the first block of that scene has new_scene true. Leave those words out.
 - blocks are the finished text, one block per paragraph. Plain text, no Markdown, no headings unless they dictated one.
 - el is "paragraph" for every block, unless they're writing a screenplay (you'll be told): then each block is one screenplay element, "scene" (a scene heading like INT. KITCHEN - NIGHT, only if they said where and when), "action", "character" (the name, in capitals), "paren" (a parenthetical, in brackets), "dialogue" or "transition".`;
+
+export const TITLE_MAX = 60;
+const TITLE = `- title: a short title for the entry, ${TITLE_MAX} characters at most, in their own words where you can: what it's about, the way they'd name it. No quotes, no full stop at the end, no date.`;
 
 const SAID = `- said: for each block, the stretch of the word-for-word text it came from, copied exactly as written there, so they can flip back to what they really said. Every part of the word-for-word text belongs to one block's said, in order, except what was a note to self.`;
 
@@ -44,11 +48,12 @@ const block = (said: boolean) => ({
   },
 });
 
-const schema = (said: boolean) => ({
+const schema = (said: boolean, titled = false) => ({
   type: "object",
   additionalProperties: false,
-  required: ["blocks", "notes"],
+  required: titled ? ["title", "blocks", "notes"] : ["blocks", "notes"],
   properties: {
+    ...(titled ? { title: { type: "string" } } : {}),
     blocks: { type: "array", items: block(said) },
     notes: {
       type: "array",
@@ -81,7 +86,8 @@ export async function pick(client: Anthropic, raw: string, modes: Mode[], place:
   return modes.find((m) => m.id === id) ?? modes[0];
 }
 
-export async function write(client: Anthropic, raw: string, mode: Mode, b: VoiceBody, said: boolean, model: Model = modelOf(mode.model) ?? "opus"): Promise<{ blocks: Block[]; notes: Note[] }> {
+// A capture on a day or notes page gets a short title too (`titled`); a draft doesn't.
+export async function write(client: Anthropic, raw: string, mode: Mode, b: VoiceBody, said: boolean, model: Model = modelOf(mode.model) ?? "opus", titled = !said): Promise<{ blocks: Block[]; notes: Note[]; title?: string }> {
   const parts = [`Mode: ${mode.name}. ${mode.prompt}`];
   if (b.script) parts.push("They're writing a screenplay: use screenplay elements.");
   if (b.book) parts.push(`What they're writing: ${String(b.book).slice(0, 200)}`);
@@ -91,18 +97,31 @@ export async function write(client: Anthropic, raw: string, mode: Mode, b: Voice
   const stream = client.beta.messages.stream({
     model: MODEL_IDS[model],
     max_tokens: 32000,
-    system: said ? `${SYSTEM}\n${SAID}` : SYSTEM,
+    system: [SYSTEM, ...(said ? [SAID] : []), ...(titled ? [TITLE] : [])].join("\n"),
     messages: [{ role: "user", content: parts.join("\n\n") }],
-    output_config: { effort: "low", format: { type: "json_schema", schema: schema(said) } },
+    output_config: { effort: "low", format: { type: "json_schema", schema: schema(said, titled) } },
     ...(model === "opus" ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" } : {}),
   } as never);
   const response = await stream.finalMessage();
   // A smaller model that declines hands it to Opus, which can fall back on its own.
-  if (response.stop_reason === "refusal" && model !== "opus") return write(client, raw, mode, b, said, "opus");
+  if (response.stop_reason === "refusal" && model !== "opus") return write(client, raw, mode, b, said, "opus", titled);
   if (response.stop_reason !== "end_turn") throw new Error(`Claude stopped early (${response.stop_reason}).`);
   const text = response.content.find((x) => x.type === "text");
   if (!text || text.type !== "text") throw new Error("No answer came back.");
-  return tidy(JSON.parse(text.text), said);
+  const out = JSON.parse(text.text);
+  const title = titled ? shortTitle(out.title) : "";
+  return { ...tidy(out, said), ...(title ? { title } : {}) };
+}
+
+// One line, no closing full stop, cut at a word if it runs past TITLE_MAX.
+export function shortTitle(t: unknown, max = TITLE_MAX): string {
+  let s = typeof t === "string" ? t.replace(/\s+/g, " ").trim().replace(/^["'“‘]+|["'”’]+$/g, "").replace(/[.]+$/, "") : "";
+  if (s.length > max) {
+    const room = s.slice(0, max); // one short of max + 1, leaving room for the "…"
+    const atWord = room.replace(/\s+\S*$/, "");
+    s = (atWord.length >= max / 2 ? atWord : room.slice(0, max - 1)).replace(/[,;:\s-]+$/, "").slice(0, max - 1) + "…";
+  }
+  return s;
 }
 
 // Only well-formed blocks and notes get through.
@@ -121,27 +140,29 @@ export function tidy(out: { blocks?: unknown; notes?: unknown }, said: boolean):
   return { blocks, notes };
 }
 
-async function writeOut(userId: string, b: VoiceBody): Promise<string> {
+async function writeOut(userId: string, b: VoiceBody): Promise<Heard> {
   if (typeof b.file !== "string" || !/^[\w-]+$/.test(b.file)) throw Object.assign(new Error("Missing recording"), { status: 400 });
   const { data, error } = await admin().storage.from("writing-files").download(`${userId}/${b.file}`);
   if (error || !data) throw Object.assign(new Error("The recording hasn't reached the cloud yet."), { status: 404 });
   const type = data.type || "audio/webm";
   const ext = type.includes("mp4") || type.includes("m4a") || type.includes("aac") ? "m4a" : type.includes("ogg") ? "ogg" : type.includes("mpeg") ? "mp3" : type.includes("wav") ? "wav" : "webm";
-  return await transcribe(data, `capture.${ext}`, Number(b.duration) || 0, undefined, b.terms ?? []);
+  return await hear(data, `capture.${ext}`, { hint: HINT, terms: b.terms ?? [] });
 }
 
 export async function voice(client: Anthropic, userId: string, b: VoiceBody): Promise<Response> {
   const place = b.place === "draft" ? "draft" : "day";
   let raw = typeof b.transcript === "string" ? b.transcript.trim() : "";
+  // Which speech service wrote it out, and what it tried on the way (kept on the line).
+  let heard: { heard_by?: string; tried?: string[] } = {};
   try {
-    if (!raw) raw = await writeOut(userId, b);
+    if (!raw) { const h = await writeOut(userId, b); raw = h.text.trim(); heard = { heard_by: h.by, tried: h.tried ?? [] }; }
   } catch (err) {
     const e = err as Error & { code?: string; status?: number };
     console.error(e);
     return json({ error: e.message, code: e.code ?? null }, e.status ?? 500);
   }
   // Nothing heard: said so, so the app can keep the recording and offer another try.
-  if (!raw) { console.warn("voice: no words heard", b.file ?? "(transcript)"); return json({ raw: "", mode: null, blocks: [], notes: [], heard: "nothing" }); }
+  if (!raw) { console.warn("voice: no words heard", b.file ?? "(transcript)"); return json({ raw: "", mode: null, blocks: [], notes: [], heard: "nothing", ...heard }); }
 
   const modes = await modesOf(userId);
   // Drafting goes in as a scene unless another mode was asked for.
@@ -159,10 +180,10 @@ export async function voice(client: Anthropic, userId: string, b: VoiceBody): Pr
     // The words still come back, so nothing said is lost.
     console.error(err);
     const [tag, refs] = (await extras) ?? ["", []];
-    return json({ raw, mode: mode.id, blocks: [], notes: [], tag, refs, warning: "Claude couldn't write it up this time, so here are your words as said." });
+    return json({ raw, mode: mode.id, blocks: [], notes: [], tag, refs, ...heard, warning: "Claude couldn't write it up this time, so here are your words as said." });
   }
   const more = await extras;
-  return json({ raw, mode: mode.id, ...written, ...(more ? { tag: more[0], refs: more[1] } : {}) });
+  return json({ raw, mode: mode.id, ...written, ...heard, ...(more ? { tag: more[0], refs: more[1] } : {}) });
 }
 
 export async function voiceModes(userId: string, body: Record<string, unknown>): Promise<Response> {

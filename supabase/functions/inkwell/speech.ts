@@ -15,7 +15,8 @@ const ELEVEN = "https://api.elevenlabs.io/v1/speech-to-text";
 
 export type Said = { s: number; t: number; text: string };
 type Word = { text?: string; start?: number; end?: number; type?: string; speaker_id?: string };
-export type Heard = { text: string; said: Said[]; duration: number; by: "elevenlabs" | "openai" };
+// `tried`: each step on the way, such as ["elevenlabs: no words", "elevenlabs without names: no words", "openai: ok"].
+export type Heard = { text: string; said: Said[]; duration: number; by: "elevenlabs" | "openai"; tried?: string[] };
 export type HearOpts = { hint: string; terms?: string[]; speakers?: boolean; url?: string };
 
 const fail = (message: string, status: number, code?: string) => Object.assign(new Error(message), { status, ...(code ? { code } : {}) });
@@ -136,22 +137,25 @@ async function openai(blob: Blob, name: string, o: HearOpts, terms: string[]): P
 export async function hear(blob: Blob | null, name: string, o: HearOpts, load?: () => Promise<Blob>): Promise<Heard> {
   const terms = cleanTerms(o.terms);
   const key = Deno.env.get("ELEVENLABS_API_KEY");
+  const tried: string[] = [];
+  const note = (step: string, h: Heard) => { tried.push(`${step}: ${h.text ? "ok" : "no words"}`); return h; };
   if (key) {
     try {
       const audio = o.url ? { url: o.url } : { blob: blob!, name };
-      let heard = await elevenlabs(key, audio, o, terms);
+      let heard = note("elevenlabs", await elevenlabs(key, audio, o, terms));
       // A blank answer for a real recording: once more without the names to
       // listen for, then (below) the backup service, before calling it silent.
-      if (!heard.text && terms.length) heard = await elevenlabs(key, audio, o, []);
-      if (heard.text || o.speakers || !Deno.env.get("OPENAI_API_KEY") || (blob?.size ?? 0) > OPENAI_LIMIT || (!blob && !load)) return heard;
+      if (!heard.text && terms.length) heard = note("elevenlabs without names", await elevenlabs(key, audio, o, []));
+      if (heard.text || o.speakers || !Deno.env.get("OPENAI_API_KEY") || (blob?.size ?? 0) > OPENAI_LIMIT || (!blob && !load)) return { ...heard, tried };
       console.warn("ElevenLabs heard nothing, trying OpenAI");
     } catch (err) {
+      tried.push(`elevenlabs: failed (${(err as Error).message})`);
       const size = blob?.size ?? 0;
       if (o.speakers || !Deno.env.get("OPENAI_API_KEY") || size > OPENAI_LIMIT) throw err;
       console.error("ElevenLabs failed, trying OpenAI", err);
     }
   } else if (o.speakers) {
     throw fail("Writing out meetings isn't set up yet.", 503, "no-meeting-transcriber");
-  }
-  return await openai(blob ?? await load!(), name, o, terms);
+  } else tried.push("elevenlabs: no key");
+  return { ...note("openai", await openai(blob ?? await load!(), name, o, terms)), tried };
 }
