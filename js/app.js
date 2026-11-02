@@ -1826,6 +1826,9 @@ document.addEventListener('click', e => {
     case 'st-mode': S.stMode = b.dataset.v; saveUI(); render(); break;
     case 'hb-tick': habitTick(id); break;
     case 'ds-hours': daystrip.toggleEdit(); render(); break;
+    case 'ds-goal': { const a = node(id), d = b.dataset.d, by = b.dataset.by; if (!a) break; // a day's area goal, for that day only
+      const usual = Math.max(0, +(a.dg?.[aday.keyOf(d)] || 0)), v = by === 'usual' ? '' : Math.max(0, Math.min(960, aday.targetOn(a, d) + +by));
+      store.update(id, { dg: withDay(a.dg, d, v !== '' && v === usual ? '' : v) }); break; }
     case 'hb-open': { const k = b.dataset.d; S.hbOpen = { ...(S.hbOpen || {}), [k]: !S.hbOpen?.[k] }; render(); break; }
     case 'hb-tray': { const k = b.dataset.d; S.hbTray = { ...(S.hbTray || {}), [k]: !S.hbTray?.[k] }; render(); break; }
     case 'hb-new': S.hbNew = null; S.open = 'hb:new'; S.drOpen && setDrawer?.(false); renderDetail(); break;

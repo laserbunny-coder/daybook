@@ -2524,3 +2524,16 @@ body.took-on #toast.toast{bottom:calc(var(--took-b) + var(--took-h,120px) + 10px
 .ds-hours{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;color:var(--muted);padding:8px 2px 2px}
 .ds-hours select{background:var(--track);color:var(--fg);border:1px solid var(--line2);border-radius:7px;padding:4px 6px;font:inherit}
 .ds-hours .tb{margin-left:auto}
+.ds-goals{display:grid;gap:2px;padding:8px 2px 4px}
+.ds-gl{font-size:12px;color:var(--muted);padding-bottom:2px}
+.ds-gl small{color:var(--faint);margin-left:4px}
+.ds-g{display:flex;align-items:center;gap:8px;min-height:38px}
+.ds-g .pdot{width:8px;height:8px;border-radius:50%;background:var(--pc);flex:none}
+.ds-gn{flex:1;min-width:0;font-size:14px}
+.ds-gn small{display:block;color:var(--faint);font-size:11.5px}
+.ds-g b{min-width:52px;text-align:center;font-weight:500}
+.ds-g .ib{width:36px;height:36px;border:1px solid var(--line2);border-radius:10px;font-size:18px;color:var(--fg)}
+.ds-g .ib:disabled{opacity:.35}
+.ds-usual{width:52px;font-size:12px;color:var(--accent);text-align:right}
+.ds-adj{margin-left:auto;font-size:12px;color:var(--faint)}
+.ds-fit[aria-expanded="true"] .ds-adj{color:var(--accent)}
