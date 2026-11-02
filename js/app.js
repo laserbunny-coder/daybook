@@ -551,7 +551,7 @@ function weekList(days) {
     <button class="dh" data-act="goday" data-d="${d}"><span>${DAYN[pd(d).getDay()]}</span><b>${pd(d).getDate()}</b></button>
     ${listHTML(d)}${S.min ? '' : loadHTML(d)}</section>`).join('')}</div></div>`;
 }
-function dayList(d) { const wide = !phone(); return `<div class="dl${wide ? ' wide' : ''}">${listHTML(d, wide)}${S.min ? '' : loadHTML(d)}</div>`; }
+function dayList(d) { const wide = false; /* Michael prefers the single column on a computer too (the wide layout felt busy) */ return `<div class="dl${wide ? ' wide' : ''}">${listHTML(d, wide)}${S.min ? '' : loadHTML(d)}</div>`; }
 addEventListener('popstate', () => { if (qSkip) qSkip = false; else if (qVisit) { qVisit = false; if (S.tab !== 'plan') { S.tab = 'plan'; W = null; render(); } } });
 /* Quiet: the whole app rests in a bare look (titles only, events as thin lines, no bars) and the rest waits past the edges.
    Tap the day's name for the controls. Projects come in from the left edge (from the bottom on a phone), Ask Claude from the right. */
