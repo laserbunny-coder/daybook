@@ -17,6 +17,7 @@ import * as kingdom from './kingdom.js';
 import * as blocks from './blocks.js';
 import * as aday from './areaday.js';
 import * as habits from './habits.js';
+import * as daystrip from './daystrip.js';
 import * as took from './took.js';
 import { cleanRule, ruleText, splitOcc, WEEK } from './repeat.js';
 import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fd, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
@@ -476,7 +477,7 @@ function listHTML(d) {
   const all = eventsOn(d).filter(e => e.allDay).map(evRow).join('');
   const body = chips(gaps[0]) + E.map((e, i) => evRow(e) + chips(gaps[i + 1])).join('');
   const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a task to ${esc(dayShort(d))}"><span aria-hidden="true">+</span>${body ? '' : ' Add a task'}</button>`;
-  return `${habitStrip(d)}${areaStrip(d)}${all}<div class="list${body ? '' : ' empty'}" data-drop="list" data-date="${d}">${body}${adder}</div>`;
+  return `${S.view === 'day' ? daystrip.html(d) : ''}${habitStrip(d)}${areaStrip(d)}${all}<div class="list${body ? '' : ' empty'}" data-drop="list" data-date="${d}">${body}${adder}</div>`;
 }
 /* Adding a task right on the plan: the + at the end of a day's list, or a tap on an empty time (or the + in the "Any time" row) in Time blocks.
    A small form opens in place with the title ready to type. It goes in the Inbox unless a project is picked. */
@@ -1824,6 +1825,7 @@ document.addEventListener('click', e => {
     case 'st-card': stats.showCard(b.dataset.v); break;
     case 'st-mode': S.stMode = b.dataset.v; saveUI(); render(); break;
     case 'hb-tick': habitTick(id); break;
+    case 'ds-hours': daystrip.toggleEdit(); render(); break;
     case 'hb-open': { const k = b.dataset.d; S.hbOpen = { ...(S.hbOpen || {}), [k]: !S.hbOpen?.[k] }; render(); break; }
     case 'hb-tray': { const k = b.dataset.d; S.hbTray = { ...(S.hbTray || {}), [k]: !S.hbTray?.[k] }; render(); break; }
     case 'hb-new': S.hbNew = null; S.open = 'hb:new'; S.drOpen && setDrawer?.(false); renderDetail(); break;
@@ -1990,6 +1992,7 @@ document.addEventListener('change', e => {
   if (t.id === 'dt-hm') { const s = store.seriesOf(node(S.open)); if (s?.r) store.update(s.id, { r: cleanRule({ ...s.r, mins: +t.value || 0 }, s.d) }); return; }
   if (t.dataset.pickdate) { if (t.value) setDay(t.dataset.pickdate, t.value); return; }
   if (t.id === 'rm-free') { setFree(t.value); return; }
+  if (t.id === 'ds-from' || t.id === 'ds-to') { daystrip.setHours(t.id === 'ds-from' ? +t.value : null, t.id === 'ds-to' ? +t.value : null); render(); return; }
   if (t.id === 'st-from' || t.id === 'st-to') { if (t.value) { S[t.id === 'st-from' ? 'stFrom' : 'stTo'] = t.value; render(); } return; }
   if (t.id === 'tl-day' || t.id === 'tl-s' || t.id === 'tl-e') { saveStretch(); return; }
   if (t.id?.startsWith('lbn-')) { const v = t.value.trim().slice(0, 40); if (v) store.update(t.id.slice(4), { t: v }); else renderDetail(); return; }
@@ -2330,6 +2333,7 @@ function enterDemo() {
 }
 async function enterCloud(u) {
   user = u; S.demo = false; if (u.user_metadata?.free_hours) S.free = u.user_metadata.free_hours; saveUI(); showWelcome(false);
+  daystrip.useHours(u.user_metadata?.work_hours, h => client.auth.updateUser({ data: { work_hours: h } }).catch(() => {})); // work hours follow the account
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; // so Claude reads and writes finish times in local time
   if (tz && u.user_metadata?.tz !== tz) client.auth.updateUser({ data: { tz } }).catch(() => {});
   calendar.useGoogle(client, u.id); initAI({ cloud: true, client }); notes.useCloud(client, u); quest.init({ client }); fight.init({ client, free: () => +S.free || 10 }); dragon.init({ client }); if (S.games && (S.mode === 'quest' || S.mode === 'dragon' || u.user_metadata?.quest_start)) quest.begin(u); if (S.games && (S.mode === 'dragon' || u.user_metadata?.dragon)) beginDragon(); remind.init(client); gamesQuiet(); routine.init({ client });
@@ -2352,6 +2356,7 @@ if (new URLSearchParams(location.search).has('quest') && S.games) { S.mode = 'qu
 initVoice(q => ask(q, { voice: true }), msg => toast(msg, '', 5000));
 setInterval(() => { if (today() !== shown) { shown = today(); if (S.anchor === add(today(), -1)) S.anchor = today(); later(); } else if (track.running() && !D) later(); // what's recording grows in Time blocks
   else if ((S.mode === 'quest' || S.mode === 'dragon') && !D) later(); // the dragon swoops on the minute
+  else if (S.mode === 'list' && S.view === 'day' && !D) later(); // the day strip counts down
   else if (S.mode === 'timed' && !D) { document.querySelectorAll('.now').forEach(n => n.style.top = hpx((nowMin() - H0 * 60) / 60)); } }, 60e3);
 if (!matchMedia('(min-width:1500px)').matches) document.body.classList.add('ai-off');
 if (S.min) { document.body.classList.add('ai-off'); S.page = 'plan'; S.tab = 'plan'; }
