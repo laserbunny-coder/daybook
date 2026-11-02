@@ -2495,3 +2495,32 @@ body.took-on #toast.toast{bottom:calc(var(--took-b) + var(--took-h,120px) + 10px
 .st-fx-c .tk-c{min-height:36px;font-size:13px}
 .tk-skip{background:transparent!important;color:var(--faint)!important;border-color:var(--line)!important}
 .tk-pl{color:var(--faint);white-space:nowrap}
+
+/* Day strip (js/daystrip.js): the day as one bar at the top of the Day list. Events hatched, recorded time as thin
+   marks, the stretch you're in outlined with the time left; open time against area goals on the line below. */
+.ds{display:grid;gap:0;margin:0 0 4px}
+.ds-bar{position:relative;height:46px;border-radius:9px;background:var(--track);overflow:hidden}
+.ds-bar>div{position:absolute;top:0;bottom:0;display:grid;place-items:center;font-size:11.5px;color:var(--faint);white-space:nowrap;overflow:hidden}
+.ds-bar .ds-off{background:color-mix(in srgb,var(--bg) 45%,transparent)}
+.ds-bar .ds-gone{background:color-mix(in srgb,var(--bg) 55%,transparent)}
+.ds-bar .ds-ev{background:var(--stripes);border-left:1px solid var(--line2);border-right:1px solid var(--line2);color:var(--muted);padding:0 4px}
+.ds-bar .ds-ev.now{box-shadow:inset 0 0 0 1.5px var(--muted);border-radius:6px;color:var(--fg)}
+.ds-bar .ds-cur{background:var(--accent-soft);box-shadow:inset 0 0 0 1.5px var(--accent);border-radius:9px;color:var(--fg);z-index:1}
+.ds-bar .ds-cur span{display:grid;justify-items:center;line-height:1.15}
+.ds-bar .ds-cur b{font-weight:600;font-size:12.5px}
+.ds-bar .ds-cur small{color:var(--accent);font-size:10.5px}
+.ds-bar .ds-sw{position:absolute;bottom:5px;height:4px;border-radius:2px;background:var(--pc);z-index:2}
+.ds-bar .ds-nw{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--accent);z-index:3}
+.ds-ticks{position:relative;height:17px;font-size:10.5px;color:var(--faint);margin-top:3px}
+.ds-ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.ds-ticks span:first-child{transform:none}
+.ds-ticks span:last-child:not(:first-child){transform:translateX(-100%)}
+.ds-ticks .ds-tnow{color:var(--accent)}
+.ds-fit{display:flex;flex-wrap:wrap;gap:4px 14px;justify-content:space-between;width:100%;text-align:left;font-size:13px;color:var(--muted);border:1px solid var(--line);border-radius:10px;padding:8px 11px;margin-top:4px}
+.ds-fit b{color:var(--fg);font-weight:500}
+.ds-fit .ok{color:var(--ok-fg,#8DB88A)}
+.ds-fit .short{color:var(--warn)}
+.ds-fit:hover{border-color:var(--line2)}
+.ds-hours{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;color:var(--muted);padding:8px 2px 2px}
+.ds-hours select{background:var(--track);color:var(--fg);border:1px solid var(--line2);border-radius:7px;padding:4px 6px;font:inherit}
+.ds-hours .tb{margin-left:auto}
