@@ -34,6 +34,7 @@ The write-out is split by speaker (S0, S1, …) by a machine that sometimes spli
 - summary: a few short paragraphs in plain words: what it was about, what was worked out, and anything left open. Keep their own terms and names. No Markdown.
 - decisions: each thing they agreed on or settled, one short sentence each. Only real decisions, not ideas floated.
 - tasks: each thing someone said they'd do or that clearly needs doing, as a short task title starting with a verb. owner is the name of whoever will do it (one of the speaker names), or "" if nobody took it. notes is a sentence of context if the title needs it, else "". due is a date (YYYY-MM-DD) only if one was said, based on the meeting date, else "".
+- For a business meeting, each task also gets area (Content for videos and posts to make, Social for social accounts, Ads for paid ads, Live for live classes and events, Admin for everything else) and school (the business runs two online schools: "Flip & Dance" for acro and dance, "Cheer" for cheer; "Both" if it's for both or unclear). For other meetings, area and school are "".
 - Use only what was said. Never invent tasks, decisions, names or details.`;
 
 const SCHEMA = {
@@ -48,7 +49,7 @@ const SCHEMA = {
     decisions: { type: "array", items: { type: "string" } },
     tasks: {
       type: "array",
-      items: { type: "object", additionalProperties: false, required: ["title", "owner", "notes", "due"], properties: { title: { type: "string" }, owner: { type: "string" }, notes: { type: "string" }, due: { type: "string" } } },
+      items: { type: "object", additionalProperties: false, required: ["title", "owner", "notes", "due", "area", "school"], properties: { title: { type: "string" }, owner: { type: "string" }, notes: { type: "string" }, due: { type: "string" }, area: { type: "string", enum: ["Content", "Social", "Ads", "Live", "Admin", ""] }, school: { type: "string", enum: ["Flip & Dance", "Cheer", "Both", ""] } } },
     },
   },
 };
@@ -80,6 +81,7 @@ export function tidyNotes(out: Record<string, unknown>) {
     tasks: arr(out.tasks).map((t: Record<string, unknown>) => ({
       title: str(t?.title, 200), owner: str(t?.owner, 60), notes: str(t?.notes, 600),
       due: /^\d{4}-\d{2}-\d{2}$/.test(str(t?.due, 10)) ? str(t?.due, 10) : "",
+      area: str(t?.area, 20), school: str(t?.school, 20),
     })).filter((t) => t.title).slice(0, 40),
   };
 }
