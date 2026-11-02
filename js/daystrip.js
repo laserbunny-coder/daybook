@@ -61,6 +61,28 @@ export function copyMonday() {
 export function setHours(from, to) { return commit({ ...W, from: from ?? W.from, to: to ?? W.to }); }
 export const toggleEdit = () => { editing = !editing; if (!editing) weekEdit = false; };
 export const toggleWeek = () => { weekEdit = !weekEdit; };
+/* The little bars in Weekly hours: drag either end (half an hour at a time) and the dropdowns follow when you let go.
+   The bar runs from 4am to midnight. */
+const WA = 240, WZ = 1440, WP = m => ((m - WA) / (WZ - WA) * 100).toFixed(2);
+let changed = () => {};
+export const onChange = f => { changed = f; };
+if (typeof document !== 'undefined') {
+  let g = null;
+  const at = (x, r) => Math.round((WA + (x - r.left) / r.width * (WZ - WA)) / 30) * 30;
+  document.addEventListener('pointerdown', e => { const h = e.target.closest?.('.ds-wh'); if (!h) return; e.preventDefault(); e.stopPropagation();
+    const bar = h.parentElement, k = h.dataset.wk, v = W.week?.[k] && !W.week[k].off ? W.week[k] : { from: W.from, to: W.to };
+    g = { k, end: h.dataset.end, bar, v: { ...v } }; h.setPointerCapture?.(e.pointerId); }, true);
+  document.addEventListener('pointermove', e => { if (!g) return; const m = at(e.clientX, g.bar.getBoundingClientRect());
+    if (g.end === 'from') g.v.from = Math.max(WA, Math.min(g.v.to - 30, m)); else g.v.to = Math.min(WZ, Math.max(g.v.from + 30, m));
+    g.bar.querySelector('.ds-won').style.cssText = `left:${WP(g.v.from)}%;width:${WP(g.v.to) - WP(g.v.from)}%`;
+    g.bar.querySelector('[data-end="from"]').style.left = WP(g.v.from) + '%'; g.bar.querySelector('[data-end="to"]').style.left = WP(g.v.to) + '%'; });
+  const up = () => { if (!g) return; const x = g; g = null; setWeek(x.k, { from: x.v.from, to: x.v.to }); changed(); };
+  document.addEventListener('pointerup', up); document.addEventListener('pointercancel', up);
+  // Arrow keys move a focused end by half an hour
+  document.addEventListener('keydown', e => { const h = e.target.closest?.('.ds-wh'); if (!h || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return; e.preventDefault();
+    const k = h.dataset.wk, v = W.week?.[k] && !W.week[k].off ? W.week[k] : { from: W.from, to: W.to }, by = e.key === 'ArrowLeft' ? -30 : 30, end = h.dataset.end;
+    setWeek(k, { [end]: Math.max(WA, Math.min(WZ, v[end] + by)) }); changed(); document.querySelector(`.ds-wh[data-wk="${k}"][data-end="${end}"]`)?.focus(); });
+}
 // Tapping an event on the strip (or an all-day pill) shows its full name and times under the strip; tapping it again hides them
 let sel = null;
 export const pick = k => { sel = sel === k ? null : k; };
@@ -170,7 +192,8 @@ export function html(d) {
       const wk = k => { const v = W.week?.[k]; return v ? v : { from: W.from, to: W.to }; };
       const total = ORD.reduce((t, k) => { const v = wk(k); return t + (v.off ? 0 : v.to - v.from); }, 0);
       fit += weekEdit ? `<div class="ds-week"><div class="ds-gl">Weekly hours <small>about ${fmtDur(total)} a week</small></div>${ORD.map(k => { const v = wk(k);
-        return `<div class="ds-wr${v.off ? ' off' : ''}"><span class="ds-wd">${NM[k]}</span><span class="ds-wsel">${v.off ? 'Not working' : `<select class="ds-wsel-f" data-wk="${k}" data-end="from" aria-label="${NM[k]} start">${opts(v.from, 240, 840)}</select><span>to</span><select data-wk="${k}" data-end="to" aria-label="${NM[k]} finish">${opts(v.to, 600, 1440)}</select>`}</span><button class="ds-tg" data-act="ds-wkon" data-wk="${k}" aria-pressed="${!v.off}" aria-label="Work on ${NM[k]}"></button></div>`; }).join('')}<div class="ds-wfoot"><button class="ds-link" data-act="ds-copymon">Copy Monday to weekdays</button><button class="tb" data-act="ds-week">Done</button></div></div>`
+        const bar = v.off ? '' : `<div class="ds-wbar" data-wk="${k}"><i class="ds-won" style="left:${WP(v.from)}%;width:${WP(v.to) - WP(v.from)}%"></i><button class="ds-wh" data-wk="${k}" data-end="from" style="left:${WP(v.from)}%" aria-label="Drag ${NM[k]} start"></button><button class="ds-wh" data-wk="${k}" data-end="to" style="left:${WP(v.to)}%" aria-label="Drag ${NM[k]} finish"></button></div>`;
+        return `<div class="ds-wr${v.off ? ' off' : ''}"><span class="ds-wd">${NM[k]}</span><span class="ds-wsel">${v.off ? 'Not working' : `<select class="ds-wsel-f" data-wk="${k}" data-end="from" aria-label="${NM[k]} start">${opts(v.from, 240, 840)}</select><span>to</span><select data-wk="${k}" data-end="to" aria-label="${NM[k]} finish">${opts(v.to, 600, 1440)}</select>`}</span><button class="ds-tg" data-act="ds-wkon" data-wk="${k}" aria-pressed="${!v.off}" aria-label="Work on ${NM[k]}"></button>${bar}</div>`; }).join('')}<div class="ds-wfoot"><button class="ds-link" data-act="ds-copymon">Copy Monday to weekdays</button><button class="tb" data-act="ds-week">Done</button></div></div>`
         : `<button class="ds-link ds-wlink" data-act="ds-week">Weekly hours \u203a</button>`;
     }
   }
