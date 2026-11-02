@@ -59,7 +59,7 @@ const schema = (said: boolean) => ({
 
 type Block = { text: string; el: string; new_scene: boolean; said?: string };
 type Note = { text: string; after: number };
-type VoiceBody = { file?: string; transcript?: string; duration?: number; use?: string; place?: string; script?: boolean; before?: string; book?: string; tags?: string[] };
+type VoiceBody = { file?: string; transcript?: string; duration?: number; use?: string; place?: string; script?: boolean; before?: string; book?: string; tags?: string[]; terms?: string[] };
 
 const clip = (s: unknown, n: number) => (typeof s === "string" ? s.slice(-n) : "");
 
@@ -127,7 +127,7 @@ async function writeOut(userId: string, b: VoiceBody): Promise<string> {
   if (error || !data) throw Object.assign(new Error("The recording hasn't reached the cloud yet."), { status: 404 });
   const type = data.type || "audio/webm";
   const ext = type.includes("mp4") || type.includes("m4a") || type.includes("aac") ? "m4a" : type.includes("ogg") ? "ogg" : type.includes("mpeg") ? "mp3" : type.includes("wav") ? "wav" : "webm";
-  return await transcribe(data, `capture.${ext}`, Number(b.duration) || 0);
+  return await transcribe(data, `capture.${ext}`, Number(b.duration) || 0, undefined, b.terms ?? []);
 }
 
 export async function voice(client: Anthropic, userId: string, b: VoiceBody): Promise<Response> {

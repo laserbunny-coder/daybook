@@ -2,7 +2,7 @@
 // a sentence, or rewrites of a paragraph; and voice captures are written out
 // and outlined here (capture.ts), shared links get a snapshot (snapshot.ts), a day's page gets a
 // review (review.ts), the plot grid gets a thread filled in or its promises checked (grid.ts), a script gets its breakdown, shot lists, generation prompts and captions (production.ts), a draft gets editor's notes, a talk-through or two versions compared (revise.ts), tags get sorted into groups (tags.ts), old notes brought in from other apps get a home, title, about and tags suggested (bringin.ts), the workflow pages get homes for what came in, drawer picks, timeline events, ties, Develop steps and continuity checks (pages.ts), and recordings are written up in a mode, for the day
-// page or straight into a draft (voice.ts). It lives here because Inkwell syncs
+// page or straight into a draft (voice.ts), and meeting recordings become notes (meeting.ts), a business meeting's tasks going to Acro HQ (acro.ts). It lives here because Inkwell syncs
 // through this same Supabase project and uses the same Claude key.
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import { cors, json, userFrom } from "../_shared/common.ts";
@@ -17,6 +17,8 @@ import { production } from "./production.ts";
 import { revise } from "./revise.ts";
 import { pages } from "./pages.ts";
 import { bringIn } from "./bringin.ts";
+import { meetingNotes, writeOutMeeting } from "./meeting.ts";
+import { sendToAcro } from "./acro.ts";
 
 const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
 
@@ -117,6 +119,9 @@ Deno.serve(async (req) => {
   if (body && (body as { mode: string }).mode === "tags") return sortTags(client, body as never);
   if (body && (body as { mode: string }).mode === "pages") return pages(client, body as never);
   if (body && (body as { mode: string }).mode === "bringin") return bringIn(client, body as never);
+  if (body && (body as { mode: string }).mode === "meeting-writeout") return writeOutMeeting(user.id, body as never);
+  if (body && (body as { mode: string }).mode === "meeting-notes") return meetingNotes(client, body as never);
+  if (body && (body as { mode: string }).mode === "acro-send") return sendToAcro(body as never);
   if (body && (body as { mode: string }).mode === "snapshot") return snapshot(client, user.id, body as never);
   if (body && (body as { mode: string }).mode === "lookup") {
     const b = body as unknown as { text?: string; list?: string };

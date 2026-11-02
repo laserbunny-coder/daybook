@@ -4,6 +4,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import { admin, json } from "../_shared/common.ts";
 import { refsIn, tagFor } from "./enrich.ts";
+import { hear } from "./speech.ts";
 
 const OUTLINE_SYSTEM = `You help a writer and filmmaker keep their ideas. They record ideas out loud (often while driving or walking) and the recording has been written out word for word. Under it, you add a short, tidy outline of the idea so it's easy to scan later.
 
@@ -19,88 +20,13 @@ const OUTLINE_SCHEMA = {
   properties: { outline: { type: "array", items: { type: "string" } } },
 };
 
-const OPENAI_LIMIT = 25 * 1024 * 1024;
-
 const HINT = "Someone thinking out loud: journaling about their day, talking through an idea, or dictating a story, a scene or dialogue for a film or show.";
 
-// True when a write-out is just the hint said back (no real speech).
-export function echoesHint(text: string, hint = HINT): boolean {
-  const words = (s: string) => (s.toLowerCase().match(/[a-z']+/g) || []).filter((w) => w.length > 3);
-  const said = words(text);
-  if (!said.length) return !text.trim();
-  const hinted = new Set(words(hint));
-  return said.length <= 20 && said.filter((w) => hinted.has(w)).length / said.length >= 0.85;
-}
-
-// Past this, a recording goes to Deepgram (when its key is set): it takes an
-// hour or more in one go and doesn't stop early on a long ramble.
-export const LONG_MS = 10 * 60 * 1000;
-
-// Scribe, the dictation app, writes out its recordings here too, with its own hint.
-export async function transcribe(blob: Blob, name: string, durationMs: number, hint = HINT): Promise<string> {
-  const long = !durationMs || durationMs > LONG_MS || blob.size > OPENAI_LIMIT;
-  if (long && Deno.env.get("DEEPGRAM_API_KEY")) {
-    try {
-      return await deepgram(blob, hint);
-    } catch (err) {
-      // Something wrong on Deepgram's side: a short enough one can still go to OpenAI.
-      if (blob.size > OPENAI_LIMIT || !Deno.env.get("OPENAI_API_KEY")) throw err;
-      console.error(err);
-    }
-  }
-  return await openai(blob, name, durationMs, hint);
-}
-
-async function openai(blob: Blob, name: string, durationMs: number, hint: string): Promise<string> {
-  const key = Deno.env.get("OPENAI_API_KEY");
-  if (!key) throw Object.assign(new Error("Writing out recordings isn't set up yet."), { code: "no-transcriber", status: 503 });
-  if (blob.size > OPENAI_LIMIT) throw Object.assign(new Error("That recording is too long to write out in one go."), { status: 413 });
-  // The newer model is the most accurate, but it can stop early on long
-  // recordings; past a few minutes the older one writes out the whole thing.
-  const model = durationMs && durationMs < 7 * 60 * 1000 ? "gpt-4o-transcribe" : "whisper-1";
-  const form = new FormData();
-  form.append("file", blob, name);
-  form.append("model", model);
-  form.append("response_format", "json");
-  // English, with a hint at what's usually said, which helps names and
-  // punctuation. On a near-silent recording the service can echo the hint
-  // back, so a write-out that is mostly the hint's own words is dropped.
-  form.append("language", "en");
-  form.append("prompt", hint);
-  const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}` },
-    body: form,
-  });
-  if (res.status === 401) throw Object.assign(new Error("The speech service's key isn't set up correctly."), { code: "no-transcriber", status: 503 });
-  if (!res.ok) throw Object.assign(new Error(`The speech service returned an error (${res.status}).`), { status: 502 });
-  const out = await res.json();
-  const said = typeof out.text === "string" ? out.text.trim() : "";
-  return said && !echoesHint(said, hint) ? said : "";
-}
-
-// Deepgram takes the recording as it is and writes it out with punctuation
-// and paragraphs. It has no hint, so nothing can be echoed back.
-async function deepgram(blob: Blob, _hint: string): Promise<string> {
-  const q = new URLSearchParams({ model: "nova-3", language: "en", smart_format: "true", punctuate: "true", paragraphs: "true" });
-  let res: Response;
-  try {
-    res = await fetch(`https://api.deepgram.com/v1/listen?${q}`, {
-      method: "POST",
-      headers: { Authorization: `Token ${Deno.env.get("DEEPGRAM_API_KEY")}`, "Content-Type": blob.type || "audio/webm" },
-      body: blob,
-      signal: AbortSignal.timeout(140_000),
-    });
-  } catch {
-    throw Object.assign(new Error("The speech service took too long. It'll try again."), { status: 504 });
-  }
-  if (res.status === 401 || res.status === 403) throw Object.assign(new Error("The long-recording speech service's key isn't set up correctly."), { status: 503 });
-  if (res.status === 402) throw Object.assign(new Error("The long-recording speech service is out of credit."), { status: 503 });
-  if (!res.ok) { console.error(await res.text().catch(() => "")); throw Object.assign(new Error(`The speech service returned an error (${res.status}).`), { status: 502 }); }
-  const out = await res.json();
-  const alt = out?.results?.channels?.[0]?.alternatives?.[0] ?? {};
-  const said = String(alt.paragraphs?.transcript ?? alt.transcript ?? "").trim();
-  return said;
+// Every recording is written out by speech.ts (ElevenLabs, with OpenAI as the
+// backup). `terms` are names to listen for, such as the people and places in
+// the person's worlds. Scribe, the dictation app, comes here too, with its own hint.
+export async function transcribe(blob: Blob, name: string, _durationMs: number, hint = HINT, terms: string[] = []): Promise<string> {
+  return (await hear(blob, name, { hint, terms })).text;
 }
 
 async function outlineOf(client: Anthropic, transcript: string): Promise<string[]> {
@@ -122,7 +48,7 @@ async function outlineOf(client: Anthropic, transcript: string): Promise<string[
   return (out.outline ?? []).filter((s: unknown) => typeof s === "string").slice(0, 12);
 }
 
-type CaptureBody = { file?: string; transcript?: string; duration?: number; tags?: string[] };
+type CaptureBody = { file?: string; transcript?: string; duration?: number; tags?: string[]; terms?: string[] };
 
 export async function capture(client: Anthropic, userId: string, body: CaptureBody): Promise<Response> {
   let transcript = typeof body.transcript === "string" ? body.transcript.trim() : "";
@@ -133,7 +59,7 @@ export async function capture(client: Anthropic, userId: string, body: CaptureBo
       if (error || !data) return json({ error: "The recording hasn't reached the cloud yet." }, 404);
       const type = data.type || "audio/webm";
       const ext = type.includes("mp4") ? "m4a" : type.includes("ogg") ? "ogg" : type.includes("mpeg") ? "mp3" : type.includes("wav") ? "wav" : "webm";
-      transcript = await transcribe(data, `capture.${ext}`, Number(body.duration) || 0);
+      transcript = await transcribe(data, `capture.${ext}`, Number(body.duration) || 0, HINT, body.terms ?? []);
     }
   } catch (err) {
     const e = err as Error & { code?: string; status?: number };
