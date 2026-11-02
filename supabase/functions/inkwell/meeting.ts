@@ -1,55 +1,27 @@
 // Meetings in Inkwell: a recording of a meeting (already in the person's
 // folder in the writing-files bucket) is written out with each speaker told
-// apart, then Claude names the speakers and writes the summary, the decisions
-// and the tasks. Two steps, so the words are kept even if the notes fail.
-//
-// The write-out uses Deepgram, which takes a whole hour-long file by link and
-// labels speakers (OpenAI's speaker labels are being retired and it only takes
-// 25 MB at a time).
+// apart (speech.ts: ElevenLabs fetches it by link and labels the speakers),
+// then Claude names the speakers and writes the summary, the decisions and the
+// tasks. Two steps, so the words are kept even if the notes fail.
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import { admin, json } from "../_shared/common.ts";
+import { hear, type Said } from "./speech.ts";
 
-export type Said = { s: number; t: number; text: string };
+const HINT = "A meeting between two or more people: business planning for a dance and cheer school, or a film production meeting.";
 
-// Deepgram's utterances, run together while the same person keeps talking.
-export function merge(utterances: { speaker?: number; start?: number; transcript?: string }[]): Said[] {
-  const out: Said[] = [];
-  for (const u of utterances) {
-    const text = (u.transcript ?? "").trim();
-    if (!text) continue;
-    const s = Number(u.speaker) || 0;
-    const last = out.at(-1);
-    if (last && last.s === s && last.text.length < 1500) last.text += ` ${text}`;
-    else out.push({ s, t: Math.round(Number(u.start) || 0), text });
-  }
-  return out;
-}
-
-export async function writeOutMeeting(userId: string, body: { file?: string }): Promise<Response> {
-  const key = Deno.env.get("DEEPGRAM_API_KEY");
-  if (!key) return json({ error: "Writing out meetings isn't set up yet.", code: "no-meeting-transcriber" }, 503);
+export async function writeOutMeeting(userId: string, body: { file?: string; terms?: string[] }): Promise<Response> {
   if (typeof body.file !== "string" || !/^[\w-]+$/.test(body.file)) return json({ error: "Missing recording" }, 400);
   const { data, error } = await admin().storage.from("writing-files").createSignedUrl(`${userId}/${body.file}`, 60 * 60);
   if (error || !data?.signedUrl) return json({ error: "The recording hasn't reached the cloud yet." }, 404);
-  const q = new URLSearchParams({ model: "nova-3", language: "en", diarize: "true", utterances: "true", smart_format: "true", punctuate: "true" });
-  let res: Response;
   try {
-    res = await fetch(`https://api.deepgram.com/v1/listen?${q}`, {
-      method: "POST",
-      headers: { Authorization: `Token ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ url: data.signedUrl }),
-      signal: AbortSignal.timeout(140_000),
-    });
+    const { said, duration } = await hear(null, "meeting", { hint: HINT, terms: body.terms, speakers: true, url: data.signedUrl });
+    return json({ said, duration });
   } catch (err) {
-    console.error(err);
-    return json({ error: "The speech service took too long. It'll try again." }, 504);
+    const e = err as Error & { code?: string; status?: number };
+    console.error(e);
+    // Without a speaker-labelling service set up, the app waits for one.
+    return json({ error: e.message, code: e.code === "no-transcriber" ? "no-meeting-transcriber" : e.code ?? null }, e.status ?? 500);
   }
-  if (res.status === 401 || res.status === 403) return json({ error: "The meeting speech service's key isn't set up correctly.", code: "no-meeting-transcriber" }, 503);
-  if (res.status === 402) return json({ error: "The meeting speech service is out of credit.", code: "no-meeting-transcriber" }, 503);
-  if (!res.ok) { console.error(await res.text().catch(() => "")); return json({ error: `The speech service returned an error (${res.status}).` }, 502); }
-  const out = await res.json();
-  const said = merge(out?.results?.utterances ?? []);
-  return json({ said, duration: Math.round(Number(out?.metadata?.duration) || 0) });
 }
 
 const SYSTEM = `You turn a written-out meeting into notes its owner can use. The owner runs a dance and cheer business with their partner, and is also a writer and filmmaker, so a meeting is usually business or a film production meeting.
