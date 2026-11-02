@@ -88,6 +88,8 @@ async function elevenlabs(key: string, audio: { blob?: Blob; name?: string; url?
   const said = merge(words);
   const text = o.speakers ? said.map((x) => x.text).join(" ") : String(out?.text ?? "").trim();
   const duration = Math.round(Math.max(0, ...words.map((w) => Number(w.end) || 0)));
+  // No words back is worth a note in the logs: it's the clue when a recording comes back blank.
+  if (!text) console.warn("ElevenLabs heard no words", JSON.stringify({ size: audio.blob?.size ?? null, url: !!audio.url, terms: terms.length, language: out?.language_code ?? null, probability: out?.language_probability ?? null, words: words.length, kinds: [...new Set(words.map((w) => w.type))] }));
   return { text, said, duration, by: "elevenlabs" };
 }
 
@@ -136,7 +138,13 @@ export async function hear(blob: Blob | null, name: string, o: HearOpts, load?: 
   const key = Deno.env.get("ELEVENLABS_API_KEY");
   if (key) {
     try {
-      return await elevenlabs(key, o.url ? { url: o.url } : { blob: blob!, name }, o, terms);
+      const audio = o.url ? { url: o.url } : { blob: blob!, name };
+      let heard = await elevenlabs(key, audio, o, terms);
+      // A blank answer for a real recording: once more without the names to
+      // listen for, then (below) the backup service, before calling it silent.
+      if (!heard.text && terms.length) heard = await elevenlabs(key, audio, o, []);
+      if (heard.text || o.speakers || !Deno.env.get("OPENAI_API_KEY") || (blob?.size ?? 0) > OPENAI_LIMIT || (!blob && !load)) return heard;
+      console.warn("ElevenLabs heard nothing, trying OpenAI");
     } catch (err) {
       const size = blob?.size ?? 0;
       if (o.speakers || !Deno.env.get("OPENAI_API_KEY") || size > OPENAI_LIMIT) throw err;
