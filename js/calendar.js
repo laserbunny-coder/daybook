@@ -18,6 +18,7 @@ export function useSample() {
   [['Team check-in', D(0), 600, 30, work], ['Lunch with Sam', D(0), 780, 60, home], ['Client call', D(1), 840, 60, work], ['Dentist', D(2), 540, 60, '#E67C73'],
    ['Team check-in', D(3), 600, 30, work], ['1:1 with Jordan', D(3), 930, 60, work], ['Haircut', D(4), 720, 45, home], ['Dinner with family', D(4), 1080, 120, home],
    ["Kids' soccer", D(5), 600, 120, home]].forEach(([t, d, s, m, color]) => push(d, { t, s, m, color, allDay: false }));
+  push(D(0), { t: "Mom's birthday", s: 0, m: 1440, color: '#D81B60', allDay: true });
   onUpdate();
 }
 

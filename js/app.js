@@ -454,7 +454,6 @@ function loadHTML(d) {
 }
 // Each event carries its Google colour (its own, else its calendar's) as --evc; the CSS mixes in a faint tint of it.
 const evTint = e => /^#[0-9a-f]{3,8}$/i.test(e.color || '') ? ` style="--evc:${e.color}"` : '';
-const evRow = e => `<div class="evr"${evTint(e)}><span>${e.allDay ? 'All day' : fmtT(e.s)}</span><b class="ev-t">${esc(e.t)}</b></div>`;
 /* In the List view, tasks sit between the day's calendar events. Gap 0 is before
    the first event, gap i is after event i. A task with a time goes where its time
    falls; one without sits after the event that starts at its "a" minute.
@@ -474,14 +473,13 @@ function dayGaps(d) {
 function listHTML(d, wide = false) {
   const { gaps } = dayGaps(d);
   const chips = g => g.filter(n => !(n.rs && habits.isHabit(n))).map(n => chipHTML(n, { time: true, min: S.min })).join(''); // habits live in their own card
-  const all = eventsOn(d).filter(e => e.allDay).map(evRow).join('');
   // Timed events no longer sit in the list (the strip and Timeline show them); tasks keep the same order around them
   const body = gaps.map(chips).join('');
   const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a task to ${esc(dayShort(d))}"><span aria-hidden="true">+</span>${body ? '' : ' Add a task'}</button>`;
   const list = `<div class="list${body ? '' : ' empty'}" data-drop="list" data-date="${d}">${body}${adder}</div>`;
   // A computer's Day view uses the width: strip across the top, area cards side by side, Habits in a column of their own
-  if (wide) return `${daystrip.html(d)}<div class="dw"><div class="dw-main">${areaStrip(d)}${all}${list}</div><div class="dw-side">${habitStrip(d)}</div></div>`;
-  return `${S.view === 'day' ? daystrip.html(d) : daystrip.mini(d)}${habitStrip(d)}${areaStrip(d)}${all}${list}`;
+  if (wide) return `${daystrip.html(d)}<div class="dw"><div class="dw-main">${areaStrip(d)}${list}</div><div class="dw-side">${habitStrip(d)}</div></div>`;
+  return `${S.view === 'day' ? daystrip.html(d) : daystrip.mini(d)}${habitStrip(d)}${areaStrip(d)}${list}`;
 }
 /* Adding a task right on the plan: the + at the end of a day's list, or a tap on an empty time (or the + in the "Any time" row) in Time blocks.
    A small form opens in place with the title ready to type. It goes in the Inbox unless a project is picked. */
@@ -1832,6 +1830,7 @@ document.addEventListener('click', e => {
     case 'st-mode': S.stMode = b.dataset.v; saveUI(); render(); break;
     case 'hb-tick': habitTick(id); break;
     case 'ds-hours': daystrip.toggleEdit(); render(); break;
+    case 'ds-ev': daystrip.pick(b.dataset.k); render(); break;
     case 'ds-goal': { const a = node(id), d = b.dataset.d, by = b.dataset.by; if (!a) break; // a day's area goal, for that day only
       const usual = Math.max(0, +(a.dg?.[aday.keyOf(d)] || 0)), v = by === 'usual' ? '' : Math.max(0, Math.min(960, aday.targetOn(a, d) + +by));
       store.update(id, { dg: withDay(a.dg, d, v !== '' && v === usual ? '' : v) }); break; }
