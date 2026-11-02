@@ -4,7 +4,10 @@
 //   new     -> written: ElevenLabs writes it out with the speakers told apart (../inkwell/speech.ts)
 //   written -> ready:   Claude names the speakers and writes the summary, decisions and suggested tasks,
 //                       with HQ's business context (settings/brief, open tasks) and Michael's own rules
-//                       (settings/meetings.rules, edited on the board's "Meeting rules")
+//                       (settings/meetings.rules, edited on the board's "Meeting rules"), plus what Claude
+//                       could do itself: each goes up as a card on HQ's Review (approvals, kind "change",
+//                       action "ad-new" | "reel-new" | "claude-job"), and one yes there starts the work on
+//                       Michael's PC (video/watch.py in the acro-hq repo). Nothing is made before that yes.
 // A step claims its meeting first (status writing/thinking, lockedUntil), so two runs never do the same one,
 // and a run that dies is picked up again once the lock runs out.
 import type { Said } from "../inkwell/speech.ts";
@@ -21,6 +24,9 @@ const DOC_MAX = 230_000; // board docs are capped at 256 KB
 const AREAS = ["Content", "Social", "Ads", "Live", "Admin"];
 const SCHOOLS = ["Flip & Dance", "Cheer", "Both"];
 const DEFAULT_TITLE = "Meeting recording";
+// What Claude can be asked to do from a meeting, and the HQ card action each becomes (acro-hq HANDOFF "Meeting recordings").
+const JOBS = ["ad", "reel", "other"];
+const ACTION: Record<string, string> = { ad: "ad-new", reel: "reel-new", other: "claude-job" };
 const HINT = "A business meeting between Michael and Nate, who run two online acrobatics schools on Skool: Flippin' Dance Acrobatics and Better Tumbling for Cheerleaders.";
 const TERMS = ["Acro HQ", "Flip & Dance", "Flippin' Dance Acrobatics", "Better Tumbling for Cheerleaders", "Skool", "SkoolKit", "Instagram", "TikTok", "Meta Ads", "acro", "cheer", "tumbling"];
 
@@ -37,13 +43,14 @@ The write-out is split by speaker (S0, S1, …) by a machine that sometimes spli
 - decisions: each thing they agreed on or settled, one short sentence each. Only real decisions, not ideas floated.
 - tasks: each thing someone said they'd do, or that clearly needs doing, as a short title starting with a verb. assignee: who will do it (one of the team), or "" if nobody took it. area: Content (videos and posts to make), Social (social accounts), Ads (paid ads), Live (live classes and events) or Admin (everything else). school: "Flip & Dance", "Cheer", or "Both" if it's for both or unclear. due: a date (YYYY-MM-DD) only if one was said, worked out from the meeting date, else "". notes: what's needed to do it, from the meeting: context, and where they apply the direct links and short numbered steps (the board's standing rule for every task). Never invent links or steps that weren't said or aren't obvious.
 - Don't suggest a task that's already open on the board (the list is given); mention it in notes of a related task if the meeting changed it.
+- claude: work Claude can do by itself for them, that came up in the meeting (they asked for it, or said they want it). Each goes on the board as a card they approve with one tap, and the yes starts the work. type "ad": make new video ads (Claude writes ad edit plans from their real footage and renders them; each ad still needs its own approval before it goes into Meta Ads, paused). type "reel": make social reels (a skill, a format such as breakdown, slow-mo, progression, one-drill or mistake-fix, an angle). type "other": anything else Claude can do with files and writing alone, such as drafting captions, a Skool post, an email, a plan, a script or a shot list (it can't film, post, spend, message anyone or change accounts). title: what Claude will make, starting with a verb ("Make 2 ads for dance moms about ..."). why: one sentence on what was said. ask: what happens on yes, in plain words. count: how many (1 to 3; 1 for "other"). notes: everything from the meeting Claude needs to do it well: who it's for, the angle, skill, format, hook, offer, what to avoid. Only what was said; leave this empty when they asked Claude for nothing. A task a person will do goes in tasks, not here.
 - Use only what was said. Never invent tasks, decisions, names or details.
 - Michael's own rules for meeting notes come last, if there are any. Follow them; where they conflict with the above, they win.`;
 
 export const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["title", "speakers", "summary", "decisions", "tasks"],
+  required: ["title", "speakers", "summary", "decisions", "tasks", "claude"],
   properties: {
     title: { type: "string" },
     speakers: { type: "array", items: { type: "object", additionalProperties: false, required: ["id", "name"], properties: { id: { type: "integer" }, name: { type: "string" } } } },
@@ -54,6 +61,13 @@ export const SCHEMA = {
       items: {
         type: "object", additionalProperties: false, required: ["title", "assignee", "area", "school", "due", "notes"],
         properties: { title: { type: "string" }, assignee: { type: "string" }, area: { type: "string", enum: AREAS }, school: { type: "string", enum: SCHOOLS }, due: { type: "string" }, notes: { type: "string" } },
+      },
+    },
+    claude: {
+      type: "array",
+      items: {
+        type: "object", additionalProperties: false, required: ["type", "title", "why", "ask", "school", "count", "notes"],
+        properties: { type: { type: "string", enum: JOBS }, title: { type: "string" }, why: { type: "string" }, ask: { type: "string" }, school: { type: "string", enum: SCHOOLS }, count: { type: "integer" }, notes: { type: "string" } },
       },
     },
   },
@@ -99,7 +113,40 @@ export function tidy(out: Record<string, any>, team: string[]) {
       area: AREAS.includes(t?.area) ? t.area : "Admin", school: SCHOOLS.includes(t?.school) ? t.school : "Both",
       due: /^\d{4}-\d{2}-\d{2}$/.test(str(t?.due, 10)) ? str(t?.due, 10) : "", notes: str(t?.notes, 2000),
     })).filter((t) => t.title).slice(0, 30),
+    jobs: arr(out.claude).map((j: any) => ({
+      type: JOBS.includes(j?.type) ? j.type : "other", title: str(j?.title, 200), why: str(j?.why, 600), ask: str(j?.ask, 400),
+      school: SCHOOLS.includes(j?.school) ? j.school : "Both", count: j?.type === "other" ? 1 : Math.max(1, Math.min(3, Number(j?.count) || 1)), notes: str(j?.notes, 3000),
+    })).filter((j) => j.title).slice(0, 8),
   };
+}
+
+type Job = ReturnType<typeof tidy>["jobs"][number];
+const ASK: Record<string, string> = {
+  ad: "On yes: Claude makes the ads on Michael's PC from your footage and puts each one on Review. Each still needs its own Approve... before it goes into Meta Ads (paused).",
+  reel: "On yes: Claude makes the reels on Michael's PC and puts each one on Review > To post, for its own yes before it posts.",
+  other: "On yes: Claude does it on Michael's PC and puts what it made on this card (and in the repo).",
+};
+
+// Claude's own jobs from a meeting, as cards on HQ's Review. One card per job, id from the meeting and the job's
+// place, so "Write the notes again" refreshes cards still waiting and never touches one someone already decided.
+async function putJobs(tool: Tool, m: { id: string; title: string; date: string }, jobs: Job[], now: number) {
+  const out: { card: string; type: string; title: string }[] = [];
+  const writes: Record<string, unknown>[] = [];
+  for (const [i, j] of jobs.entries()) {
+    const id = `mtg-${m.id}-${i + 1}`.slice(0, 200);
+    const old = await get(tool, "approvals", id);
+    out.push({ card: id, type: j.type, title: j.title });
+    if (old && old.data?.status !== "waiting") continue;
+    const data = {
+      kind: "change", school: j.school, title: j.title, why: `From the meeting "${m.title}"${m.date ? ` (${m.date})` : ""}: ${j.why}`.slice(0, 1000),
+      ask: (j.ask ? `${j.ask} ` : "") + ASK[j.type], date: m.date || "",
+      action: { type: ACTION[j.type], count: j.count, notes: j.notes, meeting: { id: m.id, title: m.title } },
+      createdBy: BY, createdAt: old?.data?.createdAt ?? now, status: "waiting",
+    };
+    writes.push(old ? { collection: "approvals", id, data, mode: "set", if_version: old.version } : { collection: "approvals", id, data, mode: "set" });
+  }
+  if (writes.length) await tool("board_write", { by: BY, writes });
+  return out;
 }
 
 const lines = (said: Said[], names: Map<number, string>) =>
@@ -166,6 +213,15 @@ export async function step(d: Deps): Promise<"more" | "idle"> {
       suggestions: notes.suggestions, suggestionsDone: false, transcript: lines(said, names), lockedUntil: 0, attempts: 0, error: null, note: null, notesAt: now,
     };
     if (notes.title && (!m.title || m.title === DEFAULT_TITLE)) data.title = notes.title;
+    // Claude's own jobs go up as cards to approve; a failure here doesn't lose the notes.
+    try {
+      data.claudeJobs = await putJobs(d.tool, { id: doc.id, title: String(data.title || m.title || DEFAULT_TITLE), date: str(m.date, 10) }, notes.jobs, now);
+      data.jobsError = null;
+    } catch (e) {
+      console.error("couldn't put Claude's jobs on Review", e);
+      data.claudeJobs = notes.jobs.map((j) => ({ card: "", type: j.type, title: j.title }));
+      data.jobsError = "Couldn't put these on Review. Write the notes again to retry.";
+    }
     // Room on the doc: the write-out with timestamps (kept for "Write the notes again") goes first.
     if (JSON.stringify({ ...m, ...data }).length > DOC_MAX) data.said = { __delete__: true };
     if (JSON.stringify({ ...m, ...data, said: undefined }).length > DOC_MAX) data.transcript = String(data.transcript).slice(0, 150_000) + "\n… (cut: the recording is longer than the board can hold)";
