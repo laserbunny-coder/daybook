@@ -88,11 +88,15 @@ export function html(d) {
     parts.push(box(`ds-ev${inEv === e ? ' now' : ''}${sel === k ? ' sel' : ''}`, e.s, e.s + (e.m || 0), w > t.length * 1.7 ? esc(t) : '', ` data-act="ds-ev" data-k="${k}" role="button" title="${esc(t)} · ${evTimes(e)}"`).replace('" data-act', `${tint(e) ? ';' + tint(e) : ''}" data-act`)); });
   for (const x of ST) parts.push(`<i class="ds-sw" style="left:${P(x.s).toFixed(2)}%;width:${Math.max(.6, P(x.e) - P(x.s)).toFixed(2)}%;--pc:${x.c}"></i>`);
   if (isT && n >= a && n <= z) parts.push(`<i class="ds-nw" style="left:${P(n).toFixed(2)}%"></i>`);
-  // Under the bar: each event ahead, its time and name in its colour (dropped where they'd crowd, cut short to fit)
+  // Over the bar: each event ahead, its time and name in its colour (dropped where they'd crowd, cut short to fit)
   const ahead = E.map((e, i) => ({ e, i, p: P(e.s) })).filter(x => !isT || x.e.s > n).filter(x => x.p < 100);
   const kept = []; for (const x of ahead) if (!kept.length || x.p - kept[kept.length - 1].p >= 9) kept.push(x);
-  const names = kept.map((x, j) => { const nx = kept[j + 1], prev = kept[j - 1], right = !nx && x.p > 72;
-    const pos = right ? `right:0;max-width:calc(${(100 - (prev ? prev.p + 9 : 0)).toFixed(2)}% - 8px)` : `left:${x.p.toFixed(2)}%;max-width:calc(${((nx ? nx.p : 100) - x.p).toFixed(2)}% - 8px)`;
+  // The last name may sit against the right edge; then it and the one before share what's left halfway
+  const L = kept[kept.length - 1], lastRight = L && L.p > 72, before = kept[kept.length - 2];
+  const cut = lastRight ? Math.min(L.p, before ? before.p + (100 - before.p) / 2 : 0) : 100;
+  const names = kept.map((x, j) => { const nx = kept[j + 1], right = x === L && lastRight;
+    const end = nx === L && lastRight ? cut : nx ? nx.p : 100;
+    const pos = right ? `right:0;max-width:${(100 - cut).toFixed(2)}%` : `left:${x.p.toFixed(2)}%;max-width:calc(${(end - x.p).toFixed(2)}% - 10px)`;
     return `<button class="ds-nm" style="${pos}${tint(x.e) ? ';' + tint(x.e) : ''}" data-act="ds-ev" data-k="${d}|e${x.i}"><i>${fmtT(x.e.s)}</i>${esc(x.e.t || 'Busy')}</button>`; }).join('');
   // Then the time now with the countdown, so it never gets squeezed inside a small stretch
   let tick;
@@ -118,7 +122,7 @@ export function html(d) {
     }
   }
   const A = eventsOn(d).filter(e => e.allDay);
-  return `<div class="ds${isT ? ' today' : ''}${past ? ' past' : ''}">${allDay(d, A)}<div class="ds-bar" role="img" aria-label="${isT && cur ? `${fmtDur(cur.e - n)} free${next && next.s === cur.e ? ' until ' + esc(next.t || 'the next event') : ''}` : 'The day'}">${parts.join('')}</div>${names ? `<div class="ds-names">${names}</div>` : ''}<div class="ds-ticks">${ticks}</div>${caption(d, E, A)}${fit}</div>`;
+  return `<div class="ds${isT ? ' today' : ''}${past ? ' past' : ''}">${allDay(d, A)}${names ? `<div class="ds-names">${names}</div>` : ''}<div class="ds-bar" role="img" aria-label="${isT && cur ? `${fmtDur(cur.e - n)} free${next && next.s === cur.e ? ' until ' + esc(next.t || 'the next event') : ''}` : 'The day'}">${parts.join('')}</div><div class="ds-ticks">${ticks}</div>${caption(d, E, A)}${fit}</div>`;
 }
 
 /** A day's work windows and what's left: open minutes in the work hours (from now on, for today) and goal minutes still to do. */

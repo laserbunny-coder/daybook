@@ -8,7 +8,9 @@ export const cal = { connected: false, reconnect: false, error: null, loading: f
 let onUpdate = () => {};
 
 export function onCalendarChange(f) { onUpdate = f; }
-export const eventsOn = d => (byDay.get(d) || []).slice().sort((a, b) => (a.allDay ? -1 : a.s) - (b.allDay ? -1 : b.s));
+// Google's "Week numbers" calendar puts "Week 45 of 2026" on every day; that's not an event, so it's left out
+const noise = e => e.allDay && (/^week \d+( of \d{4})?$/i.test((e.t || '').trim()) || /week number/i.test(e.cal || ''));
+export const eventsOn = d => (byDay.get(d) || []).filter(e => !noise(e)).sort((a, b) => (a.allDay ? -1 : a.s) - (b.allDay ? -1 : b.s));
 export const timedOn = d => eventsOn(d).filter(e => !e.allDay);
 
 export function useSample() {
