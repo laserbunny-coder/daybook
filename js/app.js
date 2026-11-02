@@ -7,9 +7,20 @@ import * as roadmap from './roadmap.js';
 import * as stats from './stats.js';
 import * as track from './track.js';
 import * as notes from './notes.js';
+import * as quest from './quest.js';
+import * as dragon from './dragon.js';
+import * as fight from './fight.js';
+import * as sfx from './sfx.js';
+import * as remind from './remind.js';
+import * as routine from './routine.js';
+import * as kingdom from './kingdom.js';
+import * as blocks from './blocks.js';
+import * as aday from './areaday.js';
+import * as habits from './habits.js';
+import * as took from './took.js';
 import { cleanRule, ruleText, splitOcc, WEEK } from './repeat.js';
 import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fd, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
-import { ancestors, children, colorOf, dayItems, glow, hasKids, ink, look, isDone, isProj, leaves, node, PALETTE, progress, rootOf } from './tree.js';
+import { ancestors, blockTitle, children, colorOf, dayItems, glow, hasKids, ink, isBlock, isDone, isProj, leaves, node, PALETTE, progress, projColor, rootOf, targetOf, within } from './tree.js';
 
 const H0 = 6, H1 = 23;
 const HP = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hp')) || 48;
@@ -55,7 +66,8 @@ const ICON = {
 const UI_KEY = 'daybook-ui';
 const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), focus: false, pick: null, adding: null, new: null, drOpen: false, drAt: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, notesEdit: false, waitEdit: false, rpEdit: false, scope: 'one', mcp: null };
 S.anchor = today();
-const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min, rmZoom: S.rmZoom, free: S.free, stK: S.stK, stCard: S.stCard });
+if (!S.games && (S.mode === 'quest' || S.mode === 'dragon')) S.mode = 'timed'; // game modes are tucked away unless switched on in Projects
+const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min, games: S.games, rmZoom: S.rmZoom, free: S.free, stK: S.stK, stCard: S.stCard, stMode: S.stMode, hbCard: S.hbCard, cave: S.cave });
 let client = null, user = null, configured = false, shown = today(), supaUrl = '';
 
 /* Links on items, such as the Thymer page a task came from */
@@ -112,6 +124,7 @@ function recTag(n) {
   return last === t ? fmtDur(t) : `<span class="sw-l">${fmtDur(last)} of </span>${fmtDur(t)}`;
 }
 function chipHTML(n, o = {}) {
+  if (isBlock(n)) return blockChip(n, o);
   const crumbs = ancestors(n).map(a => a.t); const meta = []; const kids = hasKids(n.id);
   if (!o.min) { // minimal list shows just the title
     if (n.rs) meta.push(ICON.repS);
@@ -125,6 +138,215 @@ function chipHTML(n, o = {}) {
     const rt = recTag(n); if (rt) meta.push(`<span class="it-rec" title="Recorded time">${ICON.watch}${rt}</span>`);
   }
   return `<div class="item${isDone(n) ? ' done' : ''}${overdue(n) ? ' overdue' : ''}${track.isRec(n) ? ' recording' : ''}${o.compact ? ' compact' : ''}" data-drag data-id="${n.id}" style="--pc:${colorOf(n)}">${ckHTML(n)}<div class="it-body"><div class="it-t">${esc(n.t || 'Untitled')}</div>${meta.length ? `<div class="it-m">${meta.join('<span>·</span>')}</div>` : ''}</div>${o.compact ? '' : recBtn(n)}</div>`;
+}
+/* Area time (blocks.js): a block of time for a whole area or project. On the plan it's a frame in the area's colour that
+   fills up with the time really worked in it; before it starts it shows what's waiting inside. It's never checked off.
+   Once it's over with nothing recorded, it asks whether it happened. */
+const fillOf = b => { const w = b.v ? Math.round(aday.loggedOn(b.d)[b.fo]?.min || 0) : blocks.worked(b), len = b.v ? b.m || null : b.s == null ? null : b.m || 60; return { w, len, f: len ? Math.min(1, w / len) : 0 }; };
+const blockKind = b => targetOf(b)?.k === 'area' ? 'Area' : 'Project';
+const askHTML = b => `<div class="z-ask" role="group" aria-label="Did you get to it?"><button data-act="blk-ans" data-v="all" data-id="${b.id}">Did it</button><button data-act="blk-ans" data-v="part" data-id="${b.id}">Part of it</button><button data-act="blk-ans" data-v="skip" data-id="${b.id}">Skipped</button></div>`;
+function zoneHTML(b, pos, tm) {
+  const { w, f } = fillOf(b), past = blocks.isPast(b), ask = blocks.asks(b), skipped = b.done && !w, done = blocks.doneIn(b);
+  let sub, lines = '';
+  if (ask) sub = `${tm} · did you get to it?`;
+  else if (skipped) sub = `${tm} · skipped`;
+  else if (w || past) { sub = `${fmtDur(w)} worked${done.length ? ` · ${done.length} done` : ''}`; lines = done.slice(0, 4).map(n => `<span class="d">${esc(n.t || 'Untitled')}</span>`).join(''); }
+  else { const { cards, loose } = blocks.inside(b), next = cards.map(c => c.open[0]).concat(loose); sub = tm + (next.length ? ` · ${cards.reduce((a, c) => a + c.open.length, 0) + loose.length} open` : ''); lines = next.slice(0, 4).map(n => `<span>${esc(n.t || 'Untitled')}</span>`).join(''); }
+  return `<div class="block zone${skipped ? ' skipped' : ''}${blocks.live(b) ? ' live' : ''}" data-drag data-id="${b.id}" style="${pos};--pc:${colorOf(b)};--f:${f}" title="${blockKind(b)} time. Tap to open it and pick what to work on.">
+    <div class="z-in"><div class="z-k">${b.rs ? ICON.repS : ''}${blockKind(b)}</div><div class="b-t">${esc(blockTitle(b))}</div><div class="b-time">${sub}</div>${lines ? `<div class="z-l">${lines}</div>` : ''}${ask ? askHTML(b) : ''}</div>
+    ${past ? '' : recBtn(b)}<div class="rs"></div></div>`;
+}
+function blockChip(b, o = {}) {
+  const { w, f } = fillOf(b), past = blocks.isPast(b), skipped = b.done && !w, ask = blocks.asks(b);
+  const meta = o.min ? '' : `<div class="it-m">${b.rs ? ICON.repS : ''}<span>${blockKind(b)} time</span>${b.s != null ? `<span>·</span><span class="tm">${fmtT(b.s)} – ${fmtT(b.s + (b.m || 60))}</span>` : ''}${w || past ? `<span>·</span><span>${skipped ? 'Skipped' : fmtDur(w) + ' worked'}</span>` : ''}</div>`;
+  const nx = o.min || o.compact || past || skipped ? null : blocks.nextUp(targetOf(b))[0]; // what's next in it, as Claude's get_next_task sees it
+  const next = nx ? `<div class="it-next"><span class="k">Next</span>${esc(nx.t || 'Untitled')}${targetOf(b)?.k === 'area' && rootOf(nx).id !== nx.id ? `<span class="in"> · ${esc(rootOf(nx).t || 'Untitled')}</span>` : ''}</div>` : '';
+  return `<div class="item zone-i${skipped ? ' done' : ''}${blocks.live(b) ? ' recording' : ''}${o.compact ? ' compact' : ''}" data-drag data-id="${b.id}" style="--pc:${colorOf(b)};--f:${f}"><span class="zfr" aria-hidden="true"></span><div class="it-body"><div class="it-t">${esc(blockTitle(b))}</div>${next}${meta}${ask && !o.compact ? askHTML(b) : ''}</div>${o.compact || past ? '' : recBtn(b)}</div>`;
+}
+/** A new block for an area or project: on a day (today unless given), at a time (the next half hour today, else 9am), 90 minutes. */
+function newBlock(tid, d = today(), s, m = 90) {
+  const t = node(tid); if (!t) return null;
+  if (s === undefined) s = d === today() ? Math.min(Math.ceil(nowMin() / 30) * 30, H1 * 60 - m) : 9 * 60;
+  return store.create({ k: 'block', fo: tid, t: t.t || '', d, s, m, ds: Date.now() / 1000 });
+}
+const agoText = ms => { if (!ms) return 'not worked on yet'; const d = daysBetween(fd(new Date(ms)), today()); return d <= 0 ? 'worked on today' : d === 1 ? 'yesterday' : d < 14 ? `${d} days ago` : d < 60 ? `${Math.round(d / 7)} weeks ago` : 'a while ago'; };
+// One step inside a block: check it off, open it, or record time on it (it still counts for its project and area)
+function blkStep(n, big = false) {
+  const r = n, on = track.isRec(r);
+  return `<div class="bk-step${n.done ? ' done' : ''}${big ? ' big' : ''}" style="--pc:${colorOf(n)}">${ckHTML(n)}<button class="bk-t" data-act="open" data-id="${n.id}">${esc(n.t || 'Untitled')}${n.notes ? ICON.note : ''}</button>${n.d ? `<span class="when set">${whenLabel(n)}</span>` : ''}<button class="rec-b${on ? ' on' : ''}" data-act="rec" data-id="${r.id}" aria-label="${on ? 'Stop recording' : 'Record time on'} ${esc(r.t || 'this')}" title="${on ? 'Stop' : `Record time on ${esc(r.t || 'this')}`}">${on ? ICON.stop : ICON.play}</button></div>`;
+}
+/* A day of an area with a daily target, opened from its card in the List: works like a block for the whole area and day,
+   with the area's own timer. Its id is day:<area id>:<date>. */
+function virtualOf(id) {
+  if (typeof id !== 'string' || !id.startsWith('day:')) return null;
+  const [, aid, d] = id.split(':'), a = node(aid); if (!a || a.k !== 'area' || !d) return null;
+  return { id, v: true, k: 'block', fo: aid, d, s: null, m: aday.targetOn(a, d) || null, t: a.t || '' };
+}
+const nodeOrDay = id => node(id) || virtualOf(id);
+const hrs = m => { const v = Math.round(m / 30) / 2; return v % 1 ? `${Math.floor(v) || ''}½ h` : `${v} h`; };
+// Where an area day's time went: each task, project or the area itself, longest first
+function timeSplitHTML(items) {
+  const rows = [...items].map(([id, m]) => ({ n: node(id), m: Math.round(m) })).filter(x => x.n && x.m > 0).sort((a, b) => b.m - a.m);
+  if (!rows.length) return '<div class="dt-note">Nothing logged yet. Start the area timer, or ▶ on a task in it.</div>';
+  return `<div class="ad-split">${rows.map(({ n, m }) => { const r = rootOf(n), lab = n.k === 'area' ? 'On the area itself' : esc(n.t || 'Untitled');
+    return `<button class="ad-row" data-act="${n.k === 'area' ? 'noop' : 'open'}" data-id="${n.id}" style="--pc:${colorOf(n)}"><span class="pdot"></span><span class="ad-n">${lab}${r.id !== n.id && r.k !== 'area' ? `<small>${esc(r.t || '')}</small>` : ''}</span><span class="ad-m">${fmtDur(m)}</span></button>`; }).join('')}</div>`;
+}
+function areaDayFoot(b) {
+  const a = node(b.fo), L = aday.loggedOn(b.d)[b.fo];
+  return `<div class="dt-sec">Where the time went</div>${timeSplitHTML(L?.items || [])}
+    <div class="dt-sec">Target</div>
+    <div class="dt-note">${aday.isOverride(a.dg, b.d) ? `Just this day: ${b.m ? fmtDur(b.m) : 'no target'} (usually ${fmtDur(+(a.dg[aday.keyOf(b.d)] || 0)) || 'none'} on ${DAYL[pd(b.d).getDay()]}s).` : b.m ? `${esc(a.t)} aims for ${fmtDur(b.m)} on ${DAYL[pd(b.d).getDay()]}s.` : `${esc(a.t)} has no target on ${DAYL[pd(b.d).getDay()]}s.`} Time counts whenever it's logged that day, in as many sittings as you like.</div>
+    <div class="dt-meta">${oneDaySelect('ado', a.dg, b.d)}</div>
+    <div class="dt-meta"><button class="chip" data-act="open" data-id="${a.id}">${ICON.cal}<span>Change ${esc(a.t)}'s hours</span></button></div>`;
+}
+// Adding a habit: its name, how often, its area, and whether a tick counts time there
+const HB_KINDS = [['day', 'Every day'], ['weekday', 'Weekdays'], ['week', 'On some days'], ['times', 'Times a week'], ['tmonth', 'Times a month'], ['days', 'Every few days']];
+function habitNewDetail(el, same) {
+  const h = S.hbNew || (S.hbNew = { t: '', k: 'day', days: [1, 3, 5], n: 2, interval: 2, ar: store.areas()[0]?.id || '', hm: 0 });
+  const nOpts = max => [...Array(max)].map((_, i) => `<option value="${i + 1}"${h.n === i + 1 ? ' selected' : ''}>${i + 1} time${i ? 's' : ''}</option>`).join('');
+  let how = '';
+  if (h.k === 'week') how = `<div class="rp-days" role="group" aria-label="On these days">${WEEK.map(d => `<button data-act="hbn-day" data-v="${d}" aria-pressed="${h.days.includes(d)}" aria-label="${DAYL[d]}">${DAYN[d][0]}</button>`).join('')}</div>`;
+  if (h.k === 'times' || h.k === 'tmonth') how = `<label class="chip"><select id="hbn-n" aria-label="How many times">${nOpts(h.k === 'tmonth' ? 20 : 6)}</select><span class="k">a ${h.k === 'tmonth' ? 'month' : 'week'}, any days</span></label>`;
+  if (h.k === 'days') how = `<label class="chip"><span class="k">Every</span><select id="hbn-int" aria-label="Every how many days">${[2, 3, 4, 5, 6, 7, 10, 14, 21, 30].map(i => `<option value="${i}"${h.interval === i ? ' selected' : ''}>${i} days</option>`).join('')}</select></label>`;
+  setDetail(el, `<div class="dt-back" data-act="close"></div>
+  <section class="dt${same ? ' still' : ''}" role="dialog" aria-modal="true" aria-label="Add a habit" style="--pc:var(--hb)">
+    <div class="dt-top"><button class="dt-up" data-act="close">${ICON.prev}<span>Back</span></button><button class="ib" data-act="close" aria-label="Close">${ICON.close}</button></div>
+    <div class="dt-body vscroll" data-id="hb:new">
+      <div class="dt-kind"><span class="pdot"></span>New habit</div>
+      <input id="hbn-t" class="dt-title hbn-t" placeholder="Read for 20 minutes" value="${esc(h.t)}" autocomplete="off" enterkeyhint="done" aria-label="Habit name">
+      <div class="dt-sec">How often</div>
+      <div class="rp-k hbn-k" role="group" aria-label="How often">${HB_KINDS.map(([v, l]) => `<button data-act="hbn-k" data-v="${v}" aria-pressed="${h.k === v}">${l}</button>`).join('')}</div>
+      ${how ? `<div class="rp-row">${how}</div>` : ''}
+      <div class="dt-sec">Where</div>
+      <div class="dt-meta"><label class="chip"><span class="k">Area</span><select id="hbn-ar">${store.areas().map(a => `<option value="${a.id}"${h.ar === a.id ? ' selected' : ''}>${esc(a.t || 'Untitled area')}</option>`).join('')}<option value=""${h.ar ? '' : ' selected'}>No area</option></select></label>
+      ${habits.minSelect({ ar: h.ar, r: { mins: h.hm } }, 'hbn-hm')}</div>
+      <div class="dt-note">A habit shows in the Habits card at the top of each day it's due. It's never overdue, and its time never counts toward your work hours on the Roadmap.</div>
+      <div class="dt-meta"><button class="chip set" data-act="hb-save">Add habit</button></div>
+    </div></section>`);
+  if (!same) setTimeout(() => document.getElementById('hbn-t')?.focus({ preventScroll: true }), 50);
+}
+function habitSave() {
+  const h = S.hbNew; if (!h) return; const t = (document.getElementById('hbn-t')?.value || h.t).trim();
+  if (!t) { toast('Give the habit a name first'); document.getElementById('hbn-t')?.focus(); return; }
+  const r = h.k === 'week' ? { every: 'week', days: h.days.length ? h.days : [pd(today()).getDay()] } : h.k === 'times' ? { every: 'times', per: 'week', n: h.n } : h.k === 'tmonth' ? { every: 'times', per: 'month', n: h.n } : h.k === 'days' ? { every: 'days', interval: h.interval } : { every: h.k };
+  const n = store.create({ t, ar: h.ar || null, d: today(), r: cleanRule({ ...r, mins: h.hm || 0 }, today()), hb: true, m: h.hm || 15 });
+  S.hbNew = null; S.open = null; toast(`Added ${short(t)}`); render(); return n;
+}
+const AD_HRS = [0, 30, 60, 90, 120, 150, 180, 240, 300, 360, 480];
+// Hours for one date only, in place of that weekday's usual hours
+function oneDaySelect(id, o, d) {
+  const on = aday.isOverride(o, d), v = on ? +o[d] || 0 : null, usual = +(o?.[aday.keyOf(d)] || 0);
+  const opts = v != null && !AD_HRS.includes(v) ? [...AD_HRS, v].sort((a, b) => a - b) : AD_HRS;
+  return `<label class="chip${on ? ' set' : ''}"><span class="k">Just this day</span><select id="${id}" aria-label="Hours for this day only"><option value=""${on ? '' : ' selected'}>Usual (${usual ? hrs(usual) : 'none'})</option>${opts.map(m => `<option value="${m}"${v === m ? ' selected' : ''}>${m ? hrs(m) : 'None'}</option>`).join('')}</select></label>`;
+}
+const withDay = (o, d, v) => { const x = { ...(o || {}) }; if (v === '') delete x[d]; else x[d] = +v || 0; const cut = add(today(), -120); for (const k of Object.keys(x)) if (/^\d{4}-/.test(k) && k < cut) delete x[k]; return x; };
+function adSelect(id, v, k) {
+  const opts = AD_HRS.includes(v) ? AD_HRS : [...AD_HRS, v].sort((a, b) => a - b);
+  return `<label class="ad-d"><span>${k[0].toUpperCase() + k.slice(1, 3)}</span><select id="${id}" aria-label="Hours on ${k}">${opts.map(m => `<option value="${m}"${v === m ? ' selected' : ''}>${m ? hrs(m) : '–'}</option>`).join('')}</select></label>`;
+}
+// Under an area card: a thin meter split by project (shades of the area colour), and the biggest pieces named
+/* The split bar under an area card: one bar for the day's goal, split by project. Time past the goal starts a thin
+   second bar ("lap") measured against the same goal, then a third, up to four bars. */
+function splitMeter(lg, target) {
+  if (!lg || lg.min < 1) return '';
+  const by = new Map(); for (const [id, m] of lg.items) { const n = node(id); if (!n) continue; const r = n.k === 'area' ? n : rootOf(n); by.set(r.id, (by.get(r.id) || 0) + m); }
+  const parts = [...by.entries()].map(([id, m]) => ({ n: node(id), m })).sort((a, b) => b.m - a.m), shades = [0, 30, 50, 15, 40, 60];
+  const cap = target || lg.min, laps = []; let cur = [], room = cap;
+  parts.forEach((p, i) => { let m = p.m; while (m > 0.01 && laps.length < 4) { const take = Math.min(m, room); cur.push(`<i style="width:${take / cap * 100}%;--sh:${shades[i % shades.length]}%"></i>`); m -= take; room -= take; if (room <= 0.01) { laps.push(cur); cur = []; room = cap; } } });
+  if (cur.length && laps.length < 4) laps.push(cur);
+  const left = target ? Math.max(0, target - lg.min) : 0;
+  return `${laps.map((l, i) => `<span class="ad-meter${i ? ' lap' : ''}">${l.join('')}</span>`).join('')}
+    <span class="ad-leg">${parts.slice(0, 3).map((p, i) => `<span style="--sh:${shades[i]}%">${esc(p.n.k === 'area' ? 'General' : short(p.n.t))} ${fmtDur(Math.round(p.m))}</span>`).join('')}${parts.length > 3 ? `<span class="more">+${parts.length - 3}</span>` : ''}${left ? `<span class="more">${fmtDur(Math.round(left))} left</span>` : ''}</span>`;
+}
+// The Habits card, above the area cards (js/habits.js draws it)
+const habitStrip = d => { const h = habits.cardHTML(d, !!S.hbOpen?.[d], S.view === 'week' && d !== today()); return h ? `<div class="ad-strip hb-strip">${h}</div>` : ''; };
+// A day's area cards at the top of its list: target, time logged so far (fills sideways), and the area's own timer
+function areaStrip(d) {
+  const cards = aday.cardsOn(d); if (!cards.length) return '';
+  const isT = d === today(), L = aday.loggedOn(d);
+  const card = c => { const a = c.a, on = track.isRec(a), lv = aday.live(a.id) && isT;
+    const bar = splitMeter(L[a.id], c.target) || (c.target ? '<span class="ad-meter"></span>' : '');
+    const dn = aday.doneOn(a, d);
+    return `<div class="ad-card ad-area${lv ? ' live' : ''}${c.target && c.min >= c.target ? ' met' : ''}${dn ? ' done' : ''}" style="--pc:${colorOf(a)}"><div class="ad-top"><button class="ck${dn ? ' on' : ''}" data-act="ad-done" data-id="${a.id}" data-d="${d}" aria-pressed="${dn}" aria-label="${dn ? 'Not done with' : 'Done with'} ${esc(a.t)} for the day" title="${dn ? 'Not done for the day' : 'Done for the day'}"></button><button class="ad-main" data-act="open" data-id="day:${a.id}:${d}"><span class="ad-t">${esc(a.t || 'Untitled area')}</span><span class="ad-s">${lv ? '<span class="ad-dot"></span>' : ''}<b>${fmtDur(c.min)}</b>${c.target ? ` of ${fmtDur(c.target)}` : ' logged'}${c.target && c.min - c.target >= 1 ? ` · <span class="ad-over">${fmtDur(c.min - c.target)} over</span>` : a.tp ? ` · ${a.tp}` : ''}</span></button>${isT ? `<button class="rec-b${on ? ' on' : ''}" data-act="rec" data-id="${a.id}" aria-label="${on ? 'Stop' : 'Start'} ${esc(a.t)} time" title="${on ? 'Stop' : `Start ${esc(a.t)} time`}">${on ? ICON.stop : ICON.play}</button>` : ''}</div>${bar ? `<button class="ad-bar" data-act="open" data-id="day:${a.id}:${d}" tabindex="-1" aria-hidden="true">${bar}</button>` : ''}</div>`; };
+  return `<div class="ad-strip">${cards.map(card).join('')}</div>`;
+}
+/** Whether a block for this item's area or project is on right now (then its tasks can record on their own). */
+const inBlockNow = n => store.blocksOn(today()).some(b => !b.done && blocks.isNow(b) && within(n, b.fo));
+function blockDetail(el, b, same) {
+  const t = targetOf(b), ser = store.seriesOf(b)?.r ? store.seriesOf(b) : null, { w, len, f } = fillOf(b);
+  const recId = b.v ? b.fo : b.id, rec = track.isRec(node(recId) || b), past = b.v ? b.d < today() : blocks.isPast(b), ask = !b.v && blocks.asks(b), r = track.running();
+  const { cards, loose } = blocks.inside(b), sug = !past && blocks.suggest(b), day = blocks.dayOf(b);
+  const durs = [30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 480]; if (!durs.includes(b.m || 60)) durs.push(b.m || 60);
+  const more = S.blkMore || (S.blkMore = {}), skip = S.blkSkip || (S.blkSkip = []);
+  const focus = S.blkFocus && (cards.find(c => c.g.id === S.blkFocus) || (S.blkFocus === 'loose' && loose.length ? { g: null, open: loose } : null));
+  let work;
+  if (!t) work = `<div class="dt-note">The area or project this block was for is gone. You can delete the block.</div>`;
+  else if (S.blkView === 'all') {
+    // Everything: the whole area (or project) as in Projects, to plan in: add steps, reorder, schedule
+    const projs = t.k === 'area' ? areaGroups().groups.find(g => g.a?.id === t.id)?.projs || [] : [t];
+    work = `<div class="bk-all-tree">${projs.map(p => isProj(p) ? projHTML(p) : treeRows(p, 0)).join('') || '<div class="empty-note">No projects here yet.</div>'}</div>`
+      + (t.k === 'area' ? `<form class="dt-add" data-form="area-project" data-area="${t.id}"><span class="plus-i" aria-hidden="true">+</span><input id="dt-add-in" placeholder="Add a project" autocomplete="off" aria-label="Add a project" enterkeyhint="enter"></form>` : '');
+  }
+  else if (focus) {
+    const open = focus.open.filter(n => !skip.includes(n.id)), list = open.length ? open : focus.open, now = list[0];
+    work = `<div class="bk-pick" role="group" aria-label="Project">${cards.map(c => `<button data-act="blk-focus" data-id="${c.g.id}" aria-pressed="${focus.g?.id === c.g.id}">${esc(c.g.t || 'Untitled')}</button>`).join('')}${loose.length ? `<button data-act="blk-focus" data-id="loose" aria-pressed="${!focus.g}">Loose tasks</button>` : ''}<button class="bk-all" data-act="blk-focus" data-id="">Show all</button></div>
+      <div class="bk-now" style="--pc:${colorOf(now)}"><div class="bk-lab">Now</div>${blkStep(now, true)}${now.notes ? `<div class="bk-notes">${linkify(now.notes.split('\n').slice(0, 3).join('\n'))}</div>` : ''}${now.link && safeLink(now.link) ? `<a class="chip set" href="${esc(safeLink(now.link))}" target="_blank" rel="noopener">${ICON.link}<span>${esc(linkLabel(safeLink(now.link)))}</span></a>` : ''}
+        <div class="bk-acts"><button class="tb pri" data-act="blk-next" data-id="${now.id}" data-next="${list[1]?.id || ''}">Done, next</button>${list.length > 1 ? `<button class="tb" data-act="blk-skip" data-id="${now.id}">Not now</button>` : ''}</div></div>
+      ${list.length > 1 ? `<div class="bk-then"><div class="bk-lab">Then</div>${list.slice(1, 4).map(n => `<button data-act="open" data-id="${n.id}">${esc(n.t || 'Untitled')}</button>`).join('')}${list.length > 4 ? `<span>+ ${list.length - 4} more</span>` : ''}</div>` : ''}`;
+  } else {
+    const card = c => { const rest = c.open.slice(1), m = more[c.g.id];
+      return `<div class="bk-card" style="--pc:${colorOf(c.g)}"><div class="bk-h"><span class="pdot"></span><button class="bk-name" data-act="open" data-id="${c.g.id}">${esc(c.g.t || 'Untitled')}</button><small>${agoText(c.last)}</small><button class="bk-f" data-act="blk-focus" data-id="${c.g.id}" title="Just this, one step at a time">Focus</button></div>
+        ${blkStep(c.open[0])}${m ? rest.map(n => blkStep(n)).join('') : ''}${rest.length ? `<button class="bk-more" data-act="blk-more" data-id="${c.g.id}">${m ? 'Show less' : `+ ${rest.length} more`}</button>` : ''}</div>`; };
+    const lz = loose.filter(n => !sug || n !== sug.n); // loose tasks, less the Start here one
+    work = (sug ? `<div class="bk-sug"><div class="bk-lab">Start here</div>${blkStep(sug.n)}<small>${esc(rootOf(sug.n).id !== sug.n.id ? rootOf(sug.n).t + ' · ' : '')}${sug.why || (sug.due ? 'due ' + (sug.due === today() ? 'today' : dayShort(sug.due)) : '')}</small></div>` : '')
+      + cards.map(c => sug ? { ...c, open: c.open.filter(n => n !== sug.n) } : c).filter(c => c.open.length).map(card).join('') // the Start here step isn't repeated in its card
+      + (lz.length ? `<div class="bk-card loose"><div class="bk-h"><span class="bk-name">Loose in ${esc(t.t || 'this area')}</span>${lz.length > 1 ? `<button class="bk-f" data-act="blk-focus" data-id="loose">Focus</button>` : ''}</div>${lz.map(n => blkStep(n)).join('')}</div>` : '')
+      || `<div class="dt-note">Nothing open in ${esc(t.t || 'here')}. Add tasks in Projects, or use this time to plan what's next.</div>`;
+  }
+  // Add something new right here: a task in the area (or a step in the project), then start it or log time already spent
+  if (t && S.blkView !== 'all' && !b.r) {
+    const na = S.blkAdded && node(S.blkAdded) && within(node(S.blkAdded), b.fo) ? node(S.blkAdded) : null, nOn = na && track.isRec(na);
+    work += `<form class="dt-add bk-add" data-form="blk-add" data-t="${t.id}"><span class="plus-i" aria-hidden="true">+</span><input id="bk-add-in" placeholder="Add a task to ${esc(t.t || 'this')}" autocomplete="off" aria-label="Add a task to ${esc(t.t || 'this')}" enterkeyhint="done"></form>`
+      + (na && !na.done ? `<div class="bk-added" style="--pc:${colorOf(na)}"><span>Added <button data-act="open" data-id="${na.id}">${esc(na.t)}</button></span><button class="chip" data-act="rec" data-id="${na.id}">${nOn ? ICON.stop : ICON.play}<span>${nOn ? 'Stop' : 'Start'}</span></button><button class="chip" data-act="blk-did" data-id="${na.id}" title="Check it off now and say how long it took">Already did it</button></div>` : '');
+  }
+  const busy = r && r.id !== recId && within(r, b.fo) ? r : null;
+  setDetail(el, `<div class="dt-back" data-act="close"></div>
+  <section class="dt blk${same ? ' still' : ''}" role="dialog" aria-modal="true" aria-label="${esc(blockTitle(b))} time" style="--pc:${colorOf(b)};--f:${f}">
+    <div class="dt-top"><button class="dt-up" data-act="close">${ICON.prev}<span>Back</span></button><button class="ib" data-act="close" aria-label="Close">${ICON.close}</button></div>
+    <div class="dt-body vscroll" data-id="${b.id}">
+      <div class="dt-kind"><span class="pdot"></span>${b.v ? 'Area day' : blockKind(b) + ' time'}${b.rs || b.r ? ' · repeats' : ''}</div>
+      <div class="dt-head"><button class="bk-title" data-act="open" data-id="${t?.id || ''}">${esc(blockTitle(b))}</button></div>
+      <div class="bk-when">${day === today() ? 'Today' : `${DAYL[pd(day).getDay()]} ${fmtShort(day)}`}${b.v ? (t?.tp ? ` · best in the ${t.tp}` : '') : b.s != null ? ` · ${fmtT(b.s)} – ${fmtT(b.s + (b.m || 60))}` : ' · any time'}</div>
+      <div class="bk-fill"><div class="bk-bar"><i></i></div><span>${b.done && !w ? 'Skipped' : `${fmtDur(w)} ${b.v ? 'logged' : 'worked'}${len ? ` of ${fmtDur(len)}` : ''}`}</span>
+        ${past ? '' : `${busy ? `<button class="chip rec-chip on" data-act="rec" data-id="${busy.id}">${ICON.stop}<span>Stop</span></button>` : `<button class="chip rec-chip${rec ? ' on' : ''}" data-act="rec" data-id="${recId}">${rec ? ICON.stop : ICON.play}<span>${rec ? 'Recording · Stop' : 'Start'}</span></button>`}`}${b.v && t ? `<button class="chip" data-act="ad-skip" data-id="${t.id}" data-d="${b.d}" title="Take ${esc(t.t)} off this day">Skip ${b.d === today() ? 'today' : 'this day'}</button>` : ''}</div>
+      ${rec && t ? `<div class="dt-note bk-hint">Recording general ${esc(blockTitle(b))} time. Tap ▶ on what you're working on to put the time on that task.</div>` : ''}
+      ${ask ? askHTML(b) : ''}
+      ${b.r ? '<div class="dt-note rp-note">This is the repeating block itself. Open one of its days on the plan to work in it.</div>' : `<div class="dt-sec bk-sec">${S.blkView === 'all' ? 'Everything' : focus ? 'One thing at a time' : 'What to work on'}${t ? `<span class="seg bk-seg" role="group" aria-label="Show"><button data-act="blk-view" data-v="next" aria-pressed="${S.blkView !== 'all'}">Next steps</button><button data-act="blk-view" data-v="all" aria-pressed="${S.blkView === 'all'}">Everything</button></span>` : ''}</div>${work}`}
+      ${b.v ? areaDayFoot(b) : `      <div class="dt-sec">When</div>
+      <div class="dt-meta">
+        ${b.r ? '' : `<button class="chip set" data-act="dtpick">${ICON.cal}<span>${day === today() ? 'Today' : dayShort(day)}</span></button>`}
+        <label class="chip set"><span class="k">From</span><input type="time" id="blk-s" value="${b.s != null ? hhmm(b.s) : ''}" step="900" aria-label="Starts at"></label>
+        <label class="chip"><span class="k">For</span><select id="dt-dur">${durs.sort((a, c) => a - c).map(m => `<option value="${m}"${(b.m || 60) === m ? ' selected' : ''}>${fmtDur(m)}</option>`).join('')}</select></label>
+        <button class="chip rp-chip${ser ? ' set' : ''}" data-act="rpedit" aria-expanded="${S.rpEdit}">${ICON.rep}<span>${ser ? esc(ruleText(ser.r, ser.d)) : 'Repeat'}</span></button>
+      </div>
+      ${occAskHTML(b)}
+      ${S.dtpick && !b.r ? pickerHTML(b, 0) : ''}
+      ${S.rpEdit ? repeatHTML(b) : ''}
+      ${b.r ? '' : timeHTML(b)}
+      <div class="dt-foot"><span></span>
+        ${!S.confirmDel ? `<button class="dt-del" data-act="askdelete">Remove block</button>`
+          : ser && b.rs ? `<div class="confirm"><span>Remove this block?</span><button class="danger" data-act="delete">Just this one</button><button class="danger" data-act="delete-all">Every repeat</button><button data-act="nodelete">Cancel</button></div>`
+          : `<div class="confirm"><span>Remove this block${b.r ? ' and all its repeats' : ''}? Recorded time stays with the work.</span><button class="danger" data-act="delete">Remove</button><button data-act="nodelete">Cancel</button></div>`}
+      </div>
+`}
+    </div></section>`);
+}
+/* An area's week: a thin bar of hours worked (solid) and blocks still to come (dotted), against its rough target */
+function weekBar(a) {
+  const { done, ahead, target } = blocks.week(a.id); if (!done && !ahead && !target) return '';
+  const full = Math.max(target || 0, done + ahead, 1), h = m => { const v = Math.round(m / 60 * 2) / 2; return v % 1 ? `${Math.floor(v) || ''}½` : String(v); };
+  const lo = target && done + ahead < target * .5, met = target && done >= target;
+  return `<div class="wk-bar${lo ? ' lo' : ''}${met ? ' met' : ''}" style="--pc:${ink(a.c)}" title="This week: ${fmtDur(done)} worked${ahead ? `, ${fmtDur(ahead)} still planned` : ''}${target ? `, aiming for about ${fmtDur(target)}` : ''}"><div class="wk-t"><i style="width:${done / full * 100}%"></i><u style="left:${done / full * 100}%;width:${ahead / full * 100}%"></u>${target && target < full ? `<b style="left:${target / full * 100}%"></b>` : ''}</div><span>${h(done)}${target ? ` of ~${h(target)}` : ''} h${met ? ' ✓' : ''}</span></div>`;
 }
 const whenLabel = n => n.r ? ruleText(n.r, n.d, false) + (n.s != null ? ' ' + fmtT(n.s) : '') : dayShort(n.d) + (n.s != null ? ' ' + fmtT(n.s) : '');
 function pickerHTML(n, dep) {
@@ -180,10 +402,10 @@ function footHTML() {
       <div class="acct">${esc(user.email || '')}</div>
       <div class="sync ${store.sync.state}">${SYNC_TEXT[store.sync.state] || ''}</div>
       <div>${c.connected && !c.reconnect ? 'Google Calendar connected (read-only).' : 'Google Calendar isn\'t connected.'} ${!c.connected || c.reconnect ? '<button class="link" data-act="signin">Connect it</button>' : ''}</div>
-      <div class="foot-acts"><button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="mcp">Connect to Claude</button><button class="link" data-act="signout">Sign out</button><button class="link" data-act="look">${look() === 'paper' ? 'Dark look' : 'Light look'}</button></div>${mcpHTML()}</div>`;
+      <div class="foot-acts"><button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="trash">Trash</button><button class="link" data-act="mcp">Connect to Claude</button><button class="link" data-act="signout">Sign out</button></div><div class="foot-set"><button class="link" data-act="min">${S.min ? 'Leave Quiet' : 'Go Quiet'}</button><button class="link" data-act="games">${S.games ? 'Hide game modes' : 'Game modes'}</button></div>${mcpHTML()}</div>`;
   }
   return `<div class="side-f">Sample data, stored only on this device. Drag anything onto the plan, or back here to unschedule it.
-    <div class="foot-acts">${configured ? '<button class="link" data-act="signin">Sign in with Google</button>' : ''}<button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="reset">Reset sample data</button><button class="link" data-act="look">${look() === 'paper' ? 'Dark look' : 'Light look'}</button></div></div>`;
+    <div class="foot-acts">${configured ? '<button class="link" data-act="signin">Sign in with Google</button>' : ''}<button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="trash">Trash</button><button class="link" data-act="reset">Reset sample data</button></div><div class="foot-set"><button class="link" data-act="min">${S.min ? 'Leave Quiet' : 'Go Quiet'}</button><button class="link" data-act="games">${S.games ? 'Hide game modes' : 'Game modes'}</button></div></div>`;
 }
 /* Areas group the top-level projects, and tasks that belong to an area without being part of a project.
    Such a task becomes a project in that area as soon as it gets steps. A project whose area is gone shows under "No area";
@@ -199,10 +421,11 @@ function areaGroups() {
 }
 function areaHTML({ a, projs }, board = false) {
   const id = a ? a.id : '', key = 'area:' + id, shut = !board && S.col[key], label = a ? esc(a.t || 'Untitled area') : 'No area';
-  const name = a ? `<span class="pdot" style="--pc:${ink(a.c)}"></span><button class="area-t" data-act="open" data-id="${id}" title="Rename or delete this area">${label}</button>` : `<span class="area-t">${label}</span>`;
+  const name = a ? `<span class="pdot" style="--pc:${ink(a.c)}"></span><button class="area-t" data-act="open" data-id="${id}" data-dragok title="Open this area. Drag it onto your plan to block time for it.">${label}</button>` : `<span class="area-t">${label}</span>`;
   const list = (projs.length ? projs.map(p => isProj(p) ? projHTML(p) : treeRows(p, 0)).join('') : '<div class="empty-note">No projects here yet.</div>') + (board ? `<button class="bcol-add" data-act="new-project" data-area="${id}">+ New project</button>` : '');
   return `<section class="area${board ? ' bcol' : ''}" data-drop="area" data-area="${id}">
-    <div class="area-h">${board ? '' : `<button class="caret${shut ? ' shut' : ''}" data-act="fold" data-id="${key}" aria-label="Show or hide ${label}"></button>`}${name}<span class="area-n">${projs.length}</span><button class="plus" data-act="new-project" data-area="${id}" aria-label="New project in ${label}" title="New project">+</button></div>
+    <div class="area-h"${a ? ` data-drag data-id="${id}"` : ''}>${board ? '' : `<button class="caret${shut ? ' shut' : ''}" data-act="fold" data-id="${key}" aria-label="Show or hide ${label}"></button>`}${name}<span class="area-n">${projs.length}</span><button class="plus" data-act="new-project" data-area="${id}" aria-label="New project in ${label}" title="New project">+</button></div>
+    ${a ? weekBar(a) : ''}
     ${shut ? '' : board ? `<div class="bcol-b vscroll">${list}</div>` : list}</section>`;
 }
 function renderSide() {
@@ -223,7 +446,7 @@ function renderSide() {
   el.querySelector('.side-b').scrollTop = sc;
 }
 function loadHTML(d) {
-  const tasks = dayItems(d).filter(n => !isDone(n) && !hasKids(n.id)).reduce((a, n) => a + (n.m || 60), 0);
+  const tasks = dayItems(d).filter(n => !isDone(n) && !hasKids(n.id) && !isBlock(n)).reduce((a, n) => a + (n.m || 60), 0);
   const meet = timedOn(d).reduce((a, e) => a + e.m, 0);
   if (!tasks && !meet) return '';
   return `<div class="load${tasks + meet > 540 ? ' heavy' : ''}">${tasks ? fmtDur(tasks) + ' of tasks' : ''}${tasks && meet ? ' · ' : ''}${meet ? fmtDur(meet) + ' booked' : ''}</div>`;
@@ -249,11 +472,11 @@ function dayGaps(d) {
 }
 function listHTML(d) {
   const { E, gaps } = dayGaps(d);
-  const chips = g => g.map(n => chipHTML(n, { time: true, min: S.min })).join('');
+  const chips = g => g.filter(n => !(n.rs && habits.isHabit(n))).map(n => chipHTML(n, { time: true, min: S.min })).join(''); // habits live in their own card
   const all = eventsOn(d).filter(e => e.allDay).map(evRow).join('');
   const body = chips(gaps[0]) + E.map((e, i) => evRow(e) + chips(gaps[i + 1])).join('');
   const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a task to ${esc(dayShort(d))}"><span aria-hidden="true">+</span>${body ? '' : ' Add a task'}</button>`;
-  return `${all}<div class="list${body ? '' : ' empty'}" data-drop="list" data-date="${d}">${body}${adder}</div>`;
+  return `${habitStrip(d)}${areaStrip(d)}${all}<div class="list${body ? '' : ' empty'}" data-drop="list" data-date="${d}">${body}${adder}</div>`;
 }
 /* Adding a task right on the plan: the + at the end of a day's list, or a tap on an empty time (or the + in the "Any time" row) in Time blocks.
    A small form opens in place with the title ready to type. It goes in the Inbox unless a project is picked. */
@@ -270,7 +493,13 @@ function newHTML() {
   const N = S.new, pc = pickColor(N.p);
   const pos = N.at === 'col' ? `;top:${hpx((N.s - H0 * 60) / 60)};min-height:max(${hpx(N.m / 60)} - 2px, 62px)` : '';
   return `<form class="nt at-${N.at}" data-form="new" style="--pc:${pc}${pos}"><input id="new-in" placeholder="New task" autocomplete="off" enterkeyhint="done" aria-label="New task">
-    <div class="nt-r">${N.s != null ? `<span class="nt-time">${fmtT(N.s)} – ${fmtT(N.s + N.m)}</span>` : ''}<label class="nt-p" title="Put it in an area or a project"><span class="pdot"></span><select id="new-p" aria-label="Project">${projOptions(N.p)}</select></label></div></form>`;
+    <div class="nt-r">${N.s != null ? `<span class="nt-time">${fmtT(N.s)} – ${fmtT(N.s + N.m)}</span>` : ''}<label class="nt-p" title="Put it in an area or a project"><span class="pdot"></span><select id="new-p" aria-label="Project">${projOptions(N.p)}</select></label></div>${N.at === 'col' ? `<div class="nt-blk" id="nt-blk">${ntBlkHTML()}</div>` : ''}</form>`;
+}
+/* Or make the time a focus block instead of a task: one tap on an area, or on the area or project picked above */
+function ntBlkHTML() {
+  const N = S.new, picked = N.p.startsWith('area:') ? N.p.slice(5) : N.p, areas = store.areas();
+  const ids = (picked && node(picked) ? [picked] : []).concat(areas.map(a => a.id).filter(id => id !== picked));
+  return `<span class="nt-blk-l">Block</span>` + ids.map(id => { const t = node(id); return `<button type="button" class="nt-bc" data-act="nt-block" data-id="${id}" style="--pc:${colorOf(t)}" title="Make this a block of time for ${esc(t.t || 'it')}"><span class="pdot"></span>${esc(t.t || 'Untitled')}</button>`; }).join('');
 }
 let newClosed = 0;
 function openNew(o) {
@@ -422,8 +651,10 @@ function layout(items) {
    A finished task's block already sits on its last stretch, so that one isn't drawn twice; guesses only place the block. */
 function sessionsOn(d) {
   const out = [], now = track.local(Date.now());
+  const B = store.blocksOn(d).filter(b => b.s != null).map(b => ({ b, w: blocks.windowOf(b) }));
+  const inBlock = (n, e) => { const t = Date.parse(e.start); return B.some(({ b, w }) => (n.id === b.id || (!isBlock(n) && within(n, b.fo))) && t >= w[0] - 5 * 60000 && t < w[1]); };
   for (const n of store.logged()) n.tl.forEach((e, i) => {
-    if (e.guess) return;
+    if (e.guess || inBlock(n, e)) return;
     const a = track.local(e.start); if (a.d !== d) return;
     const b = e.end ? track.local(e.end) : now, end = b.d === d ? b.m : 1440;
     if (e.end && isDone(n) && n.d === d && n.s === a.m) return; // a finished task's own block already sits on this stretch
@@ -445,15 +676,22 @@ function blocksHTML(d) {
     if (it.sess) { const n = it.sess, live = !it.e.end;
       // A recorded stretch is a hollow outline with a stopwatch: time spent, not something to check off. Drag it to move it, or its bottom edge to change when it ended.
       return `<div class="block sess${live ? ' live' : ''}${isDone(n) ? ' done' : ''}" data-act="open" data-id="${n.id}"${live ? '' : ` data-drag data-sess="${it.i}" data-s="${it.s}" data-m="${it.m}"`} style="${pos};--pc:${colorOf(n)}" title="${live ? 'Recording now' : 'Time you worked on this. Drag to move it.'}">${ICON.watch}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${fmtT(it.s)} – ${live ? 'now' : fmtT(it.s + it.m)}</div></div><span class="sw-len">${fmtDur(Math.max(1, track.mins(it.e)))}</span>${live ? '' : '<div class="rs"></div>'}</div>`; }
+    if (isBlock(it.n)) return zoneHTML(it.n, pos, tm);
     const n = it.n, pr = hasKids(n.id) && progress(n.id); // a whole project in a block is a work session: show how far along it is
     return `<div class="block${isDone(n) ? ' done' : ''}${overdue(n) ? ' overdue' : ''}${track.isRec(n) ? ' planned' : ''}" data-drag data-id="${n.id}" style="${pos};--pc:${colorOf(n)}">${ckHTML(n)}<div class="b-in"><div class="b-t">${esc(n.t || 'Untitled')}</div><div class="b-time">${n.rs ? ICON.repS : ''}${tm}${pr ? ` · ${pr.done}/${pr.total}` : ''}</div></div>${(rt => rt ? `<span class="sw-len" title="Recorded time">${rt}</span>` : '')(recTag(n))}${recBtn(n)}<div class="rs"></div></div>`;
   }).join('');
 }
 function nowHTML(d) { if (d !== today()) return ''; const m = nowMin(); if (m < H0 * 60 || m > H1 * 60) return ''; return `<div class="now" style="top:${hpx((m - H0 * 60) / 60)}"></div>`; }
+// In Time blocks a day's habits without a time fold into one pill in the Any time row; tap it to tick them off there
+function habitPill(d) {
+  const hs = dayItems(d).filter(n => n.rs && n.s == null && habits.isHabit(n)); if (!hs.length) return [];
+  const done = hs.filter(n => n.done).length, open = !!S.hbTray?.[d];
+  return [`<button class="hb-pill${done === hs.length ? ' met' : ''}" data-act="hb-tray" data-d="${d}" aria-expanded="${open}"><span>Habits</span><b>${done} of ${hs.length}</b></button>${open ? `<div class="hb-tray">${habits.cardHTML(d, true)}</div>` : ''}`];
+}
 /* A day's "Any time" tasks. In Week view a day with more than two shows the first and "+N more", which opens the whole list for that day. */
 let trayAll = null;
 function trayHTML(d, week) {
-  const rows = [...eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all"${evTint(e)}>${esc(e.t)}</div>`), ...dayItems(d).filter(n => n.s == null).map(n => chipHTML(n, { compact: week }))];
+  const rows = [...eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all"${evTint(e)}>${esc(e.t)}</div>`), ...habitPill(d), ...dayItems(d).filter(n => n.s == null && !(n.rs && habits.isHabit(n))).map(n => chipHTML(n, { compact: week }))];
   const all = !week || rows.length <= 2 || trayAll === d;
   const more = all ? (week && rows.length > 2 ? `<button class="tmore" data-act="tray-all" data-d="">Show less</button>` : '') : `<button class="tmore" data-act="tray-all" data-d="${d}">+${rows.length - 1} more</button>`;
   const add = S.new?.at === 'tray' && S.new.d === d ? newHTML() : `<button class="tadd" data-act="new-tray" data-d="${d}" aria-label="Add an all-day task to ${esc(dayShort(d))}" title="Add a task for the whole day"><span aria-hidden="true">+</span></button>`;
@@ -489,7 +727,7 @@ function drawerHTML() {
   } else {
     const { groups, loose } = areaGroups(), todo = loose.filter(n => !n.done);
     top = `<div class="dr-title">Projects</div><span class="dr-hint">Hold and drag onto your day</span>`;
-    body = groups.filter(g => g.projs.length).map(g => `<div class="dr-grp" data-drop="area" data-area="${g.a?.id || ''}"><div class="dr-area"><span class="pdot" style="--pc:${ink(g.a?.c)}"></span>${g.a ? esc(g.a.t || 'Untitled area') : 'No area'}</div>${g.projs.filter(p => isProj(p) || !p.done).map(drRow).join('')}</div>`).join('')
+    body = groups.filter(g => g.projs.length).map(g => `<div class="dr-grp" data-drop="area" data-area="${g.a?.id || ''}">${g.a ? `<div class="dr-area dr-blk" data-drag data-id="${g.a.id}" style="--pc:${ink(g.a.c)}"><span class="pdot"></span>${esc(g.a.t || 'Untitled area')}<small>Hold to block time</small></div>` : '<div class="dr-area"><span class="pdot" style="--pc:var(--muted)"></span>No area</div>'}${g.projs.filter(p => isProj(p) || !p.done).map(drRow).join('')}</div>`).join('')
       + (todo.length ? `<div class="dr-grp" data-drop="sib" data-g="loose"><div class="dr-area"><span class="pdot" style="--pc:var(--muted)"></span>Inbox</div>${todo.map(drRow).join('')}</div>` : '')
       || '<div class="dr-empty">No projects yet. Add them in Projects.</div>';
   }
@@ -517,15 +755,17 @@ function renderBoard(el) {
 }
 /* The Roadmap page (js/roadmap.js draws the timeline) */
 const roadBtn = () => `<button class="ib q-only" data-act="road" aria-pressed="${roadShown()}" aria-label="Roadmap" title="Roadmap (R)">${ICON.road}</button><button class="ib q-only" data-act="stats" aria-pressed="${statsShown()}" aria-label="Stats" title="Stats (S)">${ICON.stats}</button>`;
+// In Quiet the header hides, so Roadmap, Stats (and Projects on a phone) keep a plain "‹ Plan" at the top left as the way back
+const qBack = () => quiet() && (roadShown() || statsShown() || qProjects()) ? `<button class="qback" data-act="qback" aria-label="Back to the plan" title="Back to the plan (Esc)">${ICON.prev}<span>Plan</span></button>` : '';
 function renderRoad(el) {
   const first = !document.getElementById('rmsc');
-  if (first && client && user) client.auth.getUser().then(({ data }) => { const v = +data?.user?.user_metadata?.free_hours; if (v > 0 && v !== +S.free) { S.free = v; saveUI(); later(); } }).catch(() => {}); // set on another device, or by Claude
+  if (first && client && user) client.auth.getUser().then(({ data }) => { const md = data?.user?.user_metadata || {}, v = +md.free_hours; if (v > 0 && v !== +S.free) { S.free = v; saveUI(); later(); } }).catch(() => {}); // set on another device, or by Claude
   const z = S.rmZoom in { 1: 1, 3: 1, 6: 1 } ? +S.rmZoom : 3, free = +S.free > 0 ? +S.free : 10;
-  const head = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">Roadmap</span></button>` : ''}<header class="mh rm-mh">
+  const head = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">Roadmap</span></button>` : ''}${qBack()}<header class="mh rm-mh">
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">Roadmap</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Earlier">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Later">${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg rm-zoom" role="group" aria-label="Zoom">${[1, 3, 6].map(m => `<button data-act="rm-zoom" data-v="${m}" aria-pressed="${z === m}">${m} mo</button>`).join('')}</div>
     <label class="chip rm-free" title="How many hours a week you have for planned tasks. Weeks with more scheduled than this stand out."><input id="rm-free" type="number" inputmode="numeric" min="1" max="168" step="1" value="${free}" aria-label="Free hours per week"><span class="k">h free a week</span></label>
-    <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>${lookBtn()}
+    <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
     <button class="ib q-only" data-act="qproj" aria-pressed="${qProjects() || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>`;
   const box = document.getElementById('rmsc'); const width = (box ? box.clientWidth : el.clientWidth) || innerWidth;
@@ -540,29 +780,40 @@ function setFree(v) {
 }
 roadmap.init({ S, saveUI, render: () => render(), toast: (...a) => toast(...a) });
 addEventListener('resize', () => { if (roadShown() || statsShown()) later(); });
+// The Habits view of Stats for the range on show, compared with the stretch of the same length just before it
+function habitStats(R) {
+  let { a, b } = R; if (R.k === 'all') a = habits.list().reduce((m, s) => s.d < m ? s.d : m, today());
+  const n = daysBetween(a, b) + 1, prevB = add(a, -1), prevA = add(a, -n);
+  const prevLabel = { day: 'the day before', week: 'the week before', month: 'the month before', year: 'the year before' }[R.k] || `the ${n} days before`;
+  return habits.statsHTML({ a, b, label: R.label, prevA, prevB, prevLabel, sel: S.hbSel, card: S.hbCard, year: S.hbYear });
+}
 /* The Stats page (js/stats.js draws it): hours by area for a range, a row of charts to swipe through, and the year in squares */
 function renderStats(el) {
   const k = stats.KINDS.some(([v]) => v === S.stK) ? S.stK : 'week', R = stats.range(), fixed = k === 'all';
   const prev = document.getElementById('mbody'), sc = prev?.dataset.k === 'stats' ? prev.scrollTop : 0;
-  el.innerHTML = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">Stats · ${esc(R.label)}</span></button>` : ''}<header class="mh st-mh">
-    <div class="mh-l">${pageSeg()}<h1 id="mtitle">Stats</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Earlier"${fixed ? ' disabled' : ''}>${ICON.prev}</button><button class="tb" data-act="today"${fixed ? ' disabled' : ''}>${k === 'day' ? 'Today' : 'Now'}</button><button class="ib" data-act="next" aria-label="Later"${fixed ? ' disabled' : ''}>${ICON.next}</button></div>${urBtns()}</div>
+  el.innerHTML = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">Stats · ${esc(R.label)}</span></button><div class="qmode" role="group" aria-label="Show"><button data-act="st-mode" data-v="time" aria-pressed="${S.stMode !== 'habits'}">Time</button><button data-act="st-mode" data-v="habits" aria-pressed="${S.stMode === 'habits'}">Habits</button></div>` : ''}${qBack()}<header class="mh st-mh">
+    <div class="mh-l">${pageSeg()}<h1 id="mtitle">Stats</h1><div class="seg st-mode" role="group" aria-label="Show"><button data-act="st-mode" data-v="time" aria-pressed="${S.stMode !== 'habits'}">Time</button><button data-act="st-mode" data-v="habits" aria-pressed="${S.stMode === 'habits'}">Habits</button></div><div class="nav"><button class="ib" data-act="prev" aria-label="Earlier"${fixed ? ' disabled' : ''}>${ICON.prev}</button><button class="tb" data-act="today"${fixed ? ' disabled' : ''}>${k === 'day' ? 'Today' : 'Now'}</button><button class="ib" data-act="next" aria-label="Later"${fixed ? ' disabled' : ''}>${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg st-kinds" role="group" aria-label="Range">${stats.KINDS.map(([v, l]) => `<button data-act="st-k" data-v="${v}" aria-pressed="${k === v}">${l}</button>`).join('')}</div>
-    <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>${lookBtn()}
+    <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
     <button class="ib q-only" data-act="qproj" aria-pressed="${qProjects() || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
-  <div class="mbody st-b vscroll" id="mbody" data-k="stats">${stats.html()}</div>`;
+  <div class="mbody st-b vscroll" id="mbody" data-k="stats">${S.stMode === 'habits' ? habitStats(R) : stats.html()}</div>`;
   document.getElementById('mbody').scrollTop = sc;
   stats.mounted();
 }
 stats.init({ S, saveUI, render: () => render() });
 // Time blocks scrolls both ways in one box, so one finger can go sideways and up/down in the same swipe, and the day names stay pinned on top
 const vScroller = mb => (mb?.classList.contains('timed') && mb.querySelector('.tw')) || mb;
+// On a phone the Dragon view is the whole app (rooms over the cave), so the Daybook header and tab bar step aside
+const caveShell = () => S.mode === 'dragon' && phone() && S.tab === 'plan';
 function renderMain() {
   const el = document.getElementById('main');
+  document.body.classList.toggle('td-shell', caveShell());
   document.body.classList.toggle('quiet', quietLook()); document.body.classList.toggle('q-strip', quiet() && !!S.qstrip);
   if (boardShown()) return renderBoard(el);
   if (roadShown()) return renderRoad(el);
   if (statsShown()) return renderStats(el);
+  if ((S.mode === 'quest' || S.mode === 'dragon') && S.view === 'week') S.view = 'day'; // Quest and Task Dragon play one day at a time
   const strip = S.view === 'week';
   const prev = document.getElementById('mbody'); const key = S.view + S.mode + (strip ? '' : S.anchor);
   const same = prev && prev.dataset.k === key; const sc = same ? vScroller(prev).scrollTop : null;
@@ -576,16 +827,16 @@ function renderMain() {
   const P = (k, v) => `aria-pressed="${S[k] === v}"`;
   const prevDr = document.getElementById('dr-b'); const drSc = prevDr && prevDr.dataset.k === (S.drAt || '') ? prevDr.scrollTop : 0;
   const warn = store.sync.state === 'offline' || store.sync.state === 'error' ? `<div class="tip warn"><span>${SYNC_TEXT[store.sync.state]}</span></div>` : '';
-  el.innerHTML = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">${title}</span></button>` : ''}<header class="mh">
+  el.innerHTML = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">${title}</span></button>` : ''}${qBack()}<header class="mh">
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg" role="group" aria-label="Range"><button data-act="view" data-v="day" ${P('view', 'day')}>Day</button><button data-act="view" data-v="week" ${P('view', 'week')}>Week</button></div>
-    <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button></div>
-    <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>${lookBtn()}
+    <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button>${S.games ? `<button data-act="mode" data-v="quest" ${P('mode', 'quest')}>Quest</button><button data-act="mode" data-v="dragon" ${P('mode', 'dragon')}>Dragon</button>` : ''}</div>
+    <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
     <button class="ib q-only" data-act="qproj" aria-pressed="${qp || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
-    <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>${qp ? '' : needLine()}
-  <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
-    ${S.tip ? `<div class="tip"><span>Tap a task to open it and add notes. Tap an empty time, or the + under a day, to add one. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
-    ${S.mode === 'list' ? (S.view === 'week' ? weekList(days) : dayList(days[0])) : timed(days)}
+    <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>${qp || S.mode === 'dragon' || S.mode === 'quest' ? '' : nowLine() + needLine()}
+  <div class="mbody${S.mode === 'timed' ? ' timed' : S.mode === 'dragon' ? ' td-body' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
+    ${S.tip && S.mode !== 'dragon' ? `<div class="tip"><span>Tap a task to open it and add notes. Tap an empty time, or the + under a day, to add one. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
+    ${S.mode === 'dragon' ? fightHTML(days[0]) : S.mode === 'quest' ? questHTML(days[0]) : S.mode === 'list' ? (S.view === 'week' ? weekList(days) : dayList(days[0])) : timed(days)}
   </div>${drawerHTML()}${quiet() ? `<button class="qgrab" data-act="drawer" aria-label="Show projects to schedule"></button>` : ''}`;
   const dr = document.getElementById('dr-b'); if (dr) dr.scrollTop = drSc;
   const mb = document.getElementById('mbody');
@@ -601,6 +852,24 @@ function renderMain() {
     stripTitle();
   }
   trayObs.disconnect(); mb.querySelectorAll('.tw, .tri').forEach(x => trayObs.observe(x));
+  if (S.mode === 'quest') quest.mounted(QR);
+  if (S.mode === 'dragon') fight.mounted(days[0]);
+}
+/* Task Dragon (js/dragon.js, js/fight.js): the day as a battle against a close-up dragon. Its + adds a quest to that day. */
+function fightHTML(d) {
+  const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a quest to ${esc(dayShort(d))}"><span aria-hidden="true">+</span> Quest</button>`;
+  return fight.html(d, { adder, needs: needLine() });
+}
+// With game modes hidden, the dragon's reminders stop too (they come back with Turn on reminders in Quest)
+const gamesQuiet = () => { if (!S.games && remind.state().act === 'off') remind.disable(() => {}); };
+const beginDragon = () => dragon.begin(user, quest.started() ? quest.realm().vault : 0); // the keep's gold comes along into the hoard
+/* Quest (js/quest.js): the day played against Claude as a dragon. Its + adds a task to that day, like the list's. */
+let QR = null;
+function questHTML(d) {
+  quest.settle(); // a campaign won or run out closes the first time Quest is drawn after
+  QR = quest.realm();
+  const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a quest to ${esc(dayShort(d))}"><span aria-hidden="true">+</span> Add a quest</button>`;
+  return quest.html(d, QR, { adder, noHabits: !routine.habits().length, remind: remind.state() });
 }
 /* The "Any time" row is only as tall as the busiest day on screen, not the busiest of the days drawn off to either side.
    Should a day still outgrow its cap, it scrolls inside its own cell, fading at the foot to show there's more. */
@@ -710,45 +979,55 @@ function setDetail(el, html) {
 }
 function renderDetail() {
   const el = document.getElementById('detail'); let n = S.open && node(S.open);
+  if (!n && typeof S.open === 'string' && S.open.startsWith('day:')) {
+    const body0 = el.querySelector('.dt-body'), same0 = !el.hidden && body0?.dataset.id === S.open, sc = same0 ? body0.scrollTop : 0, [, aid, d] = S.open.split(':');
+    const v = virtualOf(S.open);
+    if (!v) { S.open = null; el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false; blockDetail(el, v, same0); el.querySelector('.dt-body').scrollTop = sc; return;
+  }
+  if (S.open === 'hb:new') { const b0 = el.querySelector('.dt-body'), keep = !el.hidden && b0?.dataset.id === 'hb:new'; el.hidden = false; habitNewDetail(el, keep); return; }
   if (!n && S.open) { const o = splitOcc(S.open); if (o && node(o[0])) { S.open = o[0]; n = node(o[0]); } } // a repeat that's gone (its rule changed): show its series
   if (!n) { S.open = null; el.hidden = true; el.innerHTML = ''; return; }
   const ae = document.activeElement;
   if (!el.hidden && el.contains(ae) && ae.matches('textarea,input') && el.querySelector('.dt-body')?.dataset.id === n.id && ae.id !== 'dt-add-in') return; // don't interrupt typing
   const body = el.querySelector('.dt-body'); const same = !el.hidden && body?.dataset.id === n.id; const prevSc = same ? body.scrollTop : 0;
   el.hidden = false;
+  if (n.k === 'block') { blockDetail(el, n, same); el.querySelector('.dt-body').scrollTop = prevSc; return; }
   if (n.k === 'area') { areaDetail(el, n, same); el.querySelectorAll('textarea').forEach(grow); el.querySelector('.dt-body').scrollTop = prevSc; return; }
   const anc = ancestors(n), kids = children(n.id), pr = progress(n.id), pct = pr.total ? Math.round(pr.done / pr.total * 100) : 0;
-  const up = anc[anc.length - 1]; const durs = [5, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 480];
+  const up = anc[anc.length - 1], fromB = S.fromBlk && nodeOrDay(S.fromBlk); const durs = [5, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 480];
   if (!durs.includes(n.m || 60)) durs.push(n.m || 60);
   const count = leaves(n.id).length - (kids.length ? 0 : 1);
   const ser = store.seriesOf(n)?.r ? store.seriesOf(n) : null, rp = !!ser || !!n.rs; // a repeating task, or one of its repeats
+  const recOk = canRec(n) && (n.p == null || n.d || track.isRec(n) || (!hasKids(n.id) && inBlockNow(n))), recOn = recOk && track.isRec(n);
   setDetail(el, `<div class="dt-back" data-act="close"></div>
   <section class="dt${same ? ' still' : ''}" role="dialog" aria-modal="true" aria-label="${esc(n.t)}" style="--pc:${colorOf(n)}">
-    <div class="dt-top"><button class="dt-up" data-act="${up ? 'open' : 'close'}" data-id="${up ? up.id : ''}">${ICON.prev}<span>${up ? esc(up.t) : 'Back'}</span></button><button class="ib" data-act="close" aria-label="Close">${ICON.close}</button></div>
+    <div class="dt-top">${fromB ? `<span class="dt-nav"><button class="dt-up" data-act="open" data-id="${fromB.id}">${ICON.prev}<span>${esc(blockTitle(fromB))} time</span></button>${up ? `<button class="dt-up dt-par" data-act="open" data-id="${up.id}"><span>${esc(up.t)}</span></button>` : ''}</span>` : `<button class="dt-up" data-act="${up ? 'open' : 'close'}" data-id="${up ? up.id : ''}">${ICON.prev}<span>${up ? esc(up.t) : 'Back'}</span></button>`}<button class="ib" data-act="close" aria-label="Close">${ICON.close}</button></div>
     <div class="dt-body vscroll" data-id="${n.id}">
-      ${anc.length > 1 ? `<div class="dt-crumbs">${anc.map(a => `<button data-act="open" data-id="${a.id}">${esc(a.t)}</button>`).join('<span>›</span>')}</div>` : ''}
-      <div class="dt-head">${ckHTML(n)}<textarea id="dt-title" class="dt-title" rows="1" aria-label="Title" placeholder="Name it" enterkeyhint="done">${esc(n.t)}</textarea></div>
-      ${ser && n.rs ? `<div class="rp-scope" role="group" aria-label="Changes apply to"><span>Changes apply to</span><button data-act="scope" data-v="one" aria-pressed="${S.scope !== 'all'}">This one</button><button data-act="scope" data-v="all" aria-pressed="${S.scope === 'all'}">All repeats</button></div>` : ''}
-      ${n.r ? '<div class="dt-note rp-note">Changes here go to every repeat. Check off each one on its day.</div>' : ''}
+      ${whatLine(n, anc, kids, ser, rp)}
+      <div class="dt-head">${ckHTML(n)}<textarea id="dt-title" class="dt-title" rows="1" aria-label="Title" placeholder="Name it" enterkeyhint="done">${esc(n.t)}</textarea>${recOk ? `<button class="dt-go${recOn ? ' on' : ''}" data-act="rec" data-id="${n.id}" aria-label="${recOn ? 'Stop recording' : 'Start recording time'}" title="${recOn ? 'Recording · Stop' : 'Start'}">${recOn ? ICON.stop : ICON.play}</button>` : ''}</div>
       ${kids.length ? `<div class="dt-prog"><div class="bar"><i style="width:${pct}%"></i></div><span>${pr.done} of ${pr.total} done</span></div>` : ''}
-      <div class="dt-meta">
-        ${canRec(n) && (n.p == null || n.d || track.isRec(n)) ? `<button class="chip rec-chip${track.isRec(n) ? ' on' : ''}" data-act="rec" data-id="${n.id}">${track.isRec(n) ? ICON.stop : ICON.play}<span>${track.isRec(n) ? 'Recording · Stop' : 'Start'}</span></button>` : recUp(n)}
-        ${n.r ? '' : `<button class="chip${n.d ? ' set' : ''}" data-act="dtpick">${ICON.cal}<span>${n.d ? whenLabel(n) : 'Add to a day'}</span></button>`}
-        ${kids.length || n.c ? '' : `<button class="chip rp-chip${ser ? ' set' : ''}" data-act="rpedit" aria-expanded="${S.rpEdit}">${ICON.rep}<span>${ser ? esc(ruleText(ser.r, ser.d)) : 'Repeat'}</span></button>`}
-        ${kids.length || n.c ? '' : `<label class="chip"><span class="k">Takes about</span><select id="dt-dur">${durs.sort((a, b) => a - b).map(m => `<option value="${m}"${(n.m || 60) === m ? ' selected' : ''}>${fmtDur(m)}</option>`).join('')}</select></label>`}
-        ${!kids.length && !n.c && (n.done || n.am) && !track.real(n).length ? `<label class="chip took${n.am ? ' set' : ''}"><span class="k">Took</span><input type="number" id="dt-took" inputmode="numeric" min="1" max="10080" placeholder="${n.m || 60}" value="${n.am || ''}" aria-label="Minutes it really took"><span class="k">min</span></label>` : ''}
-        ${kids.length || n.c ? `<label class="chip${n.st ? ' set' : ''}"><span class="k">Starts</span><input type="date" id="dt-start" value="${n.st || ''}"${n.due ? ` max="${n.due}"` : ''}></label>` : ''}
-        ${kids.length || n.c || n.due || n.ms ? `<label class="chip${n.due ? ' set' : ''}"><span class="k">Due</span><input type="date" id="dt-due" value="${n.due || ''}"${n.st ? ` min="${n.st}"` : ''}></label>` : ''}
-        ${kids.length || n.c || rp ? '' : `<button class="chip ms-chip${n.ms ? ' set' : ''}" data-act="ms" aria-pressed="${!!n.ms}">${ICON.ms}<span>Milestone</span></button>`}
-        ${n.ms && !kids.length && !n.c && !rp ? `<button class="chip hd-chip${n.hd ? ' set' : ''}" data-act="hd" aria-pressed="${!!n.hd}" title="A date that can't move">Hard deadline</button>` : ''}
-        ${waitHTML(n)}
-        ${linkHTML(n)}
-        ${n.p == null && !n.rs ? `<label class="chip"><span class="k">Area</span><select id="dt-area">${store.areas().map(a => `<option value="${a.id}"${areaOf(n) === a.id ? ' selected' : ''}>${esc(a.t || 'Untitled area')}</option>`).join('')}<option value=""${areaOf(n) ? '' : ' selected'}>No area</option></select></label>` : ''}
-      </div>
+      ${line('When', [
+        recOk ? '' : recUp(n),
+        n.r ? '' : `<button class="chip${n.d ? ' set' : ''}" data-act="dtpick">${ICON.cal}<span>${n.d ? whenLabel(n) : 'Add to a day'}</span></button>`,
+        kids.length || n.c ? '' : `<label class="chip"><span class="k">Takes about</span><select id="dt-dur">${durs.sort((a, b) => a - b).map(m => `<option value="${m}"${(n.m || 60) === m ? ' selected' : ''}>${fmtDur(m)}</option>`).join('')}</select></label>`,
+        kids.length || n.c ? '' : `<button class="chip rp-chip${ser ? ' set' : ''}" data-act="rpedit" aria-expanded="${S.rpEdit}">${ICON.rep}<span>${ser ? esc(ruleText(ser.r, ser.d)) : 'Repeat'}</span></button>`,
+        rp && ser ? `<button class="chip hb-chip${ser.hb ? ' set' : ''}" data-act="habit" aria-pressed="${!!ser.hb}" title="A habit moves to the Habits card, and its time doesn't count toward the week's work hours on the Roadmap">Habit</button>` : '',
+        !kids.length && !n.c && (n.done || n.am) && !track.real(n).length ? `<label class="chip took${n.am ? ' set' : ''}"><span class="k">Took</span><input type="number" id="dt-took" inputmode="numeric" min="1" max="10080" placeholder="${n.m || 60}" value="${n.am || ''}" aria-label="Minutes it really took"><span class="k">min</span></label>` : '',
+        kids.length || n.c ? `<label class="chip${n.st ? ' set' : ''}"><span class="k">Starts</span><input type="date" id="dt-start" value="${n.st || ''}"${n.due ? ` max="${n.due}"` : ''}></label>` : '',
+        kids.length || n.c || n.due || n.ms ? `<label class="chip${n.due ? ' set' : ''}"><span class="k">Due</span><input type="date" id="dt-due" value="${n.due || ''}"${n.st ? ` min="${n.st}"` : ''}></label>` : '',
+        kids.length || n.c || rp ? '' : `<button class="chip ms-chip${n.ms ? ' set' : ''}" data-act="ms" aria-pressed="${!!n.ms}">${ICON.ms}<span>Milestone</span></button>`,
+        n.ms && !kids.length && !n.c && !rp ? `<button class="chip hd-chip${n.hd ? ' set' : ''}" data-act="hd" aria-pressed="${!!n.hd}" title="A date that can't move">Hard deadline</button>` : '',
+        isProj(n) && !n.rs ? `<button class="chip" data-act="blk-new" data-id="${n.id}" title="A block of time to work on this whole ${n.p ? 'part' : 'project'}">${ICON.cal}<span>Block time</span></button>` : ''])}
+      ${occAskHTML(n)}
+      ${linkedLine(n)}
+      ${labelsLine(n)}
       ${S.dtpick && !n.r ? pickerHTML(n, 0) : ''}
       ${S.rpEdit ? repeatHTML(n) : ''}
       ${S.waitEdit ? waitPickHTML(n) : ''}
       ${n.p == null && isProj(n) ? swatchesHTML(n) : ''}
+      ${ser?.hb ? habitSwatches(ser) : ''}
+      ${ser?.hb ? habits.detailHTML(ser, S.hbTab) : ''}
       <div class="dt-sec">Notes</div>
       ${n.notes && !S.notesEdit ? `<div class="dt-notes dt-notes-view" data-act="editnotes" role="button" tabindex="0" aria-label="Notes, tap to edit">${linkify(n.notes)}</div>` : `<textarea id="dt-notes" class="dt-notes" placeholder="Thoughts, links, where to start. These will be here when you sit down to do it." aria-label="Notes">${esc(n.notes || '')}</textarea>`}
       <div class="dt-saved" id="dt-saved" aria-live="polite"></div>
@@ -769,7 +1048,7 @@ function renderDetail() {
 const dayWord = d => d === today() ? 'Today' : d === add(today(), -1) ? 'Yesterday' : `${DAYN[pd(d).getDay()]} ${pd(d).getDate()}`;
 const hhmm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
 function timeHTML(n) {
-  if (n.r || n.k === 'area' || (n.p != null && !n.d && !n.tl?.length)) return ''; // a step's time goes to its project
+  if (n.r || n.k === 'area') return ''; // every task, step and project keeps its own log (steps are recorded on in area blocks)
   const t = track.total(n), plan = hasKids(n.id) || n.c ? null : n.pl?.duration_min ?? n.m;
   const rows = (n.tl || []).map((e, i) => {
     const a = track.local(e.start), b = e.end && track.local(e.end);
@@ -794,13 +1073,17 @@ function saveStretch() {
    optional end. A repeat opened from the plan edits its whole series' rule here. */
 function repeatHTML(n) {
   const s = store.seriesOf(n), r = s?.r, start = r ? s.d : n.d || today();
-  const kinds = [['day', 'Daily'], ['weekday', 'Weekdays'], ['week', 'Weekly'], ['month', 'Monthly']];
+  const kinds = [['day', 'Daily'], ['weekday', 'Weekdays'], ['week', 'Weekly'], ['month', 'Monthly'], ['days', 'Every few days'], ['times', 'Times a week or month']];
   let h = `<div class="rp-ed"><div class="rp-k" role="group" aria-label="Repeats">${kinds.map(([v, t]) => `<button data-act="rp-every" data-v="${v}" aria-pressed="${r?.every === v}">${t}</button>`).join('')}</div>`;
   if (r?.every === 'week') {
     const days = r.days?.length ? r.days : [pd(start).getDay()];
     h += `<div class="rp-row"><div class="rp-days" role="group" aria-label="On these days">${WEEK.map(d => `<button data-act="rp-day" data-v="${d}" aria-pressed="${days.includes(d)}" aria-label="${DAYL[d]}" title="${DAYL[d]}">${DAYN[d][0]}</button>`).join('')}</div>
       <label class="chip"><span class="k">Every</span><select id="rp-int" aria-label="Every how many weeks">${[1, 2, 3, 4, 6, 8, 12].map(i => `<option value="${i}"${(r.interval || 1) === i ? ' selected' : ''}>${i === 1 ? 'week' : i + ' weeks'}</option>`).join('')}</select></label></div>`;
   }
+  if (r?.every === 'days') h += `<div class="rp-row"><label class="chip"><span class="k">Every</span><select id="rp-dint" aria-label="Every how many days">${[2, 3, 4, 5, 6, 7, 10, 14, 21, 30, 45, 60, 90].map(i => `<option value="${i}"${(r.interval || 2) === i ? ' selected' : ''}>${i} days</option>`).join('')}</select></label></div>`;
+  if (r?.every === 'times') { const per = r.per === 'month' ? 'month' : 'week', max = per === 'month' ? 20 : 6;
+    h += `<div class="rp-row"><label class="chip"><select id="rp-n" aria-label="How many times">${[...Array(max)].map((_, i) => `<option value="${i + 1}"${(r.n || 2) === i + 1 ? ' selected' : ''}>${i + 1} time${i ? 's' : ''}</option>`).join('')}</select></label><label class="chip"><span class="k">a</span><select id="rp-per" aria-label="In each"><option value="week"${per === 'week' ? ' selected' : ''}>week</option><option value="month"${per === 'month' ? ' selected' : ''}>month</option></select></label></div>
+    <div class="dt-note">Shows every day until it's done ${r.n || 2} time${(r.n || 2) === 1 ? '' : 's'} that ${per}. The other days don't count as missed.</div>`; }
   if (r) h += `<div class="rp-row"><label class="chip"><span class="k">Starts</span><input type="date" id="rp-start" value="${s.d}"${r.until ? ` max="${r.until}"` : ''}></label>
     <label class="chip${r.until ? ' set' : ''}"><span class="k">Ends</span><input type="date" id="rp-until" value="${r.until || ''}" min="${s.d}" aria-label="Last day it repeats"></label>
     <button class="chip-edit" data-act="rp-off">Don't repeat</button></div>`;
@@ -814,13 +1097,144 @@ function setRepeat(patch) {
   if (s?.r) store.update(s.id, { r: cleanRule({ ...s.r, ...patch }, s.d) });
   else { const d = n.d || today(); store.update(n.id, { r: cleanRule(patch, d), d, done: false }); }
 }
-// In an open repeat, a change goes to it alone or to its whole series, as picked at the top of the panel
+/* In an open repeat, the name, notes, link and waiting on go to every repeat. Moving its day or changing
+   its time or length changes just this one, then asks underneath whether every repeat should follow. */
+const ASK = ['d', 's', 'm'];
 function edit(id, patch, quiet) {
   const n = node(id);
-  if (S.open === id && S.scope === 'all' && n?.rs && store.seriesOf(n)?.r) store.seriesEdit(id, patch);
-  else store.update(id, patch, quiet);
+  if (S.open !== id || !n?.rs || !store.seriesOf(n)?.r) return store.update(id, patch, quiet);
+  if (ASK.some(k => k in patch)) {
+    const keep = {}; for (const k of ASK) if (k in patch) keep[k] = patch[k];
+    if ('d' in keep) { delete keep.s; } // a new day: only the day follows, each repeat keeps its time
+    S.occAsk = { id, patch: S.occAsk?.id === id ? { ...S.occAsk.patch, ...keep } : keep };
+    return store.update(id, patch, quiet);
+  }
+  store.seriesEdit(id, patch);
+  const m = node(id), left = {}; for (const k in patch) if ((m?.[k] ?? null) !== (patch[k] ?? null)) left[k] = patch[k];
+  if (Object.keys(left).length) store.update(id, left, quiet); // this repeat had its own value: it follows too
+}
+/* Asked after a day, time or length change on one repeat: keep it to this one, or change every repeat */
+function occAskHTML(n) {
+  const a = S.occAsk; if (!a || a.id !== n.id) return '';
+  const p = a.patch, bits = [];
+  if ('d' in p) bits.push(p.d ? `moved to ${p.d === today() ? 'today' : dayShort(p.d)}` : 'taken off the plan');
+  if ('s' in p) bits.push(p.s != null ? `time changed to ${fmtT(p.s)}` : 'time cleared');
+  if ('m' in p) bits.push(`length changed to ${fmtDur(p.m)}`);
+  const txt = bits.join(', '); if (!txt || !p.d && 'd' in p) return '';
+  return `<div class="occ-ask" role="group" aria-label="Which repeats"><span>${txt[0].toUpperCase() + txt.slice(1)}. <span class="k">Just this one, or every repeat?</span></span><button class="on" data-act="occ-one">Just this one</button><button data-act="occ-every">Every repeat</button></div>`;
+}
+/* One labelled line of chips (When, Linked). Nothing at all when it has nothing in it. */
+const line = (lab, parts) => { const h = parts.filter(Boolean).join(''); return h ? `<div class="dt-line"><span class="dt-lab">${lab}</span><div class="dt-meta">${h}</div></div>` : ''; };
+/* What it is and where it lives, above the title: Habit · Personal, Task · Filmmaking › Short film */
+function whatLine(n, anc, kids, ser, rp) {
+  const word = ser?.hb ? 'Habit' : rp ? 'Repeating task' : kids.length || n.c ? 'Project' : n.ms ? 'Milestone' : 'Task';
+  let where = '';
+  if (anc.length) where = `<span class="kc">${anc.map(a => `<button data-act="open" data-id="${a.id}">${esc(a.t || 'Untitled')}</button>`).join('<span>›</span>')}</span>`;
+  else if (n.p == null && !n.rs) where = `<label class="kc"><select id="dt-area" aria-label="Area">${store.areas().map(a => `<option value="${a.id}"${areaOf(n) === a.id ? ' selected' : ''}>${esc(a.t || 'Untitled area')}</option>`).join('')}<option value=""${areaOf(n) ? '' : ' selected'}>No area</option></select></label>`;
+  else { const a = ser?.ar && store.get(ser.ar); if (a) where = `<span class="kc">${esc(a.t)}</span>`; }
+  const mv = n.k ? '' : `<button class="kmv${S.mvOpen ? ' on' : ''}" data-act="mv-open" aria-expanded="${!!S.mvOpen}">Move</button>`;
+  return `<div class="dt-what"><i class="kd"></i>${word}${where ? `<span class="ks">·</span>${where}` : ''}${mv}</div>${S.mvOpen ? movePickHTML(n) : ''}`;
+}
+/* Waiting on and the link show once they're set. Until then they wait behind one "+ Add". */
+function linkedLine(n) {
+  const w = n.w && node(n.w), l = n.link && safeLink(n.link);
+  const freeW = !w && !S.waitEdit, freeL = !l && !S.linkEdit;
+  const extra = !freeW && !freeL ? '' : S.addOpen ? `${freeW ? `<button class="chip" data-act="waitedit">${ICON.wait}<span>Waiting on…</span></button>` : ''}${freeL ? `<button class="chip" data-act="editlink">${ICON.link}<span>Add link</span></button>` : ''}`
+    : `<button class="chip add" data-act="addmenu" aria-expanded="false">+ Add</button>`;
+  return line('Linked', [w || S.waitEdit ? waitHTML(n) : '', l || S.linkEdit ? linkHTML(n) : '', extra]);
 }
 
+/* Move to…: put an item (and everything under it) under any project or sub-project, right in an area, or in the Inbox.
+   "New sub-project here" groups it into a new one in the same place, to gather sessions under a phase as you go. */
+const mvHost = n => (n.rs ? store.get(n.rs) || n : n);
+function moveTargets(n, q) {
+  const h = mvHost(n), bad = new Set([h.id]), kidsOf = id => children(id).forEach(c => { bad.add(c.id); kidsOf(c.id); }); kidsOf(h.id);
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean), ok = t => words.every(w => t.toLowerCase().includes(w));
+  const out = [], here = h.p ? 'p:' + h.p : h.ar && store.get(h.ar)?.k === 'area' ? 'a:' + h.ar : 'inbox';
+  const row = (key, name, dep, c, sub) => out.push({ key, name, dep, c, sub, here: key === here });
+  const walk = (x, dep, path) => { if (bad.has(x.id) || x.done && !hasKids(x.id)) return; const nm = x.t || 'Untitled', pth = path ? path + ' › ' + nm : nm;
+    if (!words.length || ok(pth)) row('p:' + x.id, nm, dep, projColor(rootOf(x)), words.length && path ? path : '');
+    children(x.id).filter(c => isProj(c)).forEach(c => walk(c, dep + 1, pth)); };
+  if (!words.length || ok('Inbox')) row('inbox', 'Inbox', 0, null, '');
+  for (const a of [...store.areas(), null]) {
+    const tops = store.all().filter(x => x.p == null && isProj(x) && (a ? x.ar === a.id : !(x.ar && store.get(x.ar)?.k === 'area'))).sort((x, y) => x.o - y.o);
+    if (a && (!words.length || ok(a.t || ''))) row('a:' + a.id, a.t || 'Untitled area', 0, ink(a.c), 'right in the area');
+    tops.forEach(x => walk(x, a ? 1 : 0, ''));
+  }
+  return out;
+}
+function moveListHTML(n, q) {
+  const T = moveTargets(n, q);
+  return T.length ? T.map(t => `<button type="button" class="mv-opt${t.here ? ' here' : ''}" data-act="mv-to" data-id="${t.key}" style="--dep:${t.dep};--pc:${t.c || 'var(--faint)'}"${t.here ? ' disabled' : ''}><i class="${t.key.startsWith('a:') ? 'ar' : t.key === 'inbox' ? 'ib' : ''}"></i><span>${esc(t.name)}${t.sub ? `<small>${esc(t.sub)}</small>` : ''}</span>${t.here ? '<em>here now</em>' : ''}</button>`).join('')
+    : '<div class="wait-hint">Nothing by that name</div>';
+}
+function movePickHTML(n) {
+  const h = mvHost(n), par = h.p && node(h.p), area = !par && h.ar && store.get(h.ar)?.k === 'area' ? store.get(h.ar) : null;
+  const where = par ? esc(par.t || 'its project') : area ? esc(area.t) : 'the Inbox';
+  return `<div class="mv-pick" style="--pc:${colorOf(n)}">
+    <div class="mv-h"><span>Move ${esc(h.t || 'this')}${hasKids(h.id) ? ' and its steps' : ''} to</span><button class="link" data-act="mv-open">Cancel</button></div>
+    <input id="mv-q" class="mv-q" placeholder="Find a project" autocomplete="off" aria-label="Find a project">
+    <div class="mv-list" id="mv-list">${moveListHTML(n, '')}</div>
+    <form class="dt-add mv-new" data-form="mv-new"><span class="plus-i" aria-hidden="true">+</span><input id="mv-new-in" placeholder="New sub-project here" title="Makes a new sub-project in ${where} and moves this into it" autocomplete="off" aria-label="New sub-project here" enterkeyhint="done"></form></div>`;
+}
+function moveTo(n, key) {
+  const h = mvHost(n), sibs = p => store.all().filter(x => (p ? x.p === p : x.p == null)), last = l => l.reduce((m, x) => Math.max(m, x.o || 0), 0) + 1;
+  const projLike = hasKids(h.id) || (h.p == null && !!h.c);
+  let patch, name;
+  if (key.startsWith('p:')) { const d = node(key.slice(2)); if (!d) return; patch = { p: d.id, ar: null, o: last(sibs(d.id)) }; name = d.t; }
+  else if (key.startsWith('a:')) { const a = store.get(key.slice(2)); if (!a) return; patch = { p: null, ar: a.id, o: last(sibs(null).filter(x => x.ar === a.id)) }; if (projLike) patch.c = h.c && h.c !== 'area' && h.p == null ? h.c : 'area'; name = a.t; }
+  else { patch = { p: null, ar: null, o: last(sibs(null).filter(x => !x.ar)) }; if (projLike && (!h.c || h.c === 'area')) { const used = new Set(store.all().filter(x => x.p == null && x.c && x.c !== 'area').map(x => glow(x.c))); patch.c = PALETTE.find(x => !used.has(x)) || PALETTE[0]; } name = 'the Inbox'; }
+  if (h.r) store.seriesEdit(h.id, patch); else store.update(h.id, patch);
+  S.mvOpen = false; renderDetail(); toast(`Moved ${short(h.t || 'it')} to ${short(name || 'Untitled')}`);
+}
+function groupHere(n, t) {
+  const h = mvHost(n), area = h.p == null && h.ar && store.get(h.ar)?.k === 'area' ? h.ar : null;
+  const g = h.p ? store.create({ t, p: h.p, o: (h.o || 0) - 0.001 }) : makeProject(t, area);
+  moveTo(n, 'p:' + g.id);
+}
+
+/* Labels (Building, Client work…) cut across areas. An item's own ones come off with ×; the ones it wears because
+   its project does show faded. A repeat's labels are its series'. */
+const lbHost = n => (n.rs ? store.get(n.rs) || n : n);
+const lbPill = (l, more = '') => `style="--lc:${ink(l.c)}"${more}>${esc(l.t || 'Untitled')}`;
+function labelsLine(n) {
+  const L = store.labelsOf(n);
+  const chips = L.map(({ l, from }) => from ? `<button class="lbl inh" data-act="open" data-id="${from.id}" title="From ${esc(from.t || 'its project')}, tap to open it" ${lbPill(l)}</button>`
+    : `<button class="lbl" data-act="lb-tog" data-id="${l.id}" title="Take ${esc(l.t)} off" aria-label="Remove label ${esc(l.t)}" ${lbPill(l)}<span class="x" aria-hidden="true">×</span></button>`).join('');
+  return `${line('Labels', [chips, `<button class="chip add" data-act="lb-pick" aria-expanded="${!!S.lbPick}">+ Label</button>`])}${S.lbPick ? labelPickHTML(n, L) : ''}`;
+}
+function labelPickHTML(n, L) {
+  const has = new Map(L.map(x => [x.l.id, x.from])), all = store.labels();
+  const rows = all.map(l => {
+    if (S.lbEdit) return `<div class="lb-row ed"><input id="lbn-${l.id}" class="lb-name" value="${esc(l.t || '')}" aria-label="Label name" autocomplete="off" enterkeyhint="done">
+      <span class="lb-sw" role="group" aria-label="Colour">${store.LABEL_PALETTE.map(c => `<button class="sw${l.c === c ? ' on' : ''}" style="--sw:${ink(c)}" data-act="lb-color" data-id="${l.id}" data-c="${c}" aria-label="Colour ${c}"></button>`).join('')}</span>
+      <button class="lb-del" data-act="lb-del" data-id="${l.id}">Delete</button></div>`;
+    const from = has.get(l.id);
+    return from ? `<div class="lb-row off"><span class="lbl" ${lbPill(l)}</span><span class="lb-from">from ${esc(from.t || 'its project')}</span></div>`
+      : `<button class="lb-row" data-act="lb-tog" data-id="${l.id}" aria-pressed="${has.has(l.id)}"><span class="lbl" ${lbPill(l)}</span>${has.has(l.id) ? '<span class="tick">✓</span>' : ''}</button>`;
+  }).join('');
+  return `<div class="lb-pick">${rows || '<div class="lb-none">No labels yet. Name one below, such as Building or a client.</div>'}
+    ${S.lbEdit ? '' : `<form class="lb-new" data-form="lb-new"><span class="plus-i" aria-hidden="true">+</span><input id="lb-new-in" placeholder="New label" autocomplete="off" aria-label="New label" enterkeyhint="done"></form>`}
+    ${all.length ? `<div class="lb-foot"><button class="link" data-act="lb-edit">${S.lbEdit ? 'Done' : 'Rename, recolour or delete labels'}</button></div>` : ''}</div>`;
+}
+function toggleLabel(n, id) {
+  const h = lbHost(n), cur = h.lb || [], on = cur.includes(id);
+  const lb = on ? cur.filter(x => x !== id) : [...cur, id];
+  if (h.r) store.seriesEdit(h.id, { lb: lb.length ? lb : null }); else store.update(h.id, { lb: lb.length ? lb : null });
+}
+function newLabel(n, name) {
+  const t = name.trim().slice(0, 40); if (!t) return;
+  const old = store.labels().find(l => (l.t || '').trim().toLowerCase() === t.toLowerCase());
+  const l = old || store.create({ k: 'label', t, c: store.nextLabelColor(), m: null });
+  if (!(lbHost(n).lb || []).includes(l.id)) toggleLabel(n, l.id);
+}
+
+/* A habit's colour: its area's (the ringed swatch) or its own, kept in its repeat rule. */
+function habitSwatches(s) {
+  const area = s.ar && store.get(s.ar), own = s.r?.hc ? glow(s.r.hc) : null;
+  const follow = `<button class="sw follow${own ? '' : ' on'}" style="--sw:${area ? ink(area.c) : ink(null)}" data-act="hb-color" data-id="${s.id}" data-c="" aria-label="Use ${area ? `the ${esc(area.t)} area's` : 'the plain'} colour" title="Use the area's colour"></button><span class="sw-sep"></span>`;
+  return `<div class="swatches" role="group" aria-label="Habit colour">${follow}${PALETTE.map(c => `<button class="sw${own === c ? ' on' : ''}" style="--sw:${ink(c)}" data-act="hb-color" data-id="${s.id}" data-c="${c}" aria-label="Colour ${c}"></button>`).join('')}</div>`;
+}
 /* Colour choices. A project in an area can follow the area's colour (the ringed swatch) or have its own. */
 function swatchesHTML(n) {
   const area = n.k !== 'area' && areaOf(n) && store.get(n.ar);
@@ -839,6 +1253,15 @@ function areaDetail(el, n, same) {
       <div class="dt-head"><textarea id="dt-title" class="dt-title" rows="1" aria-label="Area name" placeholder="Name this area" enterkeyhint="done">${esc(n.t)}</textarea></div>
       <div class="dt-note">Projects in this area wear its colour, unless you give one its own.</div>
       ${swatchesHTML(n)}
+      <div class="dt-sec">Time</div>
+      <div class="dt-meta"><button class="chip" data-act="blk-new" data-id="${n.id}">${ICON.cal}<span>Block time for it today</span></button>
+</div>
+      <div class="dt-sub">Hours each day</div>
+      <div class="ad-grid">${aday.ORDER.map(k => adSelect('ad-' + k, +(n.dg?.[k] || 0), k)).join('')}</div>
+      ${aday.skipped(n, today()) ? `<div class="dt-note">Skipped today. <button class="link" data-act="ad-unskip" data-id="${n.id}" data-d="${today()}">Bring it back</button></div>` : ''}
+      <div class="dt-meta"><label class="chip${n.tp ? ' set' : ''}"><span class="k">Best in the</span><select id="dt-tp" aria-label="Best time of day">${['', ...aday.PREFS].map(v => `<option value="${v}"${(n.tp || '') === v ? ' selected' : ''}>${v || 'any time'}</option>`).join('')}</select></label></div>
+      <div class="dt-note">Each day with hours shows a ${esc(n.t || 'area')} card at the top of the List: start its timer as often as you like, and time on anything in the area counts too. You can also drag the area's name onto your plan to block a set time.</div>
+      ${weekBar(n)}
       <div class="dt-sec">${projs.some(p => !isProj(p)) ? 'Projects and tasks' : 'Projects'}<small>${projs.length}</small></div>
       <div class="dt-steps" data-drop="area" data-area="${n.id}">${projs.map(stepHTML).join('')}
         <form class="dt-add" data-form="area-project" data-area="${n.id}"><span class="plus-i" aria-hidden="true">+</span><input id="dt-add-in" placeholder="Add a project" autocomplete="off" aria-label="Add a project" enterkeyhint="enter"></form></div>
@@ -883,7 +1306,10 @@ function saveLink() {
   renderDetail();
 }
 function openItem(id, focusTitle = false) {
-  if (S.open !== id) { S.scope = 'one'; S.rpEdit = false; }
+  // Opened from inside a block: remember the block, so the item can lead back to it (until the panel closes)
+  const cur = S.open && nodeOrDay(S.open), nx = nodeOrDay(id);
+  if (nx && isBlock(nx)) S.fromBlk = null; else if (cur && isBlock(cur)) S.fromBlk = cur.id; else if (!cur) S.fromBlk = null;
+  if (S.open !== id) { S.occAsk = null; S.addOpen = false; S.mvOpen = false; S.lbPick = false; S.lbEdit = false; S.rpEdit = false; S.blkFocus = null; S.blkSkip = []; S.blkView = 'next'; }
   S.open = id; S.tlEdit = null; S.dtpick = false; S.confirmDel = false; S.linkEdit = false; S.notesEdit = false; S.waitEdit = false; renderDetail();
   if (focusTitle) { const t = document.getElementById('dt-title'); t.focus(); t.select(); }
 }
@@ -894,7 +1320,7 @@ function render() {
   cancelAnimationFrame(raf); raf = 0;
   const ae = document.activeElement; const fid = ae && ae.id && !document.getElementById('detail').contains(ae) ? ae.id : null;
   const val = fid ? ae.value : null;
-  renderSide(); renderMain(); renderTabs(); renderDetail(); renderRec(); renderNote(); renderNotes(); renderNeeds(); renderMsgs(); saveUI();
+  renderSide(); renderMain(); renderTabs(); renderDetail(); renderRec(); renderNote(); renderNotes(); renderNeeds(); renderTrash(); renderMsgs(); saveUI();
   if (S.view === 'week' && W?.jump && placeDay(W.jump, 0)) { W.jump = null; stripTitle(); } // a phone only lays the plan out once its tab is set
   if (S.adding) { const i = document.getElementById('add-in'); if (i) { if (fid === 'add-in') i.value = val; i.focus({ preventScroll: true }); } }
   else if (fid && fid !== 'askq') { const i = document.getElementById(fid); if (i) { if (val != null && 'value' in i) i.value = val; i.focus({ preventScroll: true }); } }
@@ -917,8 +1343,8 @@ function renderRec() {
   recEl.hidden = false; recEl.style.setProperty('--pc', colorOf(r));
   if (recAsk(e)) { recEl.dataset.ask = 1; recEl.innerHTML = `<div class="rec-p ask"><span class="dot"></span><span class="rec-q">Still on ${esc(short(r.t))}?</span><button class="rec-w" data-act="rec-yes">Yes</button><button class="rec-w" data-act="rec-stop">Stop</button></div>`; return; }
   delete recEl.dataset.ask;
-  const proj = hasKids(r.id) || !!r.c; document.body.classList.toggle('rec-open', !!S.recOpen);
-  recEl.innerHTML = `<div class="rec-p"><button class="rec-main" data-act="rec-open" aria-expanded="${!!S.recOpen}" title="Started earlier? Tap to change"><span class="dot"></span><span class="rec-s"><span class="rec-t">${esc(r.t || 'Untitled')}</span><span class="rec-c" id="rec-c">${recClock(e)}</span></span></button><button class="rec-i stop" data-act="rec-stop" aria-label="Stop recording" title="Stop">${ICON.stop}</button>${proj ? '' : `<button class="rec-i ok" data-act="rec-done" aria-label="Check off ${esc(r.t)}" title="Done">${ICON_OK}</button>`}</div>`
+  const proj = hasKids(r.id) || !!r.c || isBlock(r) || r.k === 'area'; document.body.classList.toggle('rec-open', !!S.recOpen);
+  recEl.innerHTML = `<div class="rec-p"><button class="rec-main" data-act="rec-open" aria-expanded="${!!S.recOpen}" title="Started earlier? Tap to change"><span class="dot"></span><span class="rec-s"><span class="rec-t">${esc(isBlock(r) ? blockTitle(r) + ' time' : r.k === 'area' ? (r.t || 'Area') + ' time' : r.t || 'Untitled')}</span><span class="rec-c" id="rec-c">${recClock(e)}</span></span></button><button class="rec-i stop" data-act="rec-stop" aria-label="Stop recording" title="Stop">${ICON.stop}</button>${proj ? '' : `<button class="rec-i ok" data-act="rec-done" aria-label="Check off ${esc(r.t)}" title="Done">${ICON_OK}</button>`}</div>`
     + (S.recOpen ? `<div class="rec-x"><span>Started ${fmtT(track.local(e.start).m)}</span><button data-act="rec-nudge" data-v="-15">−15</button><button data-act="rec-nudge" data-v="-5">−5</button><button data-act="rec-nudge" data-v="5">+5</button><button data-act="rec-task">Open</button></div>` : '');
 }
 setInterval(() => {
@@ -971,15 +1397,8 @@ function noteTasks(n) {
     return t ? `<button class="n-task${isDone(t) ? ' done' : ''}" data-act="note-task" data-id="${esc(id)}" style="--pc:${colorOf(t)}"><span class="pdot"></span><span>${esc(t.t || 'Untitled')}</span></button>` : '<span class="n-task gone">Removed</span>';
   }).join('')}</div>`;
 }
-/* Ink (dark, the default) or Paper (light). index.html applies the saved look before anything draws. */
-const LOOK_KEY = 'daybook-look';
-const lookBtn = () => { const p = look() === 'paper'; return `<button class="ib" data-act="look" aria-label="${p ? 'Dark look (Ink)' : 'Light look (Paper)'}" title="${p ? 'Switch to Ink, the dark look' : 'Switch to Paper, the light look'} (L)">${p ? ICON.moon : ICON.sun}</button>`; };
-function setLook(l) {
-  document.documentElement.dataset.look = l; lsSet(LOOK_KEY, l);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', l === 'paper' ? '#F6F1E7' : '#1C1A17');
-  render();
-}
-const notesBtn = () => { const k = notes.unread().length; return `<button class="ib nb" data-act="notes" aria-pressed="${!!S.notesOpen}" aria-label="Notes from Claude${k ? `, ${k} unread` : ''}" title="Notes from Claude (N)">${ICON.notes}${k ? '<i class="nb-dot"></i>' : ''}</button>`; };
+/* Ink is the one look. (Paper's colours stay in app.css and tree.js, unused.) */
+const notesBtn = () => { const k = notes.unread().length; if (!k && !S.notesOpen) return ''; return `<button class="ib nb" data-act="notes" aria-pressed="${!!S.notesOpen}" aria-label="Notes from Claude${k ? `, ${k} unread` : ''}" title="Notes from Claude (N)">${ICON.notes}${k ? '<i class="nb-dot"></i>' : ''}</button>`; };
 const noteEl = document.createElement('div'); noteEl.id = 'note'; noteEl.className = 'note'; noteEl.hidden = true; noteEl.setAttribute('role', 'status'); document.body.appendChild(noteEl);
 const notesEl = document.createElement('div'); notesEl.id = 'notes'; notesEl.className = 'detail notes'; notesEl.hidden = true; document.body.appendChild(notesEl);
 const noteLater = new Set(); // put off with × until the app is opened again; Notes still has them
@@ -1012,6 +1431,32 @@ function renderNotes() {
   notesEl.querySelector('.dt-body').scrollTop = sc;
 }
 
+/* Trash: what was deleted in the last 30 days, in the app or by Claude, newest first. Restore brings it back with
+   whatever was deleted along with it (a project's steps, a series' repeats). After 30 days it's cleared out for good. */
+const trashEl = document.createElement('div'); trashEl.id = 'trash'; trashEl.className = 'detail notes trash'; trashEl.hidden = true; document.body.appendChild(trashEl);
+function trashWhere(n) {
+  const host = n.rs ? store.peek(n.rs) : n, bits = [];
+  for (let h = host?.p ? store.peek(host.p) : null, i = 0; h && i < 50; h = h.p ? store.peek(h.p) : null, i++) bits.unshift(h.t || 'Untitled');
+  if (!bits.length && host?.ar) { const a = store.peek(host.ar); if (a?.k === 'area') bits.push(a.t); }
+  return bits.join(' › ');
+}
+function renderTrash() {
+  if (!S.trashOpen) { trashEl.hidden = true; trashEl.innerHTML = ''; trashEl.h = null; return; }
+  const L = store.trash();
+  const rows = L.length ? L.map(({ n, steps }) => {
+    const s = n.rs ? store.peek(n.rs) : null, t = n.t || s?.t || 'Untitled', where = trashWhere(n);
+    const what = n.rs ? `The repeat on ${n.oc === today() ? 'today' : DAYN[pd(n.oc).getDay()] + ' ' + fmtShort(n.oc)}` : n.r ? 'Repeating, with all its repeats' : steps ? `Project, with ${steps} step${steps === 1 ? '' : 's'}` : '';
+    const meta = [what, where].filter(Boolean).map(esc).join(' · ');
+    return `<article class="tr-row"><div class="tr-main"><b>${esc(t)}</b>${meta ? `<span class="tr-meta">${meta}</span>` : ''}<small>Deleted ${noteWhen(n.xa).replace(/^(Today|Yesterday)/, w => w.toLowerCase())}</small></div><button class="tr-back" data-act="tr-restore" data-id="${esc(n.id)}">Restore</button></article>`;
+  }).join('') : `<div class="n-empty">Nothing deleted in the last ${store.TRASH_DAYS} days. Whatever you or Claude delete waits here for ${store.TRASH_DAYS} days, so you can bring it back.</div>`;
+  const h = `<div class="dt-back" data-act="trash-close"></div><div class="dt nl"><div class="dt-top"><h2 class="nl-t">Trash</h2><div class="nl-acts"><button class="ib" data-act="trash-close" aria-label="Close">${ICON.close}</button></div></div><div class="dt-body vscroll">${L.length ? `<p class="tr-say">Kept for ${store.TRASH_DAYS} days, then cleared out for good.</p>` : ''}${rows}</div></div>`;
+  if (trashEl.h === h) return;
+  const first = trashEl.hidden, sc = first ? 0 : trashEl.querySelector('.dt-body')?.scrollTop || 0;
+  trashEl.h = h; trashEl.innerHTML = h; trashEl.hidden = false;
+  if (!first) trashEl.querySelector('.dt').classList.add('still');
+  trashEl.querySelector('.dt-body').scrollTop = sc;
+}
+
 /* Needs you (js/notes.js): what's waiting on the person across their Claude projects, raised by threads through the
    connector. A quiet line under the Plan's header, only while something is open; it opens the list, grouped by Claude
    project, oldest first. Tap a row to jump to its thread; the check (or a swipe right on a phone) clears it. */
@@ -1023,6 +1468,13 @@ function needLine() {
   const kinds = Object.keys(KIND).filter(k => L.some(n => n.kind === k)), projs = new Set(L.map(n => n.project || 'Claude')).size;
   const old = L.some(n => needAge(n).old);
   return `<button class="ny-line${old ? ' old' : ''}" data-act="needs" aria-expanded="${!!S.needsOpen}" title="What needs you across your Claude projects (M)"><span class="ny-marks">${kinds.map(needMark).join('')}</span><b>${L.length}</b><span>need${L.length === 1 ? 's' : ''} you</span><small>· ${projs === 1 ? esc(L[0].project || 'Claude') : projs + ' projects'}</small><span class="ny-arr">›</span></button>`;
+}
+/* Area time comes first: the block on right now (or the next one today) sits under the day's name, one tap from its focus view */
+function nowLine() {
+  const t = Date.now(), bs = dayItems(today()).filter(n => isBlock(n) && !n.done && n.s != null).map(b => ({ b, w: blocks.windowOf(b) })).filter(x => x.w[1] > t).sort((x, y) => x.w[0] - y.w[0]);
+  const x = bs[0]; if (!x) return '';
+  const on = x.w[0] <= t, b = x.b;
+  return `<button class="now-line${on ? ' on' : ''}" data-act="open" data-id="${b.id}" style="--pc:${colorOf(b)}" title="Open this block's focus view"><i class="pdot"></i><span>${on ? 'Now' : 'Next'}</span><b>${esc(blockTitle(b))}</b><small>${on ? 'until ' + fmtT(b.s + (b.m || 60)) : 'at ' + fmtT(b.s)}</small><span class="ny-arr">›</span></button>`;
 }
 function needAge(n) {
   const ms = Date.now() - Date.parse(n.created_at), h = Math.floor(ms / 36e5), d = Math.floor(ms / 864e5);
@@ -1092,7 +1544,9 @@ function describe(st) {
   if (began) return `Recording ${short(store.peek(began[0])?.t)}`;
   if ('done' in b) return n > 1 ? `${a.done ? 'Checked off' : 'Unchecked'} ${n} steps` : `${a.done ? 'Checked off' : 'Unchecked'} ${t}`;
   if ('c' in b) return `Changed the color of ${t}`;
+  if ('r' in b && a.r && b.r && (a.r.hc || '') !== (b.r.hc || '') && JSON.stringify({ ...a.r, hc: 0 }) === JSON.stringify({ ...b.r, hc: 0 })) return `Changed the color of ${t}`;
   if ('r' in b) return !a.r ? `${t} no longer repeats` : b.r ? `Changed how ${t} repeats` : `Made ${t} repeat`;
+  if ('tl' in b) { const e = (a.tl || []).filter(x => x.est).pop(); if (e && !(b.tl || []).some(x => x.est && x.start === e.start && x.end === e.end)) return `${t} took ${fmtDur(Math.round((Date.parse(e.end) - Date.parse(e.start)) / 60000))}`; }
   if ('tl' in b) return live(b.tl) && !live(a.tl) ? `Stopped recording ${t}` : `Changed the time on ${t}`;
   if ('d' in b || 's' in b || 'ar' in b || 'a' in b) return `Moved ${t}`;
   if ('m' in b) return `Changed the length of ${t}`;
@@ -1129,6 +1583,7 @@ let occOffer = null, occAll = null;
 // A new step: offer Undo, keeping any message the change just showed (like a project's progress)
 function onStep(st) {
   urSync();
+  if (st) for (const [id, b, a] of st.ch) quest.moved(id, b, a); // moving a quest off its day costs a swipe of gold
   const off = occOffer; occOffer = null;
   if (!st || st.text) return; // typing a name or notes: the box is right there, no pill needed
   if (off && st.ch.some(c => c[0] === off.id)) { occAll = off; toast(`${describe(st)}, just this one`, `<button data-act="occ-all">${ICON.rep}All repeats</button>${urActs(true)}`, 8000); return; }
@@ -1142,11 +1597,30 @@ function placedText(id, proj = false) {
   const n = node(id); if (!(proj ? isDone(n) : n?.done) || n.s == null) return '';
   return ` · ${fmtT(n.s)}–${fmtT(n.s + (n.m || 60))}${n.tl?.[n.tl.length - 1]?.guess ? ', as planned' : ''}`;
 }
+// A habit is ticked without guessing how long it took, so it never adds hours to its area. Its timer still counts when used.
+// A habit set to count time (hm on the series) adds that much, ending now, to its area's hours for the day.
+function habitTick(id) {
+  const n = node(id); if (!n) return;
+  if (n.done) { store.update(n.id, { ...track.undonePatch(n), da: null }); return; }
+  const p = { ...track.donePatch(n, false), da: new Date().toISOString() }, hm = store.seriesOf(n)?.r?.mins, now = Date.now();
+  if (hm && !track.real(n).length) p.tl = [{ start: new Date(now - hm * 60000).toISOString(), end: new Date(now).toISOString(), guess: true }];
+  store.update(n.id, p);
+  if (hm || track.real(n).length) askTook(id, hm || 15); // a habit set to "no time", never timed, just ticks
+}
+/* Right after a check-off, ask how long it really took (took.js). Not when something around it holds the time:
+   its project's timer, or its area's or block's, already recorded it. */
+function askTook(id, plan) {
+  const n = node(id); if (!n?.done) { took.hideFor(id); return; }
+  const r = track.running();
+  if (r && r.id !== id && (ancestors(n).some(a => a.id === r.id) || (r.k === 'area' && (n.ar === r.id || rootOf(n)?.ar === r.id)) || (isBlock(r) && r.fo && within(n, r.fo)))) return;
+  took.ask(id, plan ?? n.pl?.duration_min ?? n.m);
+}
 function toggle(id) {
-  const n = node(id); if (n.rs) { check(n); if (node(id)?.done) toast(`${short(n.t)} done${placedText(id)}`); return; } // a repeat is checked off on its own
+  const n = node(id); if (n.rs && habits.isHabit(n)) { const was = n.done; habitTick(id); if (was) askTook(id); return; }
+  if (n.rs) { check(n); if (node(id)?.done) { toast(`${short(n.t)} done${placedText(id)}`); askTook(id); } else askTook(id); return; } // a repeat is checked off on its own
   const anc = ancestors(n); const before = anc.map(isDone), was = isDone(n);
   if (hasKids(id) || n.c) { const all = isDone(n); store.updateMany(leaves(id).filter(l => !l.c && !l.r).map(l => [l.id, { done: !all }])); }
-  else check(n);
+  else { check(n); askTook(id); }
   // Projects that just finished move to when they were really worked on; reopened ones go back to their plan (same undo step)
   [...anc.map((a, i) => [a, before[i]]), [n, was]].forEach(([a, b]) => {
     if (!(hasKids(a.id) || a.c) || isDone(a) === b) return;
@@ -1208,7 +1682,7 @@ function placeAmong(n, t, at, patch) {
   list.splice(i < 0 ? list.length : i, 0, n);
   store.updateMany(list.map((x, j) => [x.id, x.id === n.id ? { ...patch, o: j } : { o: j }]).filter(([id, p]) => id === n.id || node(id).o !== p.o));
 }
-function setDay(id, d) { const n = node(id); const patch = { d: d || null, ds: Date.now() / 1000 }; if (n.d !== d) { patch.s = null; patch.a = null; } S.pick = null; S.dtpick = false; edit(id, patch); if (d) toast(`${n.t} → ${d === today() ? 'today' : DAYL[pd(d).getDay()] + ' ' + fmtShort(d)}`); }
+function setDay(id, d) { const n = node(id); const patch = { d: d || null, ds: Date.now() / 1000 }; if (n.d !== d && !isBlock(n)) { patch.s = null; patch.a = null; } S.pick = null; S.dtpick = false; edit(id, patch); if (d) toast(`${n.t} → ${d === today() ? 'today' : DAYL[pd(d).getDay()] + ' ' + fmtShort(d)}`); }
 function makeProject(t, ar) {
   // In an area a new project wears the area's colour; with no area it gets a colour of its own
   const used = new Set(store.all().filter(n => n.p == null && n.c && n.c !== 'area').map(n => glow(n.c)));
@@ -1219,6 +1693,8 @@ function newProject(ar) { const n = makeProject('', ar); if (ar) S.col['area:' +
 function newArea() { const n = store.create({ k: 'area', t: '', c: store.nextAreaColor(), o: Math.max(0, ...store.areas().map(a => a.o)) + 1 }); openItem(n.id, true); }
 // Switching List and Time blocks in Week view stays on the days you were looking at
 function setMode(m) {
+  if (m === 'quest') { S.mode = m; S.view = 'day'; W = null; quest.begin(user); render(); return; }
+  if (m === 'dragon') { S.mode = m; S.view = 'day'; S.tab = 'plan'; S.cave = false; W = null; quest.begin(user); beginDragon(); render(); return; }
   const first = S.view === 'week' && W ? visibleDays()[0] : null;
   S.mode = m; if (first) W.jump = first; else W = null; render();
 }
@@ -1235,16 +1711,25 @@ document.addEventListener('click', e => {
   const a = b.dataset.act, id = b.dataset.id;
   switch (a) {
     case 'open': openItem(id); break;
-    case 'close': S.open = null; S.confirmDel = false; S.linkEdit = false; renderDetail(); break;
+    case 'close': S.open = null; S.fromBlk = null; S.confirmDel = false; S.linkEdit = false; renderDetail(); break;
     case 'editnotes': {
       if (e.target.closest('a') || String(getSelection())) break; // links open in a new tab; selecting text shouldn't start editing
       S.notesEdit = true; renderDetail();
       const t = document.getElementById('dt-notes'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
       break;
     }
-    case 'editlink': S.linkEdit = true; renderDetail(); document.getElementById('dt-link')?.focus(); break;
+    case 'editlink': S.linkEdit = true; S.addOpen = false; renderDetail(); document.getElementById('dt-link')?.focus(); break;
     case 'dtpick': S.dtpick = !S.dtpick; renderDetail(); break;
-    case 'scope': S.scope = b.dataset.v; renderDetail(); break;
+    case 'occ-one': S.occAsk = null; renderDetail(); break;
+    case 'occ-every': { const o = S.occAsk; S.occAsk = null; if (o) { const t = short(node(o.id)?.t); store.seriesEdit(o.id, o.patch); toast(`Changed every repeat of ${t}`); } renderDetail(); break; }
+    case 'addmenu': S.addOpen = true; renderDetail(); break;
+    case 'mv-open': S.mvOpen = !S.mvOpen; renderDetail(); if (S.mvOpen && !phone()) document.getElementById('mv-q')?.focus(); break;
+    case 'mv-to': { const n = node(S.open); if (n) moveTo(n, id); break; }
+    case 'lb-pick': S.lbPick = !S.lbPick; S.lbEdit = false; renderDetail(); if (S.lbPick && !store.labels().length) document.getElementById('lb-new-in')?.focus(); break;
+    case 'lb-edit': S.lbEdit = !S.lbEdit; renderDetail(); break;
+    case 'lb-tog': { const n = node(S.open); if (n) toggleLabel(n, id); break; }
+    case 'lb-color': store.update(id, { c: b.dataset.c }); break;
+    case 'lb-del': { const l = store.get(id); store.remove(id); toast(`${l?.t || 'Label'} deleted. Its time stays in its areas.`); break; }
     case 'rpedit': S.rpEdit = !S.rpEdit; renderDetail(); break;
     case 'rp-every': setRepeat({ every: b.dataset.v }); break;
     case 'rp-day': {
@@ -1253,11 +1738,12 @@ document.addEventListener('click', e => {
       if (days.includes(d) && days.length === 1) break; // keeps at least one day
       setRepeat({ days: days.includes(d) ? days.filter(x => x !== d) : [...days, d] }); break;
     }
-    case 'rp-off': { const t = store.stopRepeat(S.open); if (t) { S.open = t; S.rpEdit = false; S.scope = 'one'; toast(`${short(node(t).t)} no longer repeats`); } break; }
+    case 'rp-off': { const t = store.stopRepeat(S.open); if (t) { S.open = t; S.rpEdit = false; S.occAsk = null; toast(`${short(node(t).t)} no longer repeats`); } break; }
     case 'occ-all': if (occAll) { const o = occAll; occAll = null; const t = short(node(o.id)?.t); store.seriesEdit(o.id, o.patch); toast(`Changed every repeat of ${t}`); } break;
+    case 'habit': { const s = store.seriesOf(node(S.open)); if (s) store.update(s.id, { hb: !s.hb }); break; }
     case 'ms': { const n = node(S.open); store.update(n.id, n.ms ? { ms: false, hd: false } : { ms: true }); break; }
     case 'hd': { const n = node(S.open); store.update(n.id, { hd: !n.hd }); break; }
-    case 'waitedit': S.waitEdit = true; renderDetail(); document.getElementById('dt-wait')?.focus(); break;
+    case 'waitedit': S.waitEdit = true; S.addOpen = false; renderDetail(); document.getElementById('dt-wait')?.focus(); break;
     case 'setwait': S.waitEdit = false; document.activeElement?.blur(); edit(S.open, { w: id }); break;
     case 'unwait': edit(S.open, { w: null }); break;
     case 'dtbreak': {
@@ -1271,8 +1757,30 @@ document.addEventListener('click', e => {
     case 'delete': { const n = node(S.open); S.open = n.p && node(n.p) && !n.rs ? n.p : null; S.confirmDel = false; store.remove(n.id); const on = n.d || n.oc; toast(n.rs ? `Deleted ${n.t || 'item'} on ${on === today() ? 'today' : DAYN[pd(on).getDay()] + ' ' + fmtShort(on)}` : `Deleted ${n.t || 'item'}`); break; }
     case 'delete-all': { const s = store.seriesOf(node(S.open)); S.open = null; S.confirmDel = false; if (s) { store.remove(s.id); toast(`Deleted ${s.t || 'item'} and all its repeats`); } break; }
     case 'color': store.update(S.open, { c: b.dataset.c }); break;
+    case 'hb-color': { const s = node(id); if (s?.r) { const r = { ...s.r }; if (b.dataset.c) r.hc = b.dataset.c; else delete r.hc; store.update(s.id, { r }); } break; }
     case 'toggle': toggle(id); break;
-    case 'rec': if (track.isRec(node(id))) track.stop(id); else track.start(id); break;
+    case 'blk-next': { const on = track.isRec(node(id)), nx = b.dataset.next; toggle(id); if (on && nx && node(nx) && !node(nx).done) track.start(nx); break; }
+    case 'blk-ans': { const n = node(id); if (n) { blocks.answer(n, b.dataset.v); toast(b.dataset.v === 'skip' ? `Skipped ${short(blockTitle(n))} time` : `Counted ${b.dataset.v === 'part' ? 'half' : 'all'} of ${short(blockTitle(n))} time as worked`); } break; }
+    case 'blk-more': (S.blkMore || (S.blkMore = {}))[id] = !S.blkMore[id]; renderDetail(); break;
+    case 'blk-view': S.blkView = b.dataset.v; S.blkFocus = null; renderDetail(); break;
+    case 'blk-focus': S.blkView = 'next'; S.blkFocus = id || null; S.blkSkip = []; renderDetail(); break;
+    case 'blk-skip': (S.blkSkip || (S.blkSkip = [])).push(id); renderDetail(); break;
+    case 'blk-new': { const t = node(id); const n = t && newBlock(id); if (n) { openItem(n.id); toast(`${short(t.t)} time added today. Drag it on the plan to move it.`); } break; }
+    case 'q-routine': routine.open(); break;
+    case 'q-kingdom': kingdom.open(); break;
+    case 'q-bonus': quest.claim(b.dataset.d, +b.dataset.i); render(); break;
+    case 'q-taunt': quest.taunt(); b.classList.add('poked'); break;
+    case 'q-pick': quest.choose(b.dataset.b); render(); break;
+    case 'q-intro': quest.next(); render(); break;
+    case 'q-help': quest.help(); render(); break;
+    case 'q-sound': sfx.set(!sfx.on()); render(); if (sfx.on()) sfx.coin(); break;
+    case 'q-report-x': quest.closeReport(b.dataset.w); render(); break;
+    case 'q-report': quest.closeReport(b.dataset.w, false); render(); break;
+    case 'q-remind': if (b.dataset.v === 'info') { toast(remind.state().txt, '', 7000); break; } if (b.dataset.v === 'off' && b.classList.contains('q-pill')) { toast('Reminders are on here.', '<button data-act="q-remind" data-v="off">Turn off</button>', 7000); break; } if (b.dataset.v === 'on') remind.enable(later).then(r => { if (r === 'on') toast('Reminders are on. A test one is on its way.'); else if (r === 'error') toast("Couldn't turn reminders on. Try again in a moment."); else toast(remind.state().txt, '', 7000); }); else remind.disable(later); break;
+    case 'rec': if (track.isRec(node(id))) track.stop(id); else { const a = node(id); if (a?.k === 'area' && aday.doneOn(a, today())) store.update(id, { dd: aday.withDone(a, today(), false) }); track.start(id); } break; // starting an area again opens it back up for the day
+    case 'ad-skip': { const a = node(id), d = b.dataset.d; if (!a) break; if (track.isRec(a)) track.stop(id); store.update(id, { dg: withDay(a.dg, d, 0), dd: aday.withDone(a, d, false) }); S.open = null; S.fromBlk = null; renderDetail(); break; } // takes the area off that day: its card leaves the List, logged time stays
+    case 'ad-unskip': { const a = node(id), d = b.dataset.d; if (a) store.update(id, { dg: withDay(a.dg, d, '') }); break; }
+    case 'ad-done': { const a = node(id), d = b.dataset.d; if (a) store.update(id, { dd: aday.withDone(a, d, !aday.doneOn(a, d)) }); break; }
     case 'rec-stop': { const r = track.running(); if (r) track.stop(r.id); break; }
     case 'rec-done': { const r = track.running(); if (r) toggle(r.id); break; }
     case 'rec-open': S.recOpen = !S.recOpen; renderRec(); break;
@@ -1282,6 +1790,11 @@ document.addEventListener('click', e => {
     case 'tl-edit': S.tlEdit = +b.dataset.i; renderDetail(); break;
     case 'tl-close': S.tlEdit = null; renderDetail(); break;
     case 'tl-del': { const i = +b.dataset.i; S.tlEdit = null; track.remove(S.open, i); break; }
+    case 'blk-did': S.blkAdded = null; toggle(id); askTook(id, 60); renderDetail(); break; // done already: check it off, then the how-long sheet asks
+    case 'blk-spent': { // open the new task with a stretch of time to fill in, and a way back to the block
+      S.fromBlk = S.open; S.blkAdded = null; S.open = id; track.addTime(id); const tl = node(id)?.tl || [];
+      S.tlEdit = tl.reduce((k, e, i) => e.end && (k < 0 || Date.parse(e.end) >= Date.parse(tl[k].end)) ? i : k, -1); renderDetail(); break;
+    }
     case 'tl-add': {
       track.addTime(S.open); const tl = node(S.open)?.tl || [];
       S.tlEdit = tl.reduce((k, e, i) => e.end && (k < 0 || Date.parse(e.end) >= Date.parse(tl[k].end)) ? i : k, -1); renderDetail(); break; // open the one just added, to set its times
@@ -1292,6 +1805,7 @@ document.addEventListener('click', e => {
     case 'add': S.adding = id; S.new = null; S.col[id] = false; render(); break;
     case 'new-day': if (Date.now() - newClosed > 400) openNew({ at: 'list', d: b.dataset.d }); break;
     case 'tray-all': trayAll = b.dataset.d || null; render(); break;
+    case 'nt-block': { const N = S.new; if (!N) break; const t = node(id), n = t && newBlock(id, N.d, N.s, N.m); S.new = null; newClosed = Date.now(); render(); if (n) toast(`${short(t.t)} time added. Tap it to focus.`); break; }
     case 'new-tray': if (Date.now() - newClosed > 400) openNew({ at: 'tray', d: b.dataset.d }); break;
     case 'new-project': newProject(b.dataset.area); break;
     case 'new-area': newArea(); break;
@@ -1299,17 +1813,36 @@ document.addEventListener('click', e => {
       S.page = b.dataset.v; S.pick = null; S.adding = null; render(); break;
     case 'road': toggleRoad(); break;
     case 'stats': toggleRoad('stats'); break;
+    case 'qback': setStrip(false); leaveRoad(); W = null; render(); break;
     case 'st-k': S.stK = b.dataset.v; S.stAt = today(); render(); break;
     case 'st-at': S.stK = b.dataset.k; S.stAt = b.dataset.d; render(); document.getElementById('mbody')?.scrollTo({ top: 0, behavior: 'smooth' }); break;
     case 'st-area': S.stArea = id || null; render(); break;
+    case 'st-label': S.stLabel = id || null; render(); document.querySelector('.st-led')?.scrollIntoView({ block: 'nearest' }); break;
+    case 'st-fix': S.stFix = !S.stFix; S.stFixSkip = null; render(); break;
+    case 'st-took': { const n = node(id); if (n) { track.setTook(id, +b.dataset.m); toast(`${short(n.t)} took ${fmtDur(+b.dataset.m)}`); } render(); break; }
+    case 'st-fix-skip': S.stFixSkip = { ...(S.stFixSkip || {}), [id]: true }; render(); break;
     case 'st-card': stats.showCard(b.dataset.v); break;
+    case 'st-mode': S.stMode = b.dataset.v; saveUI(); render(); break;
+    case 'hb-tick': habitTick(id); break;
+    case 'hb-open': { const k = b.dataset.d; S.hbOpen = { ...(S.hbOpen || {}), [k]: !S.hbOpen?.[k] }; render(); break; }
+    case 'hb-tray': { const k = b.dataset.d; S.hbTray = { ...(S.hbTray || {}), [k]: !S.hbTray?.[k] }; render(); break; }
+    case 'hb-new': S.hbNew = null; S.open = 'hb:new'; S.drOpen && setDrawer?.(false); renderDetail(); break;
+    case 'hbn-k': S.hbNew.t = document.getElementById('hbn-t')?.value ?? S.hbNew.t; S.hbNew.k = b.dataset.v; if (b.dataset.v === 'tmonth' && S.hbNew.n < 2) S.hbNew.n = 2; renderDetail(); break;
+    case 'hbn-day': { const v = +b.dataset.v, h = S.hbNew; h.t = document.getElementById('hbn-t')?.value ?? h.t; h.days = h.days.includes(v) ? h.days.filter(x => x !== v) : [...h.days, v]; renderDetail(); break; }
+    case 'hb-save': habitSave(); break;
+    case 'hb-archive': { const s = node(id); if (s) { habits.archive(s); toast(`Put away ${short(s.t)}. Its record stays in Stats.`); } break; }
+    case 'hb-restore': { const s = node(id); if (s) { habits.restore(s); toast(`${short(s.t)} is back from today`); } break; }
+    case 'hb-tab': S.hbTab = b.dataset.v; renderDetail(); break;
+    case 'hb-card': S.hbCard = b.dataset.v; saveUI(); render(); break;
+    case 'hb-sel': S.hbSel = id && S.hbSel !== id ? id : null; render(); break;
+    case 'hb-year': S.hbYear = id; S.hbSel = null; render(); break;
     case 'rm-zoom': roadmap.setZoom(+b.dataset.v); break;
     case 'rm-fold': S.col['rm:' + id] = !S.col['rm:' + id]; saveUI(); render(); break;
     case 'rm-week': S.anchor = b.dataset.d; S.view = 'week'; W = null; leaveRoad(); render(); break;
-    case 'view': leaveRoad(); S.view = b.dataset.v; W = null; render(); break;
-    case 'mode': leaveRoad(); setMode(b.dataset.v); break;
+    case 'view': leaveRoad(); S.view = b.dataset.v; if (S.view === 'week' && (S.mode === 'quest' || S.mode === 'dragon')) S.mode = 'list'; W = null; render(); break;
+    case 'mode': leaveRoad(); S.cave = false; setMode(b.dataset.v); break;
     case 'min': setQuiet(!S.min); break;
-    case 'look': setLook(look() === 'paper' ? 'ink' : 'paper'); break;
+    case 'games': S.games = !S.games; gamesQuiet(); if (!S.games && (S.mode === 'quest' || S.mode === 'dragon')) S.mode = 'timed'; if (S.games && phone()) quietPlan(); render(); toast(S.games ? 'Quest and Dragon are back in the layout switch' : 'Game modes hidden. Your progress is kept.'); break;
     case 'qstrip': setStrip(!S.qstrip); break;
     case 'qproj': if (!phone()) setQPin(!qPin); else if (qProjects()) { quietPlan(); render(); } else quietProjects(); break;
     case 'prev': case 'next': if (roadShown()) { roadmap.go(a === 'prev' ? -1 : 1); break; } if (statsShown()) { stats.go(a === 'prev' ? -1 : 1); break; } if (qProjects()) { quietPlan(); render(); break; } {
@@ -1339,9 +1872,12 @@ document.addEventListener('click', e => {
     case 'signin': signIn(); break;
     case 'demo': enterDemo(); break;
     case 'signout': client.auth.signOut(); break;
-    case 'notes': setStrip(false); S.needsOpen = false; S.notesOpen = !S.notesOpen; render(); break;
+    case 'notes': setStrip(false); S.needsOpen = false; S.trashOpen = false; S.notesOpen = !S.notesOpen; render(); break;
     case 'notes-close': S.notesOpen = false; render(); break;
-    case 'needs': setStrip(false); S.notesOpen = false; S.needsOpen = !S.needsOpen; render(); break;
+    case 'trash': setStrip(false); S.notesOpen = false; S.needsOpen = false; S.trashOpen = !S.trashOpen; if (S.trashOpen && phone()) setDrawer?.(false); render(); break;
+    case 'trash-close': S.trashOpen = false; render(); break;
+    case 'tr-restore': { const r = store.untrash(id); if (r) toast(`Restored ${short(r.n.t || store.peek(r.n.rs)?.t || 'item')}${r.count > 1 ? ` and ${r.count - 1} more with it` : ''}`); break; }
+    case 'needs': setStrip(false); S.notesOpen = false; S.trashOpen = false; S.needsOpen = !S.needsOpen; render(); break;
     case 'needs-close': S.needsOpen = false; render(); break;
     case 'need-clear': clearNeed(id); break;
     case 'need-back': notes.setCleared(id, false); toast('Back on the list'); break;
@@ -1363,11 +1899,19 @@ document.addEventListener('click', e => {
 function openAI() { aiPeek = false; if (quietLook()) { setStrip(false); document.body.classList.remove('ai-off'); return; } if (phone()) { if (S.tab !== 'ask') { S.tab = 'ask'; renderTabs(); } } else document.body.classList.remove('ai-off'); }
 document.addEventListener('submit', e => {
   const f = e.target; e.preventDefault();
+  if (f.dataset.form === 'took') return; // the how-long sheet handles its own
   if (f.id === 'askf') { const q = document.getElementById('askq'); if (q.value.trim()) { ask(q.value.trim()); q.value = ''; } return; }
   const inp = f.querySelector('input'); const v = inp.value.trim();
   if (f.dataset.form === 'link') { saveLink(); return; }
+  if (f.dataset.form === 'mv-new') { const n = node(S.open); if (v && n) { inp.value = ''; inp.blur(); groupHere(n, v.slice(0, 200)); } else inp.blur(); return; }
+  if (f.dataset.form === 'lb-new') { const n = node(S.open); if (v && n) { inp.value = ''; inp.blur(); newLabel(n, v); renderDetail(); document.getElementById('lb-new-in')?.focus(); } else inp.blur(); return; }
   if (f.dataset.form === 'wait') { const o = f.querySelector('.wait-opt'); if (o) { S.waitEdit = false; document.activeElement?.blur(); edit(S.open, { w: o.dataset.id }); } return; }
   if (f.dataset.form === 'area-project') { if (v) { makeProject(v, f.dataset.area); inp.value = ''; renderDetail(); inp.scrollIntoView({ block: 'nearest' }); } else inp.blur(); return; }
+  if (f.dataset.form === 'blk-add') { // a task in the block's area, or a step in its project
+    if (!v) { inp.blur(); return; } const tg = node(f.dataset.t); if (!tg) return;
+    const n = store.create(tg.k === 'area' ? { t: v, ar: tg.id, m: 30, o: Date.now() / 1000 } : { t: v, p: tg.id, m: 30 });
+    S.blkAdded = n.id; inp.value = ''; toast(`Added ${short(v)}`); renderDetail(); document.getElementById('bk-add-in')?.focus({ preventScroll: true }); return;
+  }
   if (f.dataset.form === 'step') { if (v) { store.create({ t: v, p: f.dataset.p, m: 30 }); S.col[f.dataset.p] = false; inp.value = ''; renderDetail(); inp.scrollIntoView({ block: 'nearest' }); } else inp.blur(); return; } // Enter on an empty box is done
   if (f.dataset.form === 'new') {
     if (!v) { closeNew(); return; }
@@ -1380,6 +1924,7 @@ document.addEventListener('submit', e => {
 });
 document.addEventListener('keydown', e => {
   const key = e.key.toLowerCase();
+  if (e.key === 'Enter' && e.target.id === 'hbn-t') { e.preventDefault(); habitSave(); return; }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && (key === 'z' || key === 'y')) {
     if (e.target.closest?.('textarea, input:not([type]), input[type=text], input[type=search], input[type=url], [contenteditable]:not([contenteditable=false])')) return; // the box's own undo
     e.preventDefault(); if (D) return;
@@ -1390,8 +1935,9 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && S.linkEdit) { S.linkEdit = false; document.activeElement?.blur(); renderDetail(); return; }
   if (e.key === 'Escape' && S.new) { closeNew(); return; }
   if (e.key === 'Escape' && S.notesOpen && !S.open) { S.notesOpen = false; render(); return; }
+  if (e.key === 'Escape' && S.trashOpen && !S.open) { S.trashOpen = false; render(); return; }
   if (e.key === 'Escape' && S.needsOpen && !S.open) { S.needsOpen = false; render(); return; }
-  if (e.key === 'Escape') { if (S.adding) { S.adding = null; render(); } else if (S.open) { S.open = null; renderDetail(); } else if (quiet() && !D) quietAway(); }
+  if (e.key === 'Escape') { if (S.adding) { S.adding = null; render(); } else if (S.open) { S.open = null; renderDetail(); } else if (quiet() && !D && !S.qstrip && !qSide && document.body.classList.contains('ai-off') && (roadShown() || statsShown() || qProjects())) { leaveRoad(); W = null; render(); } else if (quiet() && !D) quietAway(); }
   // Q turns Quiet on and off, anywhere outside a text box
   if (key === 'q' && !D && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); if (S.open) { S.open = null; renderDetail(); } setQuiet(!S.min); return; }
   // R opens the Roadmap and goes back, anywhere outside a text box
@@ -1402,7 +1948,6 @@ document.addEventListener('keydown', e => {
   if (key === 'm' && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); setStrip(false); S.notesOpen = false; S.needsOpen = !S.needsOpen; render(); return; }
   // S does the same for Stats
   if (key === 's' && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); toggleRoad('stats'); return; }
-  if (key === 'l' && !D && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])')) { e.preventDefault(); setLook(look() === 'paper' ? 'ink' : 'paper'); return; }
   if (quiet() && !D && !S.open && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable=false])') && quietKey(e)) { e.preventDefault(); return; }
   if (e.key === 'Enter' && e.target.id === 'dt-title') { e.preventDefault(); e.target.blur(); }
   if (e.key === 'Enter' && e.target.matches('.dt-notes-view')) { e.preventDefault(); e.target.click(); }
@@ -1415,6 +1960,7 @@ document.addEventListener('focusout', e => { if (e.target.id === 'dt-notes' && S
 document.addEventListener('focusout', e => { if (e.target.id === 'add-in' && !e.target.value.trim()) setTimeout(() => { if (S.adding && !document.activeElement?.matches('#add-in')) { S.adding = null; render(); } }, 150); });
 // Picking a project goes back to the title
 const inNew = el => !!el?.closest?.('form[data-form="new"]');
+document.addEventListener('pointerdown', e => { if (e.target.closest?.('.nt-bc')) e.preventDefault(); });
 document.addEventListener('focusout', e => {
   if (!S.new || !inNew(e.target)) return;
   setTimeout(() => {
@@ -1424,27 +1970,42 @@ document.addEventListener('focusout', e => {
 document.addEventListener('change', e => {
   if (e.target.id !== 'new-p' || !S.new) return;
   S.new.p = e.target.value; e.target.closest('form').style.setProperty('--pc', pickColor(S.new.p));
+  const nb = document.getElementById('nt-blk'); if (nb) nb.innerHTML = ntBlkHTML();
   document.getElementById('new-in')?.focus({ preventScroll: true });
 });
 let savedT;
 document.addEventListener('input', e => {
+  if (e.target.id === 'hbn-t' && S.hbNew) { S.hbNew.t = e.target.value; return; }
   const t = e.target, n = S.open && node(S.open); if (!n) return;
   if (t.id === 'dt-notes') { edit(n.id, { notes: t.value || null }, true); grow(t); const m = document.getElementById('dt-saved'); m.textContent = 'Saved'; clearTimeout(savedT); savedT = setTimeout(() => m.textContent = '', 1200); }
   if (t.id === 'dt-title') { edit(n.id, { t: t.value.replace(/\n/g, ' ') }, true); grow(t); }
   if (t.id === 'dt-wait') document.getElementById('wait-list').innerHTML = waitListHTML(n, t.value);
+  if (t.id === 'mv-q') document.getElementById('mv-list').innerHTML = moveListHTML(n, t.value);
 });
 document.addEventListener('change', e => {
   const t = e.target;
+  if (S.open === 'hb:new' && S.hbNew && t.id?.startsWith('hbn-')) { const h = S.hbNew; h.t = document.getElementById('hbn-t')?.value ?? h.t;
+    if (t.id === 'hbn-n') h.n = +t.value; if (t.id === 'hbn-int') h.interval = +t.value; if (t.id === 'hbn-ar') h.ar = t.value; if (t.id === 'hbn-hm') h.hm = +t.value || 0;
+    if (t.id !== 'hbn-t') renderDetail(); return; }
+  if (t.id === 'dt-hm') { const s = store.seriesOf(node(S.open)); if (s?.r) store.update(s.id, { r: cleanRule({ ...s.r, mins: +t.value || 0 }, s.d) }); return; }
   if (t.dataset.pickdate) { if (t.value) setDay(t.dataset.pickdate, t.value); return; }
   if (t.id === 'rm-free') { setFree(t.value); return; }
   if (t.id === 'st-from' || t.id === 'st-to') { if (t.value) { S[t.id === 'st-from' ? 'stFrom' : 'stTo'] = t.value; render(); } return; }
   if (t.id === 'tl-day' || t.id === 'tl-s' || t.id === 'tl-e') { saveStretch(); return; }
+  if (t.id?.startsWith('lbn-')) { const v = t.value.trim().slice(0, 40); if (v) store.update(t.id.slice(4), { t: v }); else renderDetail(); return; }
+  if (t.id === 'ado' && S.open?.startsWith('day:')) { const [, aid, d] = S.open.split(':'), a = node(aid); if (a) store.update(aid, { dg: withDay(a.dg, d, t.value) }); return; }
   const n = S.open && node(S.open); if (!n) return;
   if (t.id === 'dt-title') { if (!n.t.trim()) edit(n.id, { t: n.k === 'area' ? 'New area' : n.c ? 'New project' : 'Untitled' }); else store.updateMany([]); }
   if (t.id === 'dt-area') store.update(n.id, { ar: t.value || null });
   if (t.id === 'dt-notes') store.updateMany([]);
   if (t.id === 'dt-dur') edit(n.id, { m: +t.value });
-  if (t.id === 'rp-int') setRepeat({ interval: +t.value });
+  if (t.id === 'blk-s') { const [h, m] = (t.value || '').split(':').map(Number); edit(n.id, { s: t.value ? Math.min(h * 60 + m, 1439) : null }); }
+  if (t.id === 'dt-wk') store.update(n.id, { wk: +t.value || null });
+  if (t.id.startsWith('ad-') && n.k === 'area') { const dg = { ...(n.dg || {}) }; dg[t.id.slice(3)] = +t.value || 0; store.update(n.id, { dg }); }
+  if (t.id === 'dt-tp') store.update(n.id, { tp: t.value || null });
+  if (t.id === 'rp-int' || t.id === 'rp-dint') setRepeat({ interval: +t.value });
+  if (t.id === 'rp-n') setRepeat({ n: +t.value });
+  if (t.id === 'rp-per') setRepeat({ per: t.value });
   if (t.id === 'rp-until') { const s = store.seriesOf(n); if (s?.r && (!t.value || t.value >= s.d)) setRepeat({ until: t.value || null }); else renderDetail(); }
   if (t.id === 'rp-start') { const s = store.seriesOf(n); if (s?.r && t.value && (!s.r.until || t.value <= s.r.until)) store.update(s.id, { d: t.value }); else renderDetail(); }
   if (t.id === 'dt-due') store.update(n.id, { due: t.value || null });
@@ -1485,17 +2046,18 @@ function moveDrag(x, y) {
   // Over the pinned day names or hours of Time blocks (where it scrolls), the time just inside the grid takes it, so the outline stays in view
   if (!t) { const g = gridEdge(x, y); if (g) t = document.elementFromPoint(g.x, g.y)?.closest('[data-drop="col"], [data-drop="tray"]'); }
   // The nearest list that holds this item's siblings takes it at a new place among them
-  if (!D.fromDr) for (let s = t; s && (s.dataset.drop === 'sib' || s.dataset.drop === 'area'); s = s.parentElement.closest('[data-drop]')) if (holds(s, n)) return markAmong(s, n, y);
+  const asBlk = n.k === 'area' || (D.list && isProj(n) && !isBlock(n));
+  if (!D.fromDr && n.k !== 'area') for (let s = t; s && (s.dataset.drop === 'sib' || s.dataset.drop === 'area'); s = s.parentElement.closest('[data-drop]')) if (holds(s, n)) return markAmong(s, n, y);
   while (t && t.dataset.drop === 'sib') t = t.parentElement.closest('[data-drop]');
   if (t && D.list && t.closest('.side, .board, .dt, .drawer')) t = null; // somewhere else among the projects: nothing to do there
   D.t = t || null; if (!t) return;
   const type = t.dataset.drop;
   if (type === 'col') {
-    const r = t.getBoundingClientRect(); const dur = D.sm ?? (node(D.id).m || 60);
+    const r = t.getBoundingClientRect(); const dur = D.sm ?? (asBlk ? 90 : node(D.id).m || 60);
     let min = H0 * 60 + Math.round((y - (D.timed ? D.offY : 12) - r.top) / hp * 60 / 15) * 15; min = Math.max(H0 * 60, Math.min(min, H1 * 60 - dur)); D.min = min;
     ind.style.top = ((min - H0 * 60) / 60 * hp) + 'px'; ind.style.height = (dur / 60 * hp - 2) + 'px'; t.appendChild(ind);
     // Over the time grid the dashed outline stands in for the item, so the floating copy hides
-    ind.innerHTML = `<div class="ind-t">${esc(node(D.id).t || 'Untitled')}</div><div class="ind-time">${fmtT(min)} – ${fmtT(min + dur)}</div>`; D.g.classList.add('off');
+    ind.innerHTML = `<div class="ind-t">${esc(node(D.id).t || 'Untitled')}${asBlk ? ' time' : ''}</div><div class="ind-time">${fmtT(min)} – ${fmtT(min + dur)}</div>`; D.g.classList.add('off');
   } else if (type === 'list') {
     // Rows are tasks and calendar events; count how many of each come before the drop point
     const rows = [...t.querySelectorAll(':scope > .item:not(.dragging), :scope > .evr')]; let i = rows.findIndex(it => { const r = it.getBoundingClientRect(); return y < r.top + r.height / 2; }); if (i < 0) i = rows.length;
@@ -1524,6 +2086,14 @@ function endDrag() {
   if (d.si != null) return dropStretch(d, n);
   if (d.kind === 'resize') { if (d.newM) store.update(n.id, { m: d.newM }); else render(); return; }
   if (!d.t) return render();
+  const onPlan = ['col', 'tray', 'list'].includes(d.t.dataset.drop);
+  if (n.k === 'area' || (d.list && isProj(n) && !isBlock(n) && onPlan)) {
+    if (!onPlan) return render();
+    const b = newBlock(n.id, d.t.dataset.date, d.t.dataset.drop === 'col' ? d.min : null);
+    if (b) toast(`${short(n.t)} time ${b.d === today() ? 'today' : 'on ' + DAYL[pd(b.d).getDay()]}${b.s != null ? ' at ' + fmtT(b.s) : ''}. Tap it to pick what to work on.`);
+    return;
+  }
+  if (isBlock(n) && !onPlan) { store.remove(n.id); toast(`Took ${short(blockTitle(n))} time off the plan`, urActs()); return; }
   if (n.r && ['col', 'tray', 'list'].includes(d.t.dataset.drop)) { toast(`${short(n.t)} is already on your plan, ${lower(ruleText(n.r, n.d))}`); return render(); }
   if (d.at) return placeAmong(n, d.t, d.at, d.list ? {} : { d: null, s: null, a: null }); // dragged back here from the plan, it comes off the plan
   const type = d.t.dataset.drop, date = d.t.dataset.date || null;
@@ -1640,7 +2210,7 @@ function zoomTo(v, y) { // keep the time under y (screen position) in place whil
 }
 const inGrid = t => S.tab === 'plan' && S.mode === 'timed' && t instanceof Element && !!t.closest('#mbody .tw');
 document.addEventListener('wheel', e => {
-  if (!(e.ctrlKey || e.metaKey) || !inGrid(e.target)) return;
+  if (!(e.ctrlKey || e.metaKey) || !inGrid(e.target) || e.target.closest('.q-scene')) return;
   e.preventDefault();
   const dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
   zoomTo(HP() * Math.exp(-Math.max(-50, Math.min(50, dy)) * 0.006), e.clientY);
@@ -1650,7 +2220,7 @@ let Z = null;
 const span = ts => Math.hypot(ts[0].clientX - ts[1].clientX, ts[0].clientY - ts[1].clientY);
 const mid = ts => ({ x: (ts[0].clientX + ts[1].clientX) / 2, y: (ts[0].clientY + ts[1].clientY) / 2 });
 document.addEventListener('touchstart', e => {
-  if (e.touches.length !== 2 || D || !inGrid(e.target)) { if (e.touches.length !== 2) Z = null; return; }
+  if (e.touches.length !== 2 || D || !inGrid(e.target) || e.target.closest('.q-scene')) { if (e.touches.length !== 2) Z = null; return; }
   Z = { d: span(e.touches), hp: HP(), m: mid(e.touches) };
 }, { passive: true });
 document.addEventListener('touchmove', e => {
@@ -1669,7 +2239,7 @@ document.addEventListener('touchend', e => { if (e.touches.length < 2) Z = null;
 /* Day view: swipe sideways to go to the next or previous day. The day slides along under the finger and the
    day it's heading to peeks in from the side. A trackpad's two-finger sideways swipe does the same on a computer. */
 let DS = null, WS = null, swBusy = false; const swp = document.createElement('div'); swp.className = 'swp';
-const dayBody = t => { const mb = document.getElementById('mbody'); return mb?.classList.contains('day') && t instanceof Element && mb.contains(t) ? mb : null; };
+const dayBody = t => { if (document.body.classList.contains('td-shell')) return null; const mb = document.getElementById('mbody'); return mb?.classList.contains('day') && t instanceof Element && mb.contains(t) ? mb : null; };
 function swSet(dx, o) {
   const mb = document.getElementById('mbody'); if (!mb) return; const w = mb.clientWidth || 1;
   mb.classList.add('swiping'); mb.style.setProperty('--swx', dx + 'px'); mb.style.setProperty('--swo', o ?? 1 - Math.min(1, Math.abs(dx) / w) * .6);
@@ -1698,7 +2268,7 @@ function swGo(dir) { // dir 1 = next day, -1 = previous
 }
 document.addEventListener('touchstart', e => {
   DS = null; if (e.touches.length !== 1 || swBusy || D) return;
-  const mb = dayBody(e.target); if (!mb || e.target.closest('input,textarea,select,.rs')) return;
+  const mb = dayBody(e.target); if (!mb || e.target.closest('input,textarea,select,.rs,.q-scene')) return; // the Quest picture uses drags to look around
   if (quiet() && e.touches[0].clientY > innerHeight - 40) return; // Quiet: the bottom edge brings in projects
   const t = e.touches[0]; DS = { x: t.clientX, y: t.clientY, lx: t.clientX, h: [[e.timeStamp, t.clientX]], on: false };
 }, { passive: true });
@@ -1726,7 +2296,7 @@ const swEnd = () => {
 };
 document.addEventListener('touchend', swEnd); document.addEventListener('touchcancel', swEnd);
 document.addEventListener('wheel', e => {
-  if (e.ctrlKey || e.metaKey || !dayBody(e.target)) return;
+  if (e.ctrlKey || e.metaKey || !dayBody(e.target) || e.target.closest('.q-scene')) return;
   const ax = Math.abs(e.deltaX), ay = Math.abs(e.deltaY);
   if (WS?.lock || swBusy) { if (ax > ay) e.preventDefault(); clearTimeout(WS?.tm); WS = { lock: true, tm: setTimeout(() => WS = null, 300) }; return; } // let a flick's glide run out
   if (!WS && ax <= ay * 1.2) return; // up and down scrolls as usual
@@ -1756,23 +2326,32 @@ function showWelcome(show) { document.getElementById('welcome').hidden = !show; 
 function enterDemo() {
   S.demo = true; saveUI(); user = null; showWelcome(false);
   store.useLocal('daybook-sample', store.sampleData); calendar.useSample(); notes.useLocal(['s4', 's3', 's26']);
-  initAI({ cloud: false, client: null }); render();
+  initAI({ cloud: false, client: null }); quest.init({ client: null }); fight.init({ client: null, free: () => +S.free || 10 }); remind.init(null); routine.init({ client: null }); if (S.games && (S.mode === 'quest' || S.mode === 'dragon')) quest.begin(null); if (S.games && S.mode === 'dragon') beginDragon(); render();
 }
 async function enterCloud(u) {
   user = u; S.demo = false; if (u.user_metadata?.free_hours) S.free = u.user_metadata.free_hours; saveUI(); showWelcome(false);
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; // so Claude reads and writes finish times in local time
   if (tz && u.user_metadata?.tz !== tz) client.auth.updateUser({ data: { tz } }).catch(() => {});
-  calendar.useGoogle(client, u.id); initAI({ cloud: true, client }); notes.useCloud(client, u);
+  calendar.useGoogle(client, u.id); initAI({ cloud: true, client }); notes.useCloud(client, u); quest.init({ client }); fight.init({ client, free: () => +S.free || 10 }); dragon.init({ client }); if (S.games && (S.mode === 'quest' || S.mode === 'dragon' || u.user_metadata?.quest_start)) quest.begin(u); if (S.games && (S.mode === 'dragon' || u.user_metadata?.dragon)) beginDragon(); remind.init(client); gamesQuiet(); routine.init({ client });
   render();
   await store.useCloud(client, u);
   calendar.ensure(add(today(), -7), add(today(), 28), true);
 }
+store.onChange(kind => { if (kind !== 'sync' && kind !== 'step') remind.later(); });
 store.onChange((kind, st) => { if (kind === 'occ') { if (!S.open && !('done' in st.patch) && !('tl' in st.patch)) occOffer = occOffer || st; return; } if (kind === 'step') return onStep(st); if (kind === 'sync') { if (!D) later(); return; } if (!D) later(); });
 calendar.onCalendarChange(() => { if (!D) later(); });
 notes.onChange(() => { if (!D) later(); renderMsgs(); });
 initAI({ anchor: () => S.anchor, showPlan, render: later });
+quest.init({ update: later });
+dragon.init({ update: later });
+sfx.init({ quiet });
+kingdom.init({ changed: t => { render(); toast(t); } });
+routine.init({ ended: t => toast(`Removed ${t || 'the habit'} from today on`, urActs()), done: k => { if (k) { quest.begin(user); S.mode = 'quest'; S.view = 'day'; S.anchor = today(); render(); toast(`Routine saved: ${k} habit${k > 1 ? 's' : ''}. The dragon is watching.`); } } });
+// A reminder opens Daybook on Quest (see sw.js)
+if (new URLSearchParams(location.search).has('quest') && S.games) { S.mode = 'quest'; S.view = 'day'; S.anchor = today(); history.replaceState(null, '', location.pathname); }
 initVoice(q => ask(q, { voice: true }), msg => toast(msg, '', 5000));
 setInterval(() => { if (today() !== shown) { shown = today(); if (S.anchor === add(today(), -1)) S.anchor = today(); later(); } else if (track.running() && !D) later(); // what's recording grows in Time blocks
+  else if ((S.mode === 'quest' || S.mode === 'dragon') && !D) later(); // the dragon swoops on the minute
   else if (S.mode === 'timed' && !D) { document.querySelectorAll('.now').forEach(n => n.style.top = hpx((nowMin() - H0 * 60) / 60)); } }, 60e3);
 if (!matchMedia('(min-width:1500px)').matches) document.body.classList.add('ai-off');
 if (S.min) { document.body.classList.add('ai-off'); S.page = 'plan'; S.tab = 'plan'; }
@@ -1788,7 +2367,7 @@ async function boot() {
     if (session?.provider_refresh_token) {
       client.rpc('save_google_token', { refresh: session.provider_refresh_token }).then(() => calendar.ensure(add(today(), -7), add(today(), 28), true));
     }
-    if (event === 'SIGNED_OUT') { store.stopCloud(); notes.stop(); S.notesOpen = false; S.needsOpen = false; user = null; S.demo = false; saveUI(); showWelcome(true); }
+    if (event === 'SIGNED_OUT') { store.stopCloud(); notes.stop(); S.notesOpen = false; S.needsOpen = false; S.trashOpen = false; user = null; S.demo = false; saveUI(); showWelcome(true); }
     else if (event === 'SIGNED_IN' && session?.user && (!user || user.id !== session.user.id)) enterCloud(session.user);
   });
   const { data: { session } } = await client.auth.getSession();

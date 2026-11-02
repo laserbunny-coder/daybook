@@ -4,6 +4,7 @@ import * as store from './store.js';
 import { eventsOn, timedOn } from './calendar.js';
 import { add, DAYL, dayShort, esc, fmtDur, fmtT, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
 import { children, dayItems, hasKids, heldBy, isDone, leaves, node, PALETTE, progress, rootOf, unscheduled } from './tree.js';
+import * as blocks from './blocks.js';
 import { ruleText } from './repeat.js';
 import * as notes from './notes.js';
 
@@ -46,6 +47,7 @@ function plannerState() {
     if (n.notes) o.notes = n.notes.slice(0, 500);
     if (n.link) o.link = n.link;
     if (n.p == null && n.ar && areaIds.has(n.ar)) o.area_id = n.ar;
+    const lb = (n.lb || []).map(id => store.get(id)?.t).filter(Boolean); if (lb.length) o.labels = lb;
     return o;
   }).filter(o => !o.done || o.progress);
   const calendar_events = [];
@@ -53,7 +55,27 @@ function plannerState() {
     const d = add(T, i);
     for (const e of eventsOn(d)) calendar_events.push(e.allDay ? { title: e.t, day: d, all_day: true } : { title: e.t, day: d, start_min: e.s, duration_min: e.m });
   }
-  return { today: T, weekday: DAYL[pd(T).getDay()], now_min: nowMin(), viewing_week_of: weekStart(ctx.anchor()), areas: areas.map(a => ({ id: a.id, title: a.t })), items, calendar_events, notes_from_planning_chat: planningNotes() };
+  // Area time: blocks from the start of this week to two weeks out, a repeating one once per day it falls on
+  const blks = [];
+  for (let d = weekStart(T); d <= add(T, 14); d = add(d, 1)) for (const b of store.blocksOn(d)) {
+    const o = { id: b.id, block_for: b.fo, title: store.get(b.fo)?.t || 'Removed', day: d, start_min: b.s, duration_min: b.m || 60 };
+    if (b.rs) { const s = store.get(b.rs); if (s?.r) o.repeats = ruleText(s.r, s.d); }
+    if (d <= T) o.worked_min = blocks.worked(b);
+    if (b.done && !o.worked_min) o.skipped = true;
+    blks.push(o);
+  }
+  const areaOut = areas.map(a => { const w = blocks.week(a.id), o = { id: a.id, title: a.t, this_week_worked_min: w.done, this_week_blocked_min: w.ahead }; if (a.wk) o.week_hours = Math.round(a.wk / 6) / 10; return o; });
+  return { today: T, weekday: DAYL[pd(T).getDay()], now_min: nowMin(), viewing_week_of: weekStart(ctx.anchor()), areas: areaOut, labels: labelWeek(), items, blocks: blks, calendar_events, notes_from_planning_chat: planningNotes() };
+}
+// Each label with the time recorded under it this week (its own items and everything inside them)
+function labelWeek() {
+  const a = Date.parse(pd(weekStart(today()))), out = new Map(store.labels().map(l => [l.id, { title: l.t, this_week_min: 0 }]));
+  for (const n of store.logged()) {
+    const ids = store.labelsOf(n).map(x => x.l.id); if (!ids.length) continue;
+    let m = 0; for (const e of n.tl) { const s = Math.max(a, Date.parse(e.start)), f = e.end ? Date.parse(e.end) : Date.now(); if (f > s) m += (f - s) / 60000; }
+    for (const id of ids) if (out.has(id)) out.get(id).this_week_min += Math.round(m);
+  }
+  return [...out.values()];
 }
 // The latest notes the planning chat (Claude with the Daybook connector) left in Notes: its plans and reasons,
 // so Ask Claude follows the same plan
@@ -115,6 +137,21 @@ function applyActions(actions) {
     else if (a.type === 'rename' && valid(a.id) && a.title) { store.update(a.id, { t: a.title }, true); count++; }
     else if (a.type === 'set_notes' && valid(a.id)) { store.update(a.id, { notes: a.notes || null }, true); count++; }
     else if (a.type === 'set_due' && valid(a.id)) { store.update(a.id, { due: day }, true); count++; }
+    else if (a.type === 'add_block' && day && node(a.parent_id) && (node(a.parent_id).k === 'area' || hasKids(a.parent_id) || node(a.parent_id).c)) {
+      const t = node(a.parent_id), r = a.repeat === 'daily' ? { every: 'day' } : a.repeat === 'weekdays' ? { every: 'weekday' } : a.repeat === 'weekly' ? { every: 'week', days: [pd(day).getDay()] } : null;
+      store.create({ k: 'block', fo: t.id, t: t.t || '', d: day, s, m: m || 90, ds: Date.now() / 1000, ...(r ? { r } : {}) }); count++;
+    }
+    else if (a.type === 'remove_block' && a.id && node(a.id)?.k === 'block') { store.remove(a.id); count++; }
+    else if (a.type === 'set_labels' && valid(a.id) && typeof a.title === 'string') {
+      const n0 = node(a.id), h = n0.rs ? store.get(n0.rs) || n0 : n0, ids = [];
+      for (const name of a.title.split(',').map(x => x.trim().slice(0, 40)).filter(Boolean)) {
+        const l = store.labels().find(x => (x.t || '').trim().toLowerCase() === name.toLowerCase()) || store.create({ k: 'label', t: name, c: store.nextLabelColor(), m: null });
+        if (!ids.includes(l.id)) ids.push(l.id);
+      }
+      if (h.r) store.seriesEdit(h.id, { lb: ids.length ? ids : null }); else store.update(h.id, { lb: ids.length ? ids : null }, true);
+      count++;
+    }
+    else if (a.type === 'set_week_hours' && area(a.parent_id)) { store.update(a.parent_id, { wk: a.duration_min > 0 ? Math.min(Math.round(a.duration_min), 10080) : null }, true); count++; }
   }
   if (count) store.updateMany([]);
   return count;

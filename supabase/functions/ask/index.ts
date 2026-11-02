@@ -13,6 +13,9 @@ How Daybook works:
 - An item can be assigned to a day ("day", YYYY-MM-DD) without a time, or to a time block on that day ("start_min", minutes after midnight, plus "duration_min").
 - An item with "repeats" (such as "Every Mon, Wed") is a repeating task: it is on each of those days from its "starts" date, at its start_min if it has one, and each day's repeat is checked off on its own. Count its time on those days when planning, and don't schedule or move it.
 - A step with no day of its own is worked on inside its scheduled parent (its "scheduled_with" names that parent). It is not unscheduled; only give it its own day or time if the person asks or it clearly needs one.
+- Area time: the person likes to plan in blocks of time for a whole area or a big project ("Filmmaking, 9 to 12") rather than timing every task. In a block they open it, see the next step of each project in that area, and pick what to work on. Blocks are in "blocks" (block_for is the area or project id, with day, start_min, duration_min; "repeats" when it's a repeating block; worked_min is time really worked in it so far). Areas can carry a rough week_hours target, with this_week_worked_min and this_week_blocked_min (blocks still to come this week).
+- When the person asks you to plan their week (or a day), plan it in area blocks first: place blocks for their areas and big projects around calendar events so each area gets roughly its week_hours, and only time individual tasks when something has a deadline, is an appointment-like task, or they ask. Put work with a near due date early in the right area's blocks and say so in the reply. Don't double-book: a block is busy time like a task.
+- Labels (such as Building, Color grading, or a client's name) cut across areas: Inkwell stays in Filmmaking and still counts as Building. An item's "labels" are its own; its steps wear them too. "labels" in the state lists every label with its recorded time this week (this_week_min). Use them to answer "how much time went into X" and, when planning, to keep a kind of work in proportion. set_labels changes an item's labels.
 - Calendar events come from the person's Google Calendar. They are read-only: never move, change or delete them. Plan around them.
 - Notes on an item are the person's own thoughts for when they sit down to do it.
 - The person also plans their goals and weeks with Claude in a separate, long-running chat, which reaches Daybook through a connector and leaves them notes ("notes_from_planning_chat" in the state, newest first). Those notes carry that chat's plans and reasons. Treat them as the current plan: build on them, and if something you suggest goes against them, say so plainly. You can't see that chat itself, only these notes.
@@ -40,15 +43,18 @@ const OUTPUT_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["type", "id", "parent_id", "title", "day", "start_min", "duration_min", "notes", "steps"],
+        required: ["type", "id", "parent_id", "title", "day", "start_min", "duration_min", "notes", "steps", "repeat"],
         properties: {
           type: {
             type: "string",
-            enum: ["schedule", "add_task", "add_steps", "add_project", "move_to_area", "rename", "set_notes", "set_due"],
+            enum: ["schedule", "add_task", "add_steps", "add_project", "move_to_area", "rename", "set_notes", "set_due", "add_block", "remove_block", "set_week_hours", "set_labels"],
             description:
               "schedule: set day/start_min/duration_min on item id. add_task: new item under parent_id (null for inbox, or an area id to put a standalone task right in that area). " +
               "add_steps: add steps under item id. add_project: new top-level project titled title in the area parent_id (an area id), with optional notes, due date (day) and steps. " +
-              "move_to_area: move top-level project or task id into the area parent_id. rename: change title of id. set_notes: replace notes of id. set_due: set due date (day) on id.",
+              "move_to_area: move top-level project or task id into the area parent_id. rename: change title of id. set_notes: replace notes of id. set_due: set due date (day) on id. " +
+              "add_block: a block of time for the area or project parent_id on day at start_min for duration_min, repeating as repeat says (null for once). Moving or resizing an existing block is schedule on its id. " +
+              "remove_block: delete block id (one repeat of a repeating block, if its id is a repeat's). set_week_hours: set area parent_id's rough hours a week to duration_min minutes (null to clear). " +
+              "set_labels: set the labels of item id to the comma-separated label names in title (empty string for none); a name that isn't a label yet becomes a new one.",
           },
           id: nullable("string"),
           parent_id: nullable("string"),
@@ -57,6 +63,7 @@ const OUTPUT_SCHEMA = {
           start_min: nullable("integer"),
           duration_min: nullable("integer"),
           notes: nullable("string"),
+          repeat: { type: ["string", "null"], enum: ["daily", "weekdays", "weekly", null], description: "add_block only: weekly repeats on the weekday of day." },
           steps: {
             type: "array",
             items: {
@@ -101,7 +108,7 @@ Deno.serve(async (req) => {
 
   try {
     const response = await client.beta.messages.create({
-      model: "claude-opus-5-5",
+      model: "claude-sonnet-5-5",
       max_tokens: 16000,
       system: voice ? SYSTEM + SPOKEN : SYSTEM,
       messages,

@@ -4,7 +4,7 @@
 // Changes are applied locally at once, cached on the device, and synced to
 // Supabase in the background so the phone and computer stay in step.
 import { add, lsGet, lsSet, pd, today, uid } from './util.js';
-import { nextOn, occId, repeatsOn, shiftRule, splitOcc } from './repeat.js';
+import { isQuota, nextOn, occId, periodOf, repeatsOn, shiftRule, splitOcc } from './repeat.js';
 
 const nodes = new Map();          // id -> node (deleted ones kept as tombstones)
 const listeners = new Set();
@@ -17,9 +17,10 @@ const saved = new Map();          // id -> server updated_at of the newest versi
 let flushTimer = null, retryTimer = null;
 export const sync = { state: 'local', pending: 0 }; // local | syncing | saved | offline | error
 
-const ROW = { p: 'parent_id', t: 'title', notes: 'notes', done: 'done', d: 'day', s: 'start_min', m: 'duration_min', o: 'sort', c: 'color', due: 'due', link: 'link', a: 'after_min', ds: 'day_sort', k: 'kind', ar: 'area_id', st: 'start', ms: 'milestone', hd: 'hard_deadline', w: 'waits_on', am: 'actual_minutes', tl: 'time_log', pl: 'planned', r: 'repeat_rule', rs: 'series_id', oc: 'occurs_on', x: 'deleted' };
+const ROW = { p: 'parent_id', t: 'title', notes: 'notes', done: 'done', d: 'day', s: 'start_min', m: 'duration_min', o: 'sort', c: 'color', due: 'due', link: 'link', a: 'after_min', ds: 'day_sort', k: 'kind', ar: 'area_id', st: 'start', ms: 'milestone', hd: 'hard_deadline', w: 'waits_on', am: 'actual_minutes', tl: 'time_log', pl: 'planned', r: 'repeat_rule', rs: 'series_id', oc: 'occurs_on', fo: 'focus_on', wk: 'week_minutes', hb: 'habit', dg: 'day_targets', tp: 'time_pref', dd: 'days_done', lb: 'labels', x: 'deleted' };
 const toRow = n => { const r = { id: n.id }; for (const [k, col] of Object.entries(ROW)) r[col] = n[k] ?? (k === 'done' || k === 'x' || k === 'ms' || k === 'hd' ? false : k === 'm' ? 60 : k === 'o' ? 0 : null); return r; };
-const fromRow = r => { const n = { id: r.id }; for (const [k, col] of Object.entries(ROW)) n[k] = r[col]; return n; };
+// done_at (da) and deleted_at (xa) are read but never written: the database stamps them when an item is checked off or deleted
+const fromRow = r => { const n = { id: r.id }; for (const [k, col] of Object.entries(ROW)) n[k] = r[col]; n.da = r.done_at ?? null; n.xa = r.deleted_at ?? null; return n; };
 
 function emit() { saveCache(); for (const f of listeners) f(); }
 function saveCache() { if (cacheKey) lsSet(cacheKey, { nodes: [...nodes.values()], dirty: [...dirty], cursor }); }
@@ -27,8 +28,28 @@ function setSync(state) { sync.state = state; sync.pending = dirty.size; for (co
 
 export function onChange(f) { listeners.add(f); return () => listeners.delete(f); }
 // A repeating task's stored occurrences are left out: they show on their days (occOn), not in the project tree
-export const all = () => [...nodes.values()].filter(n => !n.x && n.k !== 'area' && !n.rs);
+// Time blocks for an area or project (kind 'block') aren't part of the tree either: blocks() and blocksOn() list them
+export const all = () => [...nodes.values()].filter(n => !n.x && n.k !== 'area' && n.k !== 'block' && n.k !== 'label' && !n.rs);
 export const areas = () => [...nodes.values()].filter(n => !n.x && n.k === 'area').sort((a, b) => a.o - b.o);
+/* Labels (Building, Client work…) cut across areas: rows of kind 'label' (name t, colour c). An item lists its own in lb;
+   the steps of a labelled project wear it too, and a repeat wears its series'. */
+export const labels = () => [...nodes.values()].filter(n => !n.x && n.k === 'label').sort((a, b) => a.o - b.o || (a.t || '').localeCompare(b.t || ''));
+/** Every label an item wears: [{ l: the label, from: the item it comes from (null when it's the item's own) }]. */
+export function labelsOf(n) {
+  const out = [], seen = new Set();
+  let h = n?.rs ? (get(n.rs) || n) : n, own = true;
+  for (let i = 0; h && i < 60; i++) {
+    for (const id of h.lb || []) { const l = nodes.get(id); if (l && !l.x && l.k === 'label' && !seen.has(id)) { seen.add(id); out.push({ l, from: own ? null : h }); } }
+    h = h.p ? get(h.p) : null; own = false;
+  }
+  return out;
+}
+const LABEL_COLORS = ['#C9A6FF', '#E58FB0', '#8FD0E5', '#E5C48F', '#A6E59B', '#F0A07A', '#9BA8FF', '#D9D9D9'];
+/** A colour for a new label, one no other label has yet if possible. */
+export function nextLabelColor() { const used = new Set(labels().map(l => l.c)); return LABEL_COLORS.find(c => !used.has(c)) || LABEL_COLORS[labels().length % LABEL_COLORS.length]; }
+export const LABEL_PALETTE = LABEL_COLORS;
+/** Every time block (a series counts once, as itself). */
+export const blocks = () => [...nodes.values()].filter(n => !n.x && n.k === 'block' && !n.rs);
 /** Whatever is recording right now (see track.js): at most one item has a stretch of time with no end. */
 export const recording = () => { for (const n of nodes.values()) if (!n.x && n.tl?.some(e => !e.end)) return n; return null; };
 /** Everything with recorded time, repeats included, to draw those stretches in Time blocks. */
@@ -37,7 +58,10 @@ export const logged = () => [...nodes.values()].filter(n => !n.x && n.tl?.length
 export const peek = id => nodes.get(id);
 export const get = id => { const n = nodes.get(id); return n && !n.x ? n : ghost(id); };
 
-function touch(n) { nodes.set(n.id, n); IX = null; if (sb) { dirty.add(n.id); scheduleFlush(); } }
+// When it was deleted, for the Trash, the way the database stamps it (the server's stamp replaces this once it's saved).
+// A repeat a rule change took away (no occurs_on) wasn't deleted by anyone.
+const stampX = n => { if (!n.x || (n.rs && !n.oc)) n.xa = null; else if (!n.xa) n.xa = new Date().toISOString(); };
+function touch(n) { stampX(n); nodes.set(n.id, n); IX = null; if (sb) { dirty.add(n.id); scheduleFlush(); } }
 
 /* Repeating tasks (see repeat.js). A series' repeats are worked out from its rule; the ones that were
    changed, checked off or skipped are stored, and those stand in for the worked-out ones on their dates. */
@@ -54,7 +78,7 @@ function index() {
   return IX;
 }
 // What a repeat shares with its series
-const SHARED = ['p', 't', 'notes', 's', 'o', 'c', 'link', 'a', 'ds', 'ar', 'w'];
+const SHARED = ['p', 't', 'notes', 's', 'o', 'c', 'link', 'a', 'ds', 'ar', 'w', 'k', 'fo', 'lb'];
 function virt(s, d) {
   const v = { id: occId(s.id, d), rs: s.id, oc: d, d, done: false, m: s.m ?? 60, k: null, r: null, due: null, st: null, ms: false, hd: false, am: null, x: false, v: true };
   for (const k of SHARED) v[k] = s[k] ?? null;
@@ -67,12 +91,23 @@ function ghost(id) {
   if (!s || s.x || !s.r || !repeatsOn(s.r, s.d, p[1]) || index().bySeries.get(s.id)?.has(p[1])) return null;
   return virt(s, p[1]);
 }
-/** Every repeat on day d: the stored ones that sit on it, and the worked-out ones due that day. */
-export function occOn(d) {
+function repeatsOnDay(d) {
   const I = index(), out = (I.byDay.get(d) || []).slice();
-  for (const s of I.series) if (repeatsOn(s.r, s.d, d) && !I.bySeries.get(s.id)?.has(d)) out.push(virt(s, d));
+  for (const s of I.series) if (repeatsOn(s.r, s.d, d) && !I.bySeries.get(s.id)?.has(d) && !quotaMet(s, d)) out.push(virt(s, d));
   return out;
 }
+/** How many of a "times" series' repeats are done in the week or month around day d, leaving out day d itself. */
+export function doneInPeriod(s, d, skipDay = true) {
+  const [a, b] = periodOf(s.r, d); let c = 0;
+  for (const [oc, row] of index().bySeries.get(s.id) || []) if (row.done && !row.x && oc >= a && oc <= b && !(skipDay && oc === d)) c++;
+  return c;
+}
+/** A "times" series (n times a week or month) that already has its n done around day d doesn't show that day. */
+export const quotaMet = (s, d) => isQuota(s.r) && doneInPeriod(s, d) >= (s.r.n || 1);
+/** Every repeat on day d: the stored ones that sit on it, and the worked-out ones due that day. Repeating blocks are in blocksOn. */
+export const occOn = d => repeatsOnDay(d).filter(n => n.k !== 'block');
+/** The time blocks on day d: one-off ones and the repeats of repeating ones. */
+export const blocksOn = d => [...nodes.values()].filter(n => !n.x && n.k === 'block' && !n.rs && !n.r && n.d === d).concat(repeatsOnDay(d).filter(n => n.k === 'block'));
 /** The series a repeat belongs to (or the series itself). */
 export const seriesOf = n => (n?.rs ? get(n.rs) : n?.r ? n : null);
 const occRows = sid => [...(index().bySeries.get(sid)?.values() || [])];
@@ -86,7 +121,7 @@ function own(id) {
 // Changing one of these on a single repeat can be carried over to the whole series
 const EDIT = ['t', 'notes', 'm', 's', 'd', 'link', 'w'];
 // What a change to the series hands down to its stored repeats (those still the same as the series was)
-const FOLLOW = ['p', 't', 'notes', 's', 'm', 'c', 'link', 'w', 'ar'];
+const FOLLOW = ['p', 't', 'notes', 's', 'm', 'c', 'link', 'w', 'ar', 'fo', 'lb'];
 function setOcc(n, patch) {
   if ('d' in patch && !patch.d) patch = { ...patch, x: true }; // a repeat taken off the plan is skipped
   mark(n.id); Object.assign(n, patch); touch(n);
@@ -183,14 +218,47 @@ export function update(id, patch, quiet = false) {
   set(id, patch); if (quiet) saveCache(); else emit();
 }
 export function updateMany(changes) { for (const [id, patch] of changes) set(id, patch); emit(); }
-/** Deletes an item and everything under it. */
+// A recording still running on something deleted stops then, so it doesn't go on counting
+const stopLog = n => { if (n.tl?.some(e => !e.end)) { const end = new Date().toISOString(); n.tl = n.tl.map(e => e.end ? e : { ...e, end }); } };
+/** Deletes an item and everything under it (and the time blocks planned for it). Nothing is lost: it goes to the Trash. */
 export function remove(id) {
-  const o = get(id); if (o?.rs) { const n = own(id); mark(id); n.x = true; touch(n); emit(); return; } // just this repeat: skipped
+  const o = get(id); if (o?.rs) { const n = own(id); mark(id); n.x = true; stopLog(n); touch(n); emit(); return; } // just this repeat: skipped
   const n0 = nodes.get(id);
-  const kill = i => { const n = nodes.get(i); if (!n) return; mark(i); n.x = true; touch(n); for (const c of [...nodes.values()]) if ((c.p === i || c.rs === i) && !c.x) kill(c.id); };
+  const kill = i => { const n = nodes.get(i); if (!n) return; mark(i); n.x = true; stopLog(n); touch(n); for (const c of [...nodes.values()]) if ((c.p === i || c.rs === i || (c.k === 'block' && c.fo === i && n.k !== 'area')) && !c.x) kill(c.id); };
   kill(id);
+  if (n0?.k === 'label') for (const c of nodes.values()) if (!c.x && c.lb?.includes(id)) { mark(c.id); c.lb = c.lb.filter(x => x !== id); if (!c.lb.length) c.lb = null; touch(c); } // a label that goes comes off everything that wore it
   if (n0?.k === 'area') for (const c of nodes.values()) if (c.ar === id && !c.x) { mark(c.id); c.ar = null; if (c.c === 'area') c.c = n0.c; touch(c); } // its projects stay, with no area, keeping the colour they had
   emit();
+}
+
+/* The Trash: what was deleted in the last 30 days (the server clears out older things). Something deleted together
+   with what it belongs to (a project's steps, a series' repeats, a project's time blocks) is part of that one entry. */
+export const TRASH_DAYS = 30;
+const NEAR = 5000; // a project and its steps are stamped within moments of each other
+const hostsOf = n => [n.p, n.rs, n.k === 'block' ? n.fo : null].filter(Boolean);
+const together = (a, b) => a.xa && b.xa && Math.abs(Date.parse(a.xa) - Date.parse(b.xa)) <= NEAR;
+const gone = () => { const since = Date.now() - TRASH_DAYS * 864e5; return [...nodes.values()].filter(n => n.x && n.xa && Date.parse(n.xa) >= since && !(n.rs && !n.oc)); };
+/** What went with a deleted item: everything hanging from it that was deleted at the same moment. */
+function withIt(n, G = gone()) {
+  const out = [], seen = new Set([n.id]);
+  for (let grew = true; grew;) { grew = false; for (const c of G) if (!seen.has(c.id) && hostsOf(c).some(h => seen.has(h)) && together(c, n)) { seen.add(c.id); out.push(c); grew = true; } }
+  return out;
+}
+/** The Trash, newest first: [{ n, steps }] for each thing deleted on its own (areas, labels and time blocks aren't listed). */
+export function trash() {
+  const G = gone();
+  return G.filter(n => !['area', 'label', 'block'].includes(n.k) && !hostsOf(n).some(h => { const p = nodes.get(h); return p?.x && together(p, n); }))
+    .sort((a, b) => b.xa.localeCompare(a.xa))
+    .map(n => ({ n, steps: withIt(n, G).filter(c => c.k !== 'block' && !c.rs).length }));
+}
+/** Brings something back from the Trash, with what was deleted along with it. If it sat inside something that's deleted too,
+    that comes back as well (just that, not its other deleted steps), so it has somewhere to show. One step, so Undo takes it back. */
+export function untrash(id) {
+  const n = nodes.get(id); if (!n?.x) return null;
+  const back = [n, ...withIt(n)];
+  for (let h = hostsOf(n).map(x => nodes.get(x)).find(x => x?.x), i = 0; h && i < 50; h = hostsOf(h).map(x => nodes.get(x)).find(x => x?.x), i++) if (!back.includes(h)) back.push(h);
+  for (const r of back) { mark(r.id); r.x = false; touch(r); }
+  emit(); return { n, count: back.length };
 }
 export const snapshot = () => JSON.stringify([...nodes.values()]);
 /** Puts everything back the way a snapshot had it (used by Ask Claude's Undo). */
@@ -308,6 +376,8 @@ export function sampleData() {
   mk('Homepage mockup', wd, { d: D(2), m: 180 });
   mk('Review mobile navigation', wd, { d: D(3), m: 45 });
   mk('Choose hosting', w, { d: D(4), m: 45 });
+  const lbC = 'lbl-client-local'; N.push({ id: lbC, k: 'label', t: 'Client work', c: '#E58FB0', p: null, notes: null, done: false, d: null, s: null, m: 60, o: 1, due: null, ar: null, x: false });
+  N.find(n => n.id === w).lb = [lbC];
   const t = mk('Family trip to Maine', null, { ar: life, c: 'area', due: D(25) });
   mk('Book cabin', t, { done: true });
   mk('Plan driving route', t, { d: D(1), m: 30 });
@@ -345,9 +415,15 @@ export function sampleData() {
       at += len + 15 + Math.round(rnd() * 70);
     }
   }
-  [['Quarterly taxes', biz, -9, 600, 120, 165], ['Update showreel', film, -5, 1140, 90, 140], ['Sharpen the kitchen knives', life, -3, 1080, 30, 25]].forEach(([t, ar, k, s, plan, took]) => {
+  [['Quarterly taxes', biz, -9, 600, 120, 165], ['Update showreel', film, -5, 1140, 90, 140, [lbC]], ['Sharpen the kitchen knives', life, -3, 1080, 30, 25]].forEach(([t, ar, k, s, plan, took, lb]) => {
     const t0 = pd(D(k)), t1 = pd(D(k)); t0.setMinutes(s); t1.setMinutes(s + took);
-    mk(t, null, { ar, done: true, d: D(k), s, m: took, am: took, pl: { day: D(k), start_min: s, duration_min: plan }, tl: [{ start: t0.toISOString(), end: t1.toISOString() }] });
+    mk(t, null, { ar, lb: lb || null, done: true, d: D(k), s, m: took, am: took, pl: { day: D(k), start_min: s, duration_min: plan }, tl: [{ start: t0.toISOString(), end: t1.toISOString() }] });
   });
+  // Area time: a block for Filmmaking this morning (worked in), and Business every weekday afternoon
+  const at = (k, m) => { const x = pd(D(k)); x.setMinutes(m); return x.toISOString(); };
+  N.push({ id: 's-blk1', k: 'block', fo: film, t: 'Filmmaking', p: null, notes: null, done: false, d: D(0), s: 540, m: 180, o: 0, c: null, due: null, ar: null, x: false });
+  byId(f).tl = (byId(f).tl || []).concat(new Date(at(0, 600)).getTime() < now ? [{ start: at(0, 545), end: at(0, 600) }] : []);
+  N.push({ id: 's-blk2', k: 'block', fo: biz, t: 'Business', p: null, notes: null, done: false, d: D(0), s: 840, m: 120, o: 0, c: null, due: null, ar: null, x: false, r: { every: 'weekday' } });
+  N.find(n => n.id === biz).dg = { mon: 180, tue: 180, wed: 180, thu: 180, fri: 120 }; N.find(n => n.id === film).dg = { mon: 180, tue: 120, wed: 180, thu: 120, fri: 180, sat: 60 }; N.find(n => n.id === film).tp = 'morning'; N.find(n => n.id === life).dg = { mon: 60, tue: 60, thu: 60, fri: 60 }; N.find(n => n.id === life).tp = 'evening';
   return N;
 }

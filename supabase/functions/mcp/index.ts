@@ -4,7 +4,7 @@
 import { admin, cors } from "../_shared/common.ts";
 import { type Db, handle, type Note, type Row } from "./tools.ts";
 
-const COLS = "id,parent_id,title,notes,done,day,start_min,after_min,duration_min,sort,day_sort,color,due,link,kind,area_id,start,milestone,hard_deadline,waits_on,done_at,actual_minutes,time_log,planned,repeat_rule,series_id,occurs_on,deleted";
+const COLS = "id,parent_id,title,notes,done,day,start_min,after_min,duration_min,sort,day_sort,color,due,link,kind,area_id,start,milestone,hard_deadline,waits_on,done_at,actual_minutes,time_log,planned,repeat_rule,series_id,occurs_on,focus_on,week_minutes,habit,day_targets,time_pref,days_done,labels,deleted";
 
 const NOTE_COLS = "id,author,title,body,link,task_ids,created_at,read_at,kind,project,project_link,resolved_at";
 
@@ -37,6 +37,15 @@ function dbFor(userId: string): Db {
         if (error) throw error;
         rows.push(...(data as Row[]));
         if (data.length < 1000) return rows;
+      }
+    },
+    async loadDeleted(sinceIso) {
+      const rows: Row[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await sb.from("items").select(COLS + ",deleted_at").eq("user_id", userId).eq("deleted", true).gte("deleted_at", sinceIso).order("deleted_at", { ascending: false }).range(from, from + 999);
+        if (error) throw error;
+        rows.push(...(data as Row[]));
+        if (data.length < 1000 || rows.length >= 5000) return rows;
       }
     },
     async save(rows) {

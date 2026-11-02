@@ -15,9 +15,10 @@ Write two things.
 2. threads: the things on the page someone might want to act on or come back to, each a short title and a one-sentence gist, with the labels of the lines it comes from. One thread can draw on several lines; a line can belong to only one thread. Leave out lines that are just a passing remark, a feeling already said in the summary, or something already done, unless there's something in it to keep. A day with nothing to act on has no threads. For each thread, suggest one of:
    - daybook: a concrete thing to do. Give the task a short title that starts with a verb, as they'd write it on their own list, and pick the area it belongs in from their areas (use its id), or "" if none clearly fits.
    - mull: an idea or question worth more thought but not a task yet.
-   - split: a ramble that holds several separate things. Give the parts, each with its own title, gist, lines (from this thread's lines), suggestion (daybook, mull or let_go) and task.
+   - drawer: a creative spark with no home yet (a story or film idea, a gag, a bit, a title) that doesn't belong to anything they're working on: it goes in their idea drawer to be found later.
+   - split: a ramble that holds several separate things. Give the parts, each with its own title, gist, lines (from this thread's lines), suggestion (daybook, mull, drawer or let_go) and task.
    - let_go: worth noting, nothing to do.
-   Give a task for every thread and part (for mull and let_go, the task they'd write if they changed their mind). Parts are only for split; leave them empty otherwise.
+   Give a task for every thread and part (for mull, drawer and let_go, the task they'd write if they changed their mind). Parts are only for split; leave them empty otherwise.
 
 3. still: they may have things they were already mulling over from earlier days, labelled M1, M2. Bring back at most three: ones today's page touches on first, then ones that have sat longest. For each, a short note on why it's coming up now ("You talked about the sequel again today", "It's been two weeks"). None if there are none.
 
@@ -38,7 +39,7 @@ const PART = {
     title: { type: "string" },
     gist: { type: "string" },
     lines: { type: "array", items: { type: "string" } },
-    suggest: { type: "string", enum: ["daybook", "mull", "let_go"] },
+    suggest: { type: "string", enum: ["daybook", "mull", "drawer", "let_go"] },
     task: TASK,
   },
 };
@@ -59,7 +60,7 @@ const SCHEMA = {
           title: { type: "string" },
           gist: { type: "string" },
           lines: { type: "array", items: { type: "string" } },
-          suggest: { type: "string", enum: ["daybook", "mull", "split", "let_go"] },
+          suggest: { type: "string", enum: ["daybook", "mull", "drawer", "split", "let_go"] },
           task: TASK,
           parts: { type: "array", items: PART },
         },
@@ -129,7 +130,7 @@ export function tidy(out: { summary?: string; threads?: Thread[]; still?: { mull
   const part = (p: Part, allowed: string[] | null) => {
     const lines = ids(p.lines).filter((id) => !allowed || allowed.includes(id));
     const title = str(p.title, 200).trim();
-    return { title, gist: str(p.gist, 600).trim(), lines, suggest: ["daybook", "mull", "let_go"].includes(p.suggest) ? p.suggest : "mull", task: task(p.task, title) };
+    return { title, gist: str(p.gist, 600).trim(), lines, suggest: ["daybook", "mull", "drawer", "let_go"].includes(p.suggest) ? p.suggest : "mull", task: task(p.task, title) };
   };
   const threads = [];
   for (const t of out.threads ?? []) {
@@ -138,7 +139,7 @@ export function tidy(out: { summary?: string; threads?: Thread[]; still?: { mull
     if (!title) continue;
     lines.forEach((id) => taken.add(id));
     const parts = t.suggest === "split" ? (t.parts ?? []).map((p) => part(p, lines.length ? lines : null)).filter((p) => p.title) : [];
-    const suggest = t.suggest === "split" && parts.length < 2 ? "mull" : (["daybook", "mull", "split", "let_go"].includes(t.suggest) ? t.suggest : "mull");
+    const suggest = t.suggest === "split" && parts.length < 2 ? "mull" : (["daybook", "mull", "drawer", "split", "let_go"].includes(t.suggest) ? t.suggest : "mull");
     threads.push({ title, gist: str(t.gist, 600).trim(), lines, suggest, task: task(t.task, title), parts: suggest === "split" ? parts : [] });
   }
   const still: { id: string; note: string }[] = [];

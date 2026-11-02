@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Keep look lab</title>
+<meta name="robots" content="noindex">
+<style>
+  /* A page for trying looks for Hold the Keep's picture: the real scene, drawn by the app's own code, with every knob out. */
+  :root { --bg: #15130f; --panel: #1f1c17; --line: #3a342a; --fg: #efe6d4; --muted: #a89c86; --gold: #e3b663; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, sans-serif; padding: env(safe-area-inset-top, 0px) max(14px, env(safe-area-inset-right, 0px)) 40px max(14px, env(safe-area-inset-left, 0px)); }
+  h1 { font: 600 20px/1.2 system-ui; margin: 14px 0 2px; }
+  p.lede { margin: 0 0 12px; color: var(--muted); font-size: 13.5px; }
+  .live { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 6px 0 10px; }
+  #tv { border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: #000; touch-action: none; }
+  #tv canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+  .now { font-size: 12px; color: var(--muted); margin-top: 6px; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  h2 { font: 600 14px/1.2 system-ui; text-transform: uppercase; letter-spacing: .06em; color: var(--gold); margin: 18px 0 8px; }
+  .sheet { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+  .card.on { border-color: var(--gold); }
+  .card img { display: block; width: 100%; border-radius: 6px; image-rendering: pixelated; background: #000; aspect-ratio: 2 / 1; object-fit: cover; }
+  .card b { display: block; font-size: 13.5px; margin: 6px 2px 0; }
+  .card small { display: block; color: var(--muted); font-size: 11.5px; margin: 0 2px 2px; }
+  .knobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 18px; }
+  label.k { display: grid; grid-template-columns: 96px minmax(0, 1fr) 44px; align-items: center; gap: 8px; font-size: 13px; }
+  label.k output { text-align: right; color: var(--gold); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--gold); }
+  .seg { display: flex; flex-wrap: wrap; gap: 6px; }
+  .seg button { font: 500 13px system-ui; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); }
+  .seg button.on { border-color: var(--gold); color: var(--gold); }
+  textarea { width: 100%; height: 64px; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: 12px ui-monospace, monospace; }
+  .copy { margin-top: 6px; font: 500 14px system-ui; padding: 8px 14px; border-radius: 9px; border: 0; background: var(--gold); color: #241a08; }
+</style>
+</head>
+<body>
+<h1>Keep look lab</h1>
+<p class="lede">The real village, drawn by the app's own code. Tap a look to try it, then nudge the sliders. Drag the picture to orbit, pinch or scroll to zoom. When you like one, copy its settings and paste them to Claude.</p>
+<div class="live"><div id="tv"></div><div class="now"><span id="now"></span><span id="px"></span></div></div>
+
+<h2>Looks</h2>
+<div class="sheet" id="sheet"></div>
+
+<h2>Scene</h2>
+<div class="seg" id="phase"></div>
+<div class="seg" id="scene" style="margin-top:8px"></div>
+
+<h2>Pixels</h2>
+<div class="knobs" id="k-px"></div>
+<h2>Old TV</h2>
+<div class="knobs" id="k-tv"></div>
+<h2>Drawing</h2>
+<div class="knobs" id="k-draw"></div>
+
+<h2>Settings</h2>
+<textarea id="code" readonly></textarea>
+<button class="copy" id="copy">Copy settings</button>
+
+<script type="module">
+import { paint, whenReady, LOOK, nudge, resetView } from './js/keep3d.js';
+import { screen, TV } from './js/crt.js';
+
+// width in pixels, height as a share of it, then the TV and drawing knobs
+const LOOKS = [
+  { name: 'Now', why: 'What the app uses today', w: 448, ht: .5, scan: 0, glow: .15, curve: 0, grille: 0, aber: 0, vig: 1, flick: .65, post: 0, ink: 2.5, steps: 6, folk: .7 },
+  { name: 'Before', why: 'The look until Oct 29', w: 256, ht: .5, scan: .8, glow: .6, curve: .2, grille: .8, aber: .6, vig: .52, flick: .5, post: 0, ink: 1, steps: 3, folk: 1 },
+  { name: 'Crisp 16-bit', why: 'More pixels, a lighter TV', w: 320, ht: .5, scan: .35, glow: .35, curve: .1, grille: .25, aber: .2, vig: .3, flick: .2, post: 0, ink: 1, steps: 3, folk: 1.4 },
+  { name: 'Chunky 8-bit', why: 'Big pixels, few colours', w: 192, ht: .5, scan: .8, glow: .7, curve: .25, grille: .8, aber: .6, vig: .5, flick: .5, post: 6, ink: 1.3, steps: 2, folk: 1.6 },
+  { name: 'Arcade CRT', why: 'The TV turned all the way up', w: 256, ht: .5, scan: 1, glow: .9, curve: .35, grille: 1, aber: .9, vig: .6, flick: .7, post: 0, ink: 1, steps: 3, folk: 1.3 },
+  { name: 'Soft HD', why: 'Fine pixels, gentle glow, soft light', w: 384, ht: .5, scan: .15, glow: .4, curve: .05, grille: 0, aber: .1, vig: .25, flick: .1, post: 0, ink: .8, steps: 4, folk: 1.2 },
+  { name: 'Handheld', why: 'A small screen, 4 shades a colour', w: 160, ht: .5, scan: 0, glow: .1, curve: 0, grille: 0, aber: 0, vig: .2, flick: 0, post: 4, ink: 1.2, steps: 2, folk: 1.8 },
+  { name: 'Painterly', why: 'Fine pixels, no lines, smooth light', w: 448, ht: .5, scan: 0, glow: .5, curve: 0, grille: 0, aber: 0, vig: .35, flick: 0, post: 0, ink: 0, steps: 5, folk: 1.2 },
+];
+const KNOBS = {
+  'k-px': [['w', 'Width', 128, 512, 16, 'px'], ['ht', 'Height', .35, 1, .05], ['post', 'Colour levels', 0, 12, 1]],
+  'k-tv': [['scan', 'Scanlines', 0, 1, .05], ['glow', 'Glow', 0, 1.5, .05], ['curve', 'Curve', 0, .6, .05], ['grille', 'Colour grille', 0, 1, .05], ['aber', 'Colour fringe', 0, 1.5, .05], ['vig', 'Dark corners', 0, 1, .02], ['flick', 'Flicker', 0, 1, .05]],
+  'k-draw': [['ink', 'Ink lines', 0, 2.5, .1], ['steps', 'Light steps', 2, 6, 1], ['folk', 'Villager size', .6, 3, .1]],
+};
+const cur = { ...LOOKS[0] };
+let phase = 'day', camp = false, t = 0, chosen = 0;
+
+function sceneOf() {
+  const piles = [{ slot: 0, g: 10 }, { slot: 3, g: 20 }, { slot: 5, g: 5 }, { slot: 8, g: 15 }];
+  const folk = [{ rank: 0, done: true }, { rank: 1, done: true }, { rank: 2, done: true }, { rank: 0, done: false }, { rank: 1, done: false }];
+  return camp
+    ? { land: 'wood', phase, camp: true, campInk: '#6aa86a', buildings: ['Tent'], ruins: [], held: [], lvl: 1, hoard: 30, gold: 0, mode: 'perch', piles, folk, fx: [] }
+    : { land: 'vale', phase, buildings: ['Campfire', 'Tent', 'Hut', 'Well', 'Farm', 'Watchtower', 'Mill', 'Stone keep', 'Smithy', 'Market'], ruins: [], held: [], lvl: 1, hoard: 40, gold: 1800, mode: 'perch', piles, folk, fx: [] };
+}
+function apply(L) {
+  for (const k of ['scan', 'glow', 'curve', 'grille', 'aber', 'vig', 'flick', 'post']) TV[k] = L[k];
+  LOOK.ink = L.ink; LOOK.steps = L.steps; LOOK.folk = L.folk;
+}
+const src = document.createElement('canvas');
+function render(L, key) {
+  apply(L); const w = L.w, h = Math.round(w * L.ht / 2) * 2;
+  if (src.width !== w || src.height !== h) { src.width = w; src.height = h; }
+  paint(src, sceneOf(), t); const s = screen(key, w, h); s.show(src); return s;
+}
+// a still of every look, for the cards
+function sheet() {
+  const el = document.getElementById('sheet'); el.textContent = '';
+  LOOKS.forEach((L, i) => {
+    const s = render(L, 'lab-snap-' + i), img = new Image(); img.alt = L.name;
+    try { img.src = s.cv.toDataURL(); } catch {}
+    const b = document.createElement('button'); b.className = 'card' + (i === chosen ? ' on' : ''); b.append(img);
+    b.insertAdjacentHTML('beforeend', `<b>${L.name}</b><small>${L.why} · ${L.w}px</small>`);
+    b.onclick = () => { chosen = i; Object.assign(cur, LOOKS[i]); knobs(); sheet(); };
+    el.append(b);
+  });
+}
+function knobs() {
+  for (const [box, list] of Object.entries(KNOBS)) {
+    const el = document.getElementById(box); el.textContent = '';
+    for (const [k, name, lo, hi, st, unit] of list) {
+      const l = document.createElement('label'); l.className = 'k';
+      l.innerHTML = `<span>${name}</span><input type="range" min="${lo}" max="${hi}" step="${st}" value="${cur[k]}"><output>${cur[k]}${unit ? '' : ''}</output>`;
+      const r = l.querySelector('input'), o = l.querySelector('output');
+      r.oninput = () => { cur[k] = +r.value; o.textContent = r.value; code(); };
+      el.append(l);
+    }
+  }
+  code();
+}
+function seg(id, opts, get, set) {
+  const el = document.getElementById(id); el.textContent = '';
+  for (const [v, name] of opts) { const b = document.createElement('button'); b.textContent = name; b.className = get() === v ? 'on' : ''; b.onclick = () => { set(v); seg(id, opts, get, set); sheet(); }; el.append(b); }
+}
+function code() {
+  const out = Object.fromEntries(Object.entries(cur).filter(([k]) => k !== 'name' && k !== 'why'));
+  document.getElementById('code').value = 'Keep look: ' + JSON.stringify(out);
+  document.getElementById('now').textContent = `Based on: ${LOOKS[chosen].name}`;
+  document.getElementById('px').textContent = `${cur.w} × ${Math.round(cur.w * cur.ht / 2) * 2} pixels`;
+}
+document.getElementById('copy').onclick = async () => {
+  const ta = document.getElementById('code');
+  try { await navigator.clipboard.writeText(ta.value); document.getElementById('copy').textContent = 'Copied'; } catch { ta.select(); }
+};
+
+// the live picture, with the app's own orbit controls
+const tv = document.getElementById('tv'), pts = new Map(); let prev = null, last = 0, moved = 0;
+const pair = () => { const [a, b] = [...pts.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(b.x - a.x, b.y - a.y) }; };
+tv.onpointerdown = e => { tv.setPointerCapture?.(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY, pan: e.shiftKey || e.button === 2 }); moved = 0; prev = pts.size === 2 ? pair() : null; };
+tv.onpointermove = e => {
+  const p = pts.get(e.pointerId); if (!p) return; const dx = e.clientX - p.x, dy = e.clientY - p.y, w = tv.clientWidth; p.x = e.clientX; p.y = e.clientY; moved += Math.abs(dx) + Math.abs(dy);
+  if (pts.size >= 2) { const q = pair(); if (prev) nudge(q.x - prev.x, q.y - prev.y, w, q.d / Math.max(1, prev.d)); prev = q; }
+  else if (p.pan) nudge(dx, dy, w); else nudge(0, 0, w, 1, -dx / w * 3.2, dy / w * 3.2);
+};
+tv.onpointerup = tv.onpointercancel = e => { pts.delete(e.pointerId); prev = null; if (e.type === 'pointerup' && moved < 6) { if (performance.now() - last < 320) { resetView(); last = 0; } else last = performance.now(); } };
+tv.onwheel = e => { e.preventDefault(); nudge(0, 0, tv.clientWidth, Math.exp(-e.deltaY / 400)); };
+tv.oncontextmenu = e => e.preventDefault();
+
+seg('phase', [['dawn', 'Dawn'], ['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night'], ['storm', 'Storm']], () => phase, v => phase = v);
+seg('scene', [[false, 'Village'], [true, 'Camp']], () => camp, v => camp = v);
+knobs();
+whenReady(() => {
+  sheet();
+  const loop = () => { t += 1 / 3; const s = render(cur, 'lab-live'); if (s.cv.parentNode !== tv) { tv.textContent = ''; tv.append(s.cv); } };
+  setInterval(loop, 60); loop();
+});
+</script>
+</body>
+</html>
