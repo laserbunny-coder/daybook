@@ -37,7 +37,7 @@ jobs:
         run: |
           supabase link --project-ref "$PROJECT_REF"
           # Newer CLIs want the linked project named outright (--linked, or --remote in the newest); try both
-          supabase db push --linked --password "$SUPABASE_DB_PASSWORD" || supabase db push --remote --password "$SUPABASE_DB_PASSWORD"
+          supabase db push --yes --linked --password "$SUPABASE_DB_PASSWORD" || supabase db push --yes --remote --password "$SUPABASE_DB_PASSWORD"
       - name: Save server secrets
         if: steps.ready.outputs.ok == 'true'
         env:
@@ -55,10 +55,10 @@ jobs:
           [ -n "$ACRO_CONNECTOR_URL" ] && args+=("ACRO_CONNECTOR_URL=$ACRO_CONNECTOR_URL")
           [ -n "$GOOGLE_CLIENT_ID" ] && args+=("GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID")
           [ -n "$GOOGLE_CLIENT_SECRET" ] && args+=("GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET")
-          if [ ${#args[@]} -gt 0 ]; then supabase secrets set --project-ref "$PROJECT_REF" "${args[@]}"; fi
+          if [ ${#args[@]} -gt 0 ]; then supabase secrets set --yes --project-ref "$PROJECT_REF" "${args[@]}"; fi
       - name: Deploy server functions
         if: steps.ready.outputs.ok == 'true'
-        run: supabase functions deploy ask calendar mcp inkwell inkwell-mcp inkwell-digest inkwell-share acro-meetings scribe quest push remind routine voice --project-ref "$PROJECT_REF" --use-api
+        run: supabase functions deploy ask calendar mcp inkwell inkwell-mcp inkwell-digest inkwell-share acro-meetings scribe quest push remind routine voice --project-ref "$PROJECT_REF" --use-api --yes
 
   site:
     name: Publish the app
