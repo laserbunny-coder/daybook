@@ -140,7 +140,8 @@ export async function voice(client: Anthropic, userId: string, b: VoiceBody): Pr
     console.error(e);
     return json({ error: e.message, code: e.code ?? null }, e.status ?? 500);
   }
-  if (!raw) return json({ raw: "", mode: null, blocks: [], notes: [] });
+  // Nothing heard: said so, so the app can keep the recording and offer another try.
+  if (!raw) { console.warn("voice: no words heard", b.file ?? "(transcript)"); return json({ raw: "", mode: null, blocks: [], notes: [], heard: "nothing" }); }
 
   const modes = await modesOf(userId);
   // Drafting goes in as a scene unless another mode was asked for.
