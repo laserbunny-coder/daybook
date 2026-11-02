@@ -144,8 +144,13 @@ export function html(d) {
     const s = isT ? Math.max(w.s, n) : w.s; if (w.e <= s || (past)) continue;
     if (w === cur) { const left = w.e - n, why = next && next.s === w.e ? `until ${esc(next.t || 'the next event')}` : 'until the end of the work day';
       parts.push(box('ds-cur', s, w.e, '', ` title="${fmtDur(left)} ${why}"`)); }
-    else if (P(w.e) - P(s) > 11) parts.push(box('ds-gap', s, w.e, fmtDur(w.e - s)));
   }
+  // The free time between one event and the next, work hours or not (say from Desk until Bed); the stretch you're in has its countdown under the bar
+  if (!past) { let end = null;
+    // the work day's start and finish count as edges too, but only before the first event and after the last
+    const B = [...(H && (!E.length || E[0].s > h.from) ? [{ s: h.from, m: 0 }] : []), ...E, ...(H && (!E.length || Math.max(...E.map(e => e.s + (e.m || 0))) < h.to) ? [{ s: h.to, m: 0 }] : [])];
+    for (const e of B) { if (end != null && e.s - end >= 15 && !(isT && e.s <= n) && !(isT && end <= n)) { if (P(e.s) - P(end) > 9) parts.push(box('ds-gap', end, e.s, fmtDur(e.s - end))); }
+      end = Math.max(end ?? 0, e.s + (e.m || 0)); } }
   E.forEach((e, i) => { const w = P(e.s + (e.m || 0)) - P(e.s), t = e.t || 'Busy', k = `${d}|e${i}`;
     parts.push(box(`ds-ev${inEv === e ? ' now' : ''}${sel === k ? ' sel' : ''}`, e.s, e.s + (e.m || 0), w > t.length * 1.7 ? esc(t) : '', ` data-act="ds-ev" data-k="${k}" role="button" title="${esc(t)} · ${evTimes(e)}"`).replace('" data-act', `${tint(e) ? ';' + tint(e) : ''}" data-act`)); });
   for (const x of ST) parts.push(`<i class="ds-sw" style="left:${P(x.s).toFixed(2)}%;width:${Math.max(.6, P(x.e) - P(x.s)).toFixed(2)}%;--pc:${x.c}"></i>`);
