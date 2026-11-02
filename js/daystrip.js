@@ -150,7 +150,10 @@ export function html(d) {
   if (!past) { let end = null;
     // the work day's start and finish count as edges too, but only before the first event and after the last
     const B = [...(H && (!E.length || E[0].s > h.from) ? [{ s: h.from, m: 0 }] : []), ...E, ...(H && (!E.length || Math.max(...E.map(e => e.s + (e.m || 0))) < h.to) ? [{ s: h.to, m: 0 }] : [])];
-    for (const e of B) { if (end != null && e.s - end >= 15 && !(isT && e.s <= n) && !(isT && end <= n)) { if (P(e.s) - P(end) > 9) parts.push(box('ds-gap', end, e.s, fmtDur(e.s - end))); }
+    for (const e of B) { if (end != null && e.s - end >= 15 && !(isT && e.s <= n) && !(isT && end <= n)) {
+      // split where the work day starts or ends, so the evening (or early morning) gets its own number
+      const cuts = [end, ...(H ? [h.from, h.to].filter(m => m > end && m < e.s) : []), e.s];
+      for (let j = 1; j < cuts.length; j++) if (cuts[j] - cuts[j - 1] >= 15 && P(cuts[j]) - P(cuts[j - 1]) > 9) parts.push(box('ds-gap', cuts[j - 1], cuts[j], fmtDur(cuts[j] - cuts[j - 1]))); }
       end = Math.max(end ?? 0, e.s + (e.m || 0)); } }
   E.forEach((e, i) => { const w = P(e.s + (e.m || 0)) - P(e.s), t = e.t || 'Busy', k = `${d}|e${i}`;
     parts.push(box(`ds-ev${inEv === e ? ' now' : ''}${sel === k ? ' sel' : ''}`, e.s, e.s + (e.m || 0), w > t.length * 1.7 ? esc(t) : '', ` data-act="ds-ev" data-k="${k}" role="button" title="${esc(t)} · ${evTimes(e)}"`).replace('" data-act', `${tint(e) ? ';' + tint(e) : ''}" data-act`)); });
