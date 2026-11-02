@@ -94,3 +94,45 @@ export function html(d) {
   }
   return `<div class="ds${isT ? ' today' : ''}${past ? ' past' : ''}"><div class="ds-bar" role="img" aria-label="${isT && cur ? `${fmtDur(cur.e - n)} free${next && next.s === cur.e ? ' until ' + esc(next.t || 'the next event') : ''}` : 'The day'}">${parts.join('')}</div><div class="ds-ticks">${ticks}</div>${fit}</div>`;
 }
+
+/** A day's work windows and what's left: open minutes in the work hours (from now on, for today) and goal minutes still to do. */
+export function info(d) {
+  const E = timedOn(d).filter(e => e.s + (e.m || 0) > 0 && e.s < 1440), T = today(), isT = d === T, past = d < T, n = isT ? nowMin() : null;
+  const wins = windows(E, isT ? Math.min(W.from, Math.max(0, n)) : W.from, W.to);
+  const cur = isT ? wins.find(w => w.s <= n && n < w.e) || null : null, next = isT ? E.find(e => e.s > n) || null : null;
+  const open = past ? 0 : wins.reduce((t, w) => t + Math.max(0, w.e - Math.max(w.s, isT ? n : 0)), 0);
+  return { E, isT, past, n, wins, cur, next, open, goals: Math.round(goalsLeft(d)), hasGoals: aday.cardsOn(d).some(c => c.target > 0) };
+}
+/** Week view: the strip without labels, and the fit line as a small chip that opens the day (where it can be adjusted). */
+export function mini(d) {
+  const I = info(d), a = Math.min(W.from, ...I.E.map(e => e.s)), z = Math.max(W.to, ...I.E.map(e => e.s + (e.m || 0)));
+  const A = Math.max(0, Math.floor(a / 60) * 60), Z = Math.min(1440, Math.ceil(z / 60) * 60), P = m => ((Math.max(A, Math.min(Z, m)) - A) / (Z - A) * 100).toFixed(2);
+  const box = (c, s, e) => `<div class="${c}" style="left:${P(s)}%;width:${(P(e) - P(s)).toFixed(2)}%"></div>`;
+  let p = (W.from > A ? box('ds-off', A, W.from) : '') + (W.to < Z ? box('ds-off', W.to, Z) : '');
+  if (I.isT) p += box('ds-gone', A, I.n);
+  if (I.cur) p += box('ds-cur', I.n, I.cur.e);
+  for (const e of I.E) p += box('ds-ev', e.s, e.s + (e.m || 0));
+  for (const x of stretches(d)) p += `<i class="ds-sw" style="left:${P(x.s)}%;width:${Math.max(1, P(x.e) - P(x.s))}%;--pc:${x.c}"></i>`;
+  if (I.isT && I.n >= A && I.n <= Z) p += `<i class="ds-nw" style="left:${P(I.n)}%"></i>`;
+  return `<div class="ds ds-mini"><div class="ds-bar">${p}</div>${chip(d, I)}</div>`;
+}
+/** The fit line as a small chip that opens the day: worked time on past days, open time against goals ahead. */
+export function chip(d, I = info(d)) {
+  let f;
+  if (I.past) { const w = Math.round(Object.values(aday.loggedOn(d)).reduce((t, o) => t + o.min, 0)); f = w ? `<span>Worked <b>${fmtDur(w)}</b></span>` : ''; }
+  else f = `<span><b>${fmtDur(I.open)}</b> open${I.goals ? `, <b>${fmtDur(I.goals)}</b> goals` : ''}</span>${I.goals ? `<span class="${I.open >= I.goals ? 'ok' : 'short'}">${I.open >= I.goals ? fmtDur(I.open - I.goals) + ' spare' : fmtDur(I.goals - I.open) + ' short'}</span>` : ''}`;
+  return f ? `<button class="ds-chip" data-act="goday" data-d="${d}" title="Open this day">${f}</button>` : '';
+}
+/** Timeline (the Time blocks grid): each free stretch of the work day as a faint box with its length; the one you're in counts down. */
+export function gaps(d, top, height, busy = []) {
+  const I = info(d); if (I.past) return '';
+  const B = busy.map(b => [b.s, b.s + (b.m || 60)]).sort((x, y) => x[0] - y[0]), out = [];
+  for (const w of I.wins) { // the free bits of each window: what no task, block or recorded stretch already takes
+    let t = I.isT ? Math.max(w.s, I.n) : w.s;
+    for (const [s, e] of B) { if (e <= t || s >= w.e) continue; if (s > t) out.push({ s: t, e: s, w }); t = Math.max(t, e); }
+    if (t < w.e) out.push({ s: t, e: w.e, w });
+  }
+  return out.filter(g => g.e - g.s >= 20).map(g => { const cur = I.isT && I.cur === g.w && g.s <= I.n;
+    const why = cur ? (I.next && I.next.s === g.w.e ? `until ${esc(I.next.t || 'the next event')}` : 'until the end of the work day') : '';
+    return `<div class="tl-gap${cur ? ' cur' : ''}" style="top:${top(g.s)};height:${height(g.e - g.s)}">${cur ? `<span><b>${fmtDur(g.w.e - I.n)}</b> left ${why}</span>` : `<span>${fmtDur(g.e - g.s)} free</span>`}</div>`; }).join('');
+}
