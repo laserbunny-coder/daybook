@@ -18,6 +18,7 @@ import * as blocks from './blocks.js';
 import * as aday from './areaday.js';
 import * as habits from './habits.js';
 import * as daystrip from './daystrip.js';
+daystrip.onChange(() => render());
 import * as took from './took.js';
 import { cleanRule, ruleText, splitOcc, WEEK } from './repeat.js';
 import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fd, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
