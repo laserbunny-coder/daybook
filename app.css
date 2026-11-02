@@ -2537,3 +2537,25 @@ body.took-on #toast.toast{bottom:calc(var(--took-b) + var(--took-h,120px) + 10px
 .ds-usual{width:52px;font-size:12px;color:var(--accent);text-align:right}
 .ds-adj{margin-left:auto;font-size:12px;color:var(--faint)}
 .ds-fit[aria-expanded="true"] .ds-adj{color:var(--accent)}
+/* Week view: a small strip and fit chip on each day */
+.ds-mini .ds-bar{height:20px;border-radius:6px}
+.ds-mini .ds-bar .ds-sw{bottom:3px;height:3px}
+.ds-mini .ds-bar .ds-cur{border-radius:6px}
+.ds-chip{display:flex;flex-wrap:wrap;gap:0 8px;width:100%;text-align:left;font-size:11.5px;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:5px 7px;margin-top:5px}
+.ds-chip b{color:var(--fg);font-weight:500}
+.ds-chip .ok{color:#8DB88A}
+.ds-chip .short{color:var(--warn)}
+.ds-chip:hover{border-color:var(--line2)}
+/* Timeline: free stretches of the work day behind the blocks */
+.tl-gap{position:absolute;left:4px;right:4px;border:1px dashed var(--line);border-radius:8px;display:grid;place-items:center;text-align:center;font-size:11.5px;color:var(--faint);z-index:0;pointer-events:none;padding:4px;overflow:hidden}
+.tl-gap.cur{border:1.5px solid var(--accent);background:var(--accent-soft);color:var(--fg)}
+.tl-gap.cur b{display:block;font:500 20px/1.1 var(--f-display);color:var(--accent)}
+.tl-fit{font-size:11.5px;color:var(--muted);padding:2px 2px 4px}
+/* Day view on a computer: strip across the top, area cards in two columns, Habits beside them */
+.dl.wide{max-width:1240px}
+.dw{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}
+.dw-main{display:flex;flex-direction:column;gap:10px;min-width:0}
+.dw-main .ad-strip{grid-template-columns:repeat(auto-fill,minmax(300px,1fr));align-items:start}
+.dw-side{position:sticky;top:0;min-width:0}
+.dw-side:empty{display:none}
+.dl.wide .dw:has(.dw-side:empty){grid-template-columns:1fr}

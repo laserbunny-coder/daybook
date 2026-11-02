@@ -471,13 +471,17 @@ function dayGaps(d) {
   gaps.forEach((g, i) => { const g0 = gapStart(E, i), ix = new Map(g.map((n, j) => [n, j])); g.sort((x, y) => { const a = gapKey(x, g0), b = gapKey(y, g0); return a[0] - b[0] || a[1] - b[1] || ix.get(x) - ix.get(y); }); });
   return { E, gaps };
 }
-function listHTML(d) {
-  const { E, gaps } = dayGaps(d);
+function listHTML(d, wide = false) {
+  const { gaps } = dayGaps(d);
   const chips = g => g.filter(n => !(n.rs && habits.isHabit(n))).map(n => chipHTML(n, { time: true, min: S.min })).join(''); // habits live in their own card
   const all = eventsOn(d).filter(e => e.allDay).map(evRow).join('');
-  const body = chips(gaps[0]) + E.map((e, i) => evRow(e) + chips(gaps[i + 1])).join('');
+  // Timed events no longer sit in the list (the strip and Timeline show them); tasks keep the same order around them
+  const body = gaps.map(chips).join('');
   const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a task to ${esc(dayShort(d))}"><span aria-hidden="true">+</span>${body ? '' : ' Add a task'}</button>`;
-  return `${S.view === 'day' ? daystrip.html(d) : ''}${habitStrip(d)}${areaStrip(d)}${all}<div class="list${body ? '' : ' empty'}" data-drop="list" data-date="${d}">${body}${adder}</div>`;
+  const list = `<div class="list${body ? '' : ' empty'}" data-drop="list" data-date="${d}">${body}${adder}</div>`;
+  // A computer's Day view uses the width: strip across the top, area cards side by side, Habits in a column of their own
+  if (wide) return `${daystrip.html(d)}<div class="dw"><div class="dw-main">${areaStrip(d)}${all}${list}</div><div class="dw-side">${habitStrip(d)}</div></div>`;
+  return `${S.view === 'day' ? daystrip.html(d) : daystrip.mini(d)}${habitStrip(d)}${areaStrip(d)}${all}${list}`;
 }
 /* Adding a task right on the plan: the + at the end of a day's list, or a tap on an empty time (or the + in the "Any time" row) in Time blocks.
    A small form opens in place with the title ready to type. It goes in the Inbox unless a project is picked. */
@@ -548,7 +552,7 @@ function weekList(days) {
     <button class="dh" data-act="goday" data-d="${d}"><span>${DAYN[pd(d).getDay()]}</span><b>${pd(d).getDate()}</b></button>
     ${listHTML(d)}${S.min ? '' : loadHTML(d)}</section>`).join('')}</div></div>`;
 }
-function dayList(d) { return `<div class="dl">${listHTML(d)}${S.min ? '' : loadHTML(d)}</div>`; }
+function dayList(d) { const wide = !phone(); return `<div class="dl${wide ? ' wide' : ''}">${listHTML(d, wide)}${S.min ? '' : loadHTML(d)}</div>`; }
 addEventListener('popstate', () => { if (qSkip) qSkip = false; else if (qVisit) { qVisit = false; if (S.tab !== 'plan') { S.tab = 'plan'; W = null; render(); } } });
 /* Quiet: the whole app rests in a bare look (titles only, events as thin lines, no bars) and the rest waits past the edges.
    Tap the day's name for the controls. Projects come in from the left edge (from the bottom on a phone), Ask Claude from the right. */
@@ -692,7 +696,9 @@ function habitPill(d) {
 /* A day's "Any time" tasks. In Week view a day with more than two shows the first and "+N more", which opens the whole list for that day. */
 let trayAll = null;
 function trayHTML(d, week) {
-  const rows = [...eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all"${evTint(e)}>${esc(e.t)}</div>`), ...habitPill(d), ...dayItems(d).filter(n => n.s == null && !(n.rs && habits.isHabit(n))).map(n => chipHTML(n, { compact: week }))];
+  // Timeline: the day's fit (open time against goals, or what was worked) leads; anytime tasks live in the List
+  const fit = daystrip.chip(d);
+  const rows = [...(fit ? [fit] : []), ...eventsOn(d).filter(e => e.allDay).map(e => `<div class="ev-all"${evTint(e)}>${esc(e.t)}</div>`), ...habitPill(d)];
   const all = !week || rows.length <= 2 || trayAll === d;
   const more = all ? (week && rows.length > 2 ? `<button class="tmore" data-act="tray-all" data-d="">Show less</button>` : '') : `<button class="tmore" data-act="tray-all" data-d="${d}">+${rows.length - 1} more</button>`;
   const add = S.new?.at === 'tray' && S.new.d === d ? newHTML() : `<button class="tadd" data-act="new-tray" data-d="${d}" aria-label="Add an all-day task to ${esc(dayShort(d))}" title="Add a task for the whole day"><span aria-hidden="true">+</span></button>`;
@@ -704,7 +710,7 @@ function timed(days) {
     <div class="thd"><div class="trow thead"><div class="gut"></div>${days.map(d => `<button class="th${dayCls(d)}" data-act="goday" data-d="${d}" data-day="${d}">${days.length > 1 && isMon(d) ? weekLabel(d) : ''}${DAYN[pd(d).getDay()]} <b>${pd(d).getDate()}</b></button>`).join('')}</div>
     <div class="trow ttray"><div class="gut">Any<br>time</div>${days.map(d => `<div class="tray${dayCls(d)}" data-drop="tray" data-date="${d}"><div class="tri">${trayHTML(d, days.length > 1)}</div></div>`).join('')}</div></div>
     <div class="trow tbody"><div class="gut hrs">${hrs.map(h => `<div class="hl" style="top:${hpx(h - H0)}">${h % 12 || 12}${h < 12 ? 'am' : 'pm'}</div>`).join('')}</div>
-    ${days.map(d => `<div class="col${dayCls(d)}" data-drop="col" data-date="${d}">${blocksHTML(d)}${nowHTML(d)}${S.new?.at === 'col' && S.new.d === d ? newHTML() : ''}</div>`).join('')}</div>
+    ${days.map(d => `<div class="col${dayCls(d)}" data-drop="col" data-date="${d}">${daystrip.gaps(d, m => hpx((m - H0 * 60) / 60), m => hpx(m / 60), [...dayItems(d).filter(n => n.s != null && !isDone(n)), ...sessionsOn(d)])}${blocksHTML(d)}${nowHTML(d)}${S.new?.at === 'col' && S.new.d === d ? newHTML() : ''}</div>`).join('')}</div>
   </div></div>`;
 }
 /* Phone: the projects drawer. It pulls up out of the tab bar over the plan; hold anything in it and drag it onto the day.
@@ -831,7 +837,7 @@ function renderMain() {
   el.innerHTML = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">${title}</span></button>` : ''}${qBack()}<header class="mh">
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg" role="group" aria-label="Range"><button data-act="view" data-v="day" ${P('view', 'day')}>Day</button><button data-act="view" data-v="week" ${P('view', 'week')}>Week</button></div>
-    <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Time blocks</button>${S.games ? `<button data-act="mode" data-v="quest" ${P('mode', 'quest')}>Quest</button><button data-act="mode" data-v="dragon" ${P('mode', 'dragon')}>Dragon</button>` : ''}</div>
+    <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Timeline</button>${S.games ? `<button data-act="mode" data-v="quest" ${P('mode', 'quest')}>Quest</button><button data-act="mode" data-v="dragon" ${P('mode', 'dragon')}>Dragon</button>` : ''}</div>
     <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
     <button class="ib q-only" data-act="qproj" aria-pressed="${qp || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>${qp || S.mode === 'dragon' || S.mode === 'quest' ? '' : nowLine() + needLine()}
@@ -2065,9 +2071,10 @@ function moveDrag(x, y) {
     // Over the time grid the dashed outline stands in for the item, so the floating copy hides
     ind.innerHTML = `<div class="ind-t">${esc(node(D.id).t || 'Untitled')}${asBlk ? ' time' : ''}</div><div class="ind-time">${fmtT(min)} – ${fmtT(min + dur)}</div>`; D.g.classList.add('off');
   } else if (type === 'list') {
-    // Rows are tasks and calendar events; count how many of each come before the drop point
-    const rows = [...t.querySelectorAll(':scope > .item:not(.dragging), :scope > .evr')]; let i = rows.findIndex(it => { const r = it.getBoundingClientRect(); return y < r.top + r.height / 2; }); if (i < 0) i = rows.length;
-    const before = rows.slice(0, i); D.gap = before.filter(r => r.classList.contains('evr')).length; D.idx = before.length - D.gap;
+    // Rows are tasks only; a drop joins the stretch between events of the task right above it
+    const rows = [...t.querySelectorAll(':scope > .item:not(.dragging)')]; let i = rows.findIndex(it => { const r = it.getBoundingClientRect(); return y < r.top + r.height / 2; }); if (i < 0) i = rows.length;
+    const gs = dayGaps(t.dataset.date).gaps, up = rows[i - 1]?.dataset.id;
+    D.gap = up ? Math.max(0, gs.findIndex(g => g.some(x => x.id === up))) : 0; D.idx = gs.slice(0, D.gap).flat().filter(x => x.id !== D.id).length + (up ? gs[D.gap].filter(x => x.id !== D.id).findIndex(x => x.id === up) + 1 : 0);
     if (rows[i]) t.insertBefore(ins, rows[i]); else t.appendChild(ins); t.classList.add('over');
   } else t.classList.add('over');
 }
