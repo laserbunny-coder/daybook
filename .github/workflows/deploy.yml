@@ -35,8 +35,9 @@ jobs:
       - name: Update database
         if: steps.ready.outputs.ok == 'true'
         run: |
-          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
-          supabase db push --password "$SUPABASE_DB_PASSWORD"
+          supabase link --project-ref "$PROJECT_REF"
+          # Newer CLIs want the linked project named outright (--linked, or --remote in the newest); try both
+          supabase db push --linked --password "$SUPABASE_DB_PASSWORD" || supabase db push --remote --password "$SUPABASE_DB_PASSWORD"
       - name: Save server secrets
         if: steps.ready.outputs.ok == 'true'
         env:
