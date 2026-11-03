@@ -35,7 +35,7 @@ export function init(c, userId, onChange) {
   // service can drop a sign-up on its own (the server then forgets it), so sign up again quietly and resave it.
   if (S.on && supported()) {
     if (Notification.permission !== 'granted') { S.on = false; save(); render(); }
-    else signUp().catch(e => console.warn('alerts: renew', e));
+    else signUp(true).catch(e => console.warn('alerts: renew', e));
   }
 }
 export const prefs = () => S.prefs;
@@ -65,12 +65,17 @@ export async function enable() {
 }
 
 /** Signs this device up for Web Push (or reuses its sign-up) and saves it on the server. */
-async function signUp() {
+// fresh: start a new sign-up even if the browser still holds one. A changed notification setting can leave
+// the browser holding a sign-up that Google's push service has already dropped, and nothing tells the page.
+async function signUp(fresh = false) {
   const reg = await navigator.serviceWorker.ready;
   const { data, error } = await client.functions.invoke('alerts', { body: { action: 'key' } });
   if (error || !data?.key) throw error || new Error('no key');
   let sub = await reg.pushManager.getSubscription();
-  if (sub && sub.options?.applicationServerKey && b64(sub.options.applicationServerKey) !== data.key) { await sub.unsubscribe(); sub = null; }
+  if (sub && (fresh || (sub.options?.applicationServerKey && b64(sub.options.applicationServerKey) !== data.key))) {
+    const old = sub.endpoint; await sub.unsubscribe().catch(() => {}); sub = null;
+    await client.from('push_subs').delete().eq('endpoint', old);
+  }
   sub = sub || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: unb64(data.key) });
   const j = sub.toJSON();
   const { error: e2 } = await client.from('push_subs').upsert({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, device: device() });
