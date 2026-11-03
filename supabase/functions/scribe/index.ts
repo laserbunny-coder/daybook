@@ -3,7 +3,10 @@
 // Capture, then Claude rewrites it in the chosen mode (Text message, Email, …).
 // The device proves who it is with a secret made in Inkwell under "Connect
 // Scribe"; only a hash of it is kept (scribe_tokens). Modes are the person's
-// own (scribe_modes), starting from modes.ts.
+// own (scribe_modes), starting from modes.ts. A mode with "Keep in Inkwell"
+// on also files the recording and its words on that day's Inkwell page
+// (keep.ts), after the answer has gone back. The speech service is told the
+// names from Inkwell (worlds, pages, pieces) so they come back spelled right.
 //
 //   GET  …/scribe/modes                     -> { modes }
 //   POST …/scribe  multipart: audio, mode, app, duration (ms)
@@ -11,11 +14,12 @@
 //   POST …/scribe  multipart: action=make-mode, audio, [current = the mode being changed, as JSON]
 //                                           -> { said, mode }  (not saved yet)
 //   POST …/scribe  JSON { action: "redo", original, mode, app } -> { text, mode }
-//   POST …/scribe  JSON { action: "save-mode", mode: { id?, name, prompt, apps, model? } } -> { mode }
+//   POST …/scribe  JSON { action: "save-mode", mode: { id?, name, prompt, apps, model?, keep? } } -> { mode }
 //   POST …/scribe  JSON { action: "delete-mode", id } -> { ok }
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import { admin, cors } from "../_shared/common.ts";
-import { transcribe } from "../inkwell/capture.ts";
+import { hear } from "../inkwell/speech.ts";
+import { keepInInkwell, namesFrom } from "./keep.ts";
 import { cleanApps, deleteMode, type Mode, type Model, MODEL_IDS, modelOf, MODELS, modesOf, saveMode } from "./modes.ts";
 
 const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
@@ -71,6 +75,13 @@ async function ownerOf(req: Request): Promise<string | null> {
   return data?.user_id ?? null;
 }
 
+// Work that carries on after the reply (the platform keeps the function up for it).
+function later(p: Promise<unknown>) {
+  // @ts-ignore: Supabase's edge runtime
+  if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(p);
+  else p.catch(() => {});
+}
+
 const clean = (s: unknown, n: number) => (typeof s === "string" ? s.trim().slice(0, n) : "");
 async function ask(system: string, content: string, schema: { [key: string]: unknown }, model: Model = "opus"): Promise<Record<string, unknown>> {
   const request = {
@@ -101,11 +112,13 @@ async function rewrite(said: string, mode: Mode, app: string): Promise<string> {
 }
 
 // Writes out an uploaded recording; errors come back as a ready reply.
-async function writeOut(form: FormData): Promise<string | Response> {
+type Heard = { said: string; by?: string; audio: File };
+async function writeOut(form: FormData, userId: string): Promise<Heard | Response> {
   const audio = form.get("audio");
   if (!(audio instanceof File) || !audio.size) return reply({ error: "No recording came through." }, 400);
   try {
-    return await transcribe(audio, audio.name || "scribe.m4a", Number(form.get("duration")) || 0, HINT);
+    const heard = await hear(audio, audio.name || "scribe.m4a", { hint: HINT, terms: await namesFrom(userId) });
+    return { said: heard.text, by: heard.by, audio };
   } catch (err) {
     const e = err as Error & { code?: string; status?: number };
     console.error(e);
@@ -131,18 +144,26 @@ Deno.serve(async (req) => {
     const pick = (id: unknown) => modes.find((m) => m.id === id) ?? modes[0];
 
     if (action === "dictate" && form) {
-      const said = await writeOut(form);
-      if (typeof said !== "string") return said;
+      const heard = await writeOut(form, userId);
+      if (heard instanceof Response) return heard;
+      const said = heard.said;
       const mode = pick(form.get("mode"));
       if (!said) return reply({ original: "", text: "", mode: mode.id });
       const app = clean(form.get("app"), 100);
+      let text = said;
+      let warning: string | undefined;
       try {
-        return reply({ original: said, text: await rewrite(said, mode, app), mode: mode.id });
+        text = await rewrite(said, mode, app);
       } catch (err) {
         // The words still come back, so nothing said is lost.
         console.error(err);
-        return reply({ original: said, text: said, mode: mode.id, warning: "Claude couldn't rewrite it this time, so here are your words as said." });
+        warning = "Claude couldn't rewrite it this time, so here are your words as said.";
       }
+      // Filed in Inkwell once the answer is on its way, so typing isn't held up.
+      if (mode.keep) {
+        later(keepInInkwell(userId, heard.audio, { said, text, mode, app, duration: Number(form.get("duration")) || 0, heardBy: heard.by }));
+      }
+      return reply({ original: said, text, mode: mode.id, kept: !!mode.keep, ...(warning ? { warning } : {}) });
     }
 
     if (action === "redo" && body) {
@@ -153,19 +174,20 @@ Deno.serve(async (req) => {
     }
 
     if (action === "make-mode" && form) {
-      const said = await writeOut(form);
-      if (typeof said !== "string") return said;
+      const heard = await writeOut(form, userId);
+      if (heard instanceof Response) return heard;
+      const said = heard.said;
       if (!said) return reply({ error: "Didn't catch anything. Try again a little closer." }, 422);
       // The mode being changed: sent whole (it may be an unsaved draft), else by id.
       let current: Mode | undefined = modes.find((m) => m.id === form.get("mode"));
       try {
         const c = JSON.parse(String(form.get("current") ?? "null"));
-        if (c && typeof c === "object") current = { id: clean(c.id, 40), name: clean(c.name, 40), prompt: clean(c.prompt, 2000), apps: cleanApps(c.apps), model: modelOf(c.model) ?? modes.find((m) => m.id === c.id)?.model ?? "opus" };
+        if (c && typeof c === "object") current = { id: clean(c.id, 40), name: clean(c.name, 40), prompt: clean(c.prompt, 2000), apps: cleanApps(c.apps), model: modelOf(c.model) ?? modes.find((m) => m.id === c.id)?.model ?? "opus", keep: typeof c.keep === "boolean" ? c.keep : !!modes.find((m) => m.id === c.id)?.keep };
       } catch { /* not sent */ }
       const out = await ask(MODE_SYSTEM, current
         ? `The mode now:\nName: ${current.name}\nInstruction: ${current.prompt}\nModel: ${current.model}\nApps: ${current.apps.join(", ") || "none"}\n\nThe change they asked for:\n${said}`
         : `The mode they asked for:\n${said}`, MODE_SCHEMA);
-      return reply({ said, mode: { id: current?.id || null, name: clean(out.name, 40), prompt: clean(out.prompt, 2000), apps: cleanApps(out.apps), model: modelOf(out.model) ?? current?.model ?? "opus" } });
+      return reply({ said, mode: { id: current?.id || null, name: clean(out.name, 40), prompt: clean(out.prompt, 2000), apps: cleanApps(out.apps), model: modelOf(out.model) ?? current?.model ?? "opus", keep: !!current?.keep } });
     }
 
     if (action === "save-mode" && body && typeof body.mode === "object" && body.mode) {
