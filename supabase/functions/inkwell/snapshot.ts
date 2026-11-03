@@ -67,25 +67,53 @@ function readable(html: string): string {
 }
 
 // Video sites say what a video is through oEmbed, which works even when the
-// page itself is a wall of script or a consent screen.
+// page itself is a wall of script or a consent screen. X and TikTok pages are
+// all script to a server too; their own oEmbed gives the post's words and who
+// posted it.
+export const X_POST = /(^|\.)(x\.com|twitter\.com)$/i;
 const OEMBED: [RegExp, string][] = [
   [YOUTUBE, "https://www.youtube.com/oembed?format=json&url="],
   [/(^|\.)vimeo\.com$/i, "https://vimeo.com/api/oembed.json?url="],
+  [X_POST, "https://publish.x.com/oembed?omit_script=1&dnt=1&url="],
+  [/(^|\.)tiktok\.com$/i, "https://www.tiktok.com/oembed?url="],
 ];
-type Video = { title: string; author: string; site: string; thumbnail: string };
+type Video = { title: string; author: string; site: string; thumbnail: string; words: string };
+
+// The words of a post on X, from the blockquote its oEmbed sends: the first
+// paragraph, with the pic.twitter.com and t.co links that stand for its video
+// or pictures taken off.
+export function postWords(html: string): string {
+  const p = html.match(/<p[^>]*>([\s\S]*?)<\/p>/i)?.[1] ?? "";
+  return decode(p.replace(/<br\s*\/?>/gi, " ").replace(/<a[^>]*>\s*(pic\.twitter\.com\/\S+|https?:\/\/t\.co\/\S+)\s*<\/a>/gi, " ").replace(/<[^>]+>/g, ""));
+}
+
+// What an oEmbed answer says, made the same shape for every site.
+export function readOembed(o: Record<string, unknown>, at: URL): Video {
+  const author = decode(String(o.author_name ?? ""));
+  let title = decode(String(o.title ?? ""));
+  let words = "";
+  let site = String(o.provider_name ?? "");
+  if (X_POST.test(at.hostname)) {
+    site = "X";
+    words = postWords(String(o.html ?? ""));
+    const short = words.length > 90 ? `${words.slice(0, 90).replace(/\s+\S*$/, "")}…` : words;
+    title = short ? `${author || "A post"} on X: “${short}”` : author ? `A post by ${author} on X` : "";
+  }
+  return { title, author, site, thumbnail: String(o.thumbnail_url ?? ""), words };
+}
+
 export async function videoInfo(url: URL): Promise<Video | null> {
   const found = OEMBED.find(([re]) => re.test(url.hostname));
   if (!found) return null;
   try {
     const got = await fetchLimited(found[1] + encodeURIComponent(url.href), 256 * 1024, "application/json");
     if (!got) return null;
-    const o = JSON.parse(new TextDecoder().decode(got.bytes));
-    return { title: decode(String(o.title ?? "")), author: decode(String(o.author_name ?? "")), site: String(o.provider_name ?? ""), thumbnail: String(o.thumbnail_url ?? "") };
+    return readOembed(JSON.parse(new TextDecoder().decode(got.bytes)), url);
   } catch { return null; }
 }
 
 // A consent screen, sign-in wall or bot check isn't the page they saved.
-export const walled = (title: string, at: URL) => /^consent\.|^accounts\./i.test(at.hostname) || /^(before you continue|sign in|log in|just a moment)/i.test(title);
+export const walled = (title: string, at: URL) => /^consent\.|^accounts\./i.test(at.hostname) || /^(before you continue|sign in|log in|just a moment|javascript is not available)/i.test(title);
 
 const newId = (prefix: string) => {
   const t = Date.now().toString(36).padStart(9, "0");
@@ -143,7 +171,9 @@ export async function snapshot(client: Anthropic, userId: string, body: { url?: 
     } catch (err) { console.error(err); }
   }
   // A video page's text is mostly script; its title, channel and description say more.
-  const about = [video?.author ? `A video by ${video.author} on ${video.site || site}.` : "", description].filter(Boolean).join(" ");
+  const about = video?.words
+    ? [`A post by ${video.author || "someone"} on ${video.site || site}: “${video.words}”`, description].filter(Boolean).join(" ")
+    : [video?.author ? `A video by ${video.author} on ${video.site || site}.` : "", description].filter(Boolean).join(" ");
   let summary = "";
   try { summary = await summarise(client, { url: url.href, title, description: about, text: video ? "" : readable(html) }); } catch (err) { console.error(err); }
   // Even a page that couldn't be read gets a tag, from what they wrote and the address.
