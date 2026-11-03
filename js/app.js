@@ -1415,7 +1415,13 @@ function noteWhen(iso) {
 const noteFrom = n => `${esc(n.author || 'Claude')}: ${esc(n.title)}`;
 // A note that points into Inkwell (say the 9 pm day review) says so, instead of "Talk about this"
 const inInkwell = u => /^https:\/\/laserbunny-coder\.github\.io\/inkwell\//.test(u || '');
-const noteTalk = n => { const u = safeLink(n.link); return u ? `<a class="n-talk" href="${esc(u)}" target="_blank" rel="noopener">${inInkwell(u) ? ICON.link : ICON.ask}<span>${inInkwell(u) ? 'Open in Inkwell' : 'Talk about this'}</span></a>` : ''; };
+// On Android, a link tapped inside the installed Daybook opens in an overlay browser. For Inkwell links,
+// hand the address to Android instead (an intent link) so the installed Inkwell app opens; if it isn't
+// installed, the browser opens the same address.
+const android = /Android/.test(navigator.userAgent);
+const inkHref = u => !android || !inInkwell(u) ? { href: u, target: ' target="_blank" rel="noopener"' }
+  : { href: `intent://${u.replace(/^https:\/\//, '')}#Intent;scheme=https;S.browser_fallback_url=${encodeURIComponent(u)};end`, target: '' };
+const noteTalk = n => { const u = safeLink(n.link); if (!u) return ''; const h = inkHref(u); return `<a class="n-talk" href="${esc(h.href)}"${h.target}>${inInkwell(u) ? ICON.link : ICON.ask}<span>${inInkwell(u) ? 'Open in Inkwell' : 'Talk about this'}</span></a>`; };
 function noteTasks(n) {
   if (!n.task_ids?.length) return '';
   return `<div class="n-tasks">${n.task_ids.map(id => {
