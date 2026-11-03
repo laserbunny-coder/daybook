@@ -11,6 +11,9 @@
 //   GET  …/scribe/modes                     -> { modes }
 //   POST …/scribe  multipart: audio, mode, app, duration (ms)
 //                                           -> { original, text, mode }
+//   POST …/scribe  multipart: action=keep, audio, duration (ms)
+//                                           -> { kept, mode, name, title }  (the Record tile: nothing typed,
+//                                              written up the way Inkwell's Capture would and filed there)
 //   POST …/scribe  multipart: action=make-mode, audio, [current = the mode being changed, as JSON]
 //                                           -> { said, mode, added? }  (not saved yet; `added` is
 //                                              the part tacked on the end of the current instruction)
@@ -21,6 +24,7 @@ import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import { admin, cors } from "../_shared/common.ts";
 import { hear } from "../inkwell/speech.ts";
 import { keepInInkwell, namesFrom } from "./keep.ts";
+import { pick as pickMode, write } from "../inkwell/voice.ts";
 import { cleanApps, deleteMode, type Mode, type Model, MODEL_IDS, modelOf, MODELS, modesOf, PROMPT_MAX, saveMode } from "./modes.ts";
 
 const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
@@ -201,6 +205,27 @@ Deno.serve(async (req) => {
         later(keepInInkwell(userId, heard.audio, { said, text, mode, app, duration: Number(form.get("duration")) || 0, heardBy: heard.by }));
       }
       return reply({ original: said, text, mode: mode.id, kept: !!mode.keep, ...(warning ? { warning } : {}) });
+    }
+
+    if (action === "keep" && form) {
+      const heard = await writeOut(form, userId);
+      if (heard instanceof Response) return heard;
+      const said = heard.said;
+      if (!said) return reply({ kept: false, error: "Didn't catch any words in that one." }, 422);
+      // As Inkwell's Capture does: Claude picks the mode, then writes it up with a title.
+      const mode = await pickMode(client, said, modes, "day");
+      let w: Awaited<ReturnType<typeof write>> | null = null;
+      try {
+        w = await write(client, said, mode, { place: "day" }, false);
+      } catch (err) {
+        console.error(err); // kept word for word; Inkwell can write it up again
+      }
+      const text = (w?.blocks ?? []).map((b) => b.text).join("\n\n");
+      await keepInInkwell(userId, heard.audio, {
+        said, text, mode, app: "", duration: Number(form.get("duration")) || 0, heardBy: heard.by,
+        blocks: w?.blocks, notes: w?.notes, title: w?.title,
+      }, new Date(), true);
+      return reply({ kept: true, mode: mode.id, name: mode.name, title: w?.title ?? "" });
     }
 
     if (action === "redo" && body) {
