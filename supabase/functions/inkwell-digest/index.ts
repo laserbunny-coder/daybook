@@ -6,7 +6,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import { admin, json } from "../_shared/common.ts";
 import {
-  addDays, dayStart, localDate, mondayNote, mondayOf, MODEL, monthEnd, monthPrompt, monthTitle, MONTH_SYSTEM, periodsDue, type Row, SCHEMA, tidy,
+  addDays, dayStart, localDate, mondayNote, mondayOf, MODEL, monthEnd, monthLetter, monthPrompt, monthTitle, MONTH_SYSTEM, periodsDue, type Row, SCHEMA, tidy,
   WEEK_SCHEMA, weekPrompt, weekTitle, WEEK_SYSTEM,
 } from "./digest.ts";
 import { makeTidy } from "../_shared/tidyrun.ts";
@@ -113,9 +113,22 @@ async function forUser(sb: Sb, userId: string, tz: string, budget: { left: numbe
     });
     exists.add(id);
     made.push(id);
+    // A new month summed up: a note in Daybook (it can buzz the phone), only
+    // for the latest finished month, so catching up never sends a pile.
+    if (month === due.months[due.months.length - 1]) await monthNote(sb, userId, month, out.summary, out.threads);
   }
   if (!behind) made.push(...await weekly(sb, userId, tz, today, budget, force));
   return made;
+}
+
+/** The "Your month" note in Daybook, once per month (deduped on its link). */
+async function monthNote(sb: Sb, userId: string, month: string, summary: string, threads: { title: string }[]) {
+  const link = `${INKWELL}?summaries=${month}`;
+  const { data: sent } = await sb.from("notes").select("id").eq("user_id", userId).eq("link", link).limit(1);
+  if (sent?.length) return;
+  const note = monthLetter(month, summary, threads);
+  const { error } = await sb.from("notes").insert({ user_id: userId, author: "Inkwell", title: note.title, body: note.body, link });
+  if (error) console.error("month note", userId, error);
 }
 
 /**

@@ -225,3 +225,11 @@ export function mondayNote(
   if (offers.length) parts.push(`**You said you'd…** Tap + to make any of these a task in your Inbox.`);
   return { title: `Your week, ${week.title.replace(/^Week of /, "").replace(/, \d{4}$/, "")}`, body: parts.filter(Boolean).join("\n\n"), offers };
 }
+
+/** The "Your month" note for Daybook: the month's first paragraph and what it was about. */
+export function monthLetter(month: string, summary: string, threads: { title: string }[]) {
+  const gist = String(summary || "").split(/\n\s*\n/)[0].trim();
+  const about = (threads ?? []).map((t) => t.title).filter(Boolean).slice(0, 5);
+  const body = [gist, about.length ? `**What it was about:** ${about.join(" · ")}` : "", "Open Inkwell to read the whole month."].filter(Boolean).join("\n\n");
+  return { title: `Your month, ${monthTitle(month).replace(/ \d{4}$/, "")}`, body };
+}

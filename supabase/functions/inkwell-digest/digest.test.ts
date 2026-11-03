@@ -36,3 +36,8 @@ assert.match(note.body, /^You planned Christmas\./);
 assert.match(note.body, /3 tidy-ups/);
 assert.doesNotMatch(d.mondayNote(week, new Map(), 0, "", "UTC").body, /said you'd|tidy/);
 console.log("ok");
+const ml = d.monthLetter("2026-10", "You spent October on the Ninja Bunch.\n\nLater, gifts.", [{ title: "Ninja Bunch reels" }, { title: "Christmas" }]);
+assert.equal(ml.title, "Your month, October");
+assert.match(ml.body, /^You spent October on the Ninja Bunch\.\n\n\*\*What it was about:\*\* Ninja Bunch reels · Christmas/);
+assert.doesNotMatch(ml.body, /gifts/);
+console.log("month letter ok");
