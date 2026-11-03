@@ -1,7 +1,7 @@
 /* The day strip at the top of a day's list (Day view): the whole day as one bar.
    Calendar events are hatched (locked-in time), time you recorded shows as thin marks in its colour, and on today
-   the stretch you're in is outlined with the time left until the next event. Time already gone is squeezed to the
-   left so what's ahead gets the room. Under it, one line: open time left in the work day against the area goals
+   the stretch you're in is outlined with the time left until the next event. Time already gone is dimmed. The scale is
+   fixed (6am to midnight) so it never shifts through the day. Under it, one line: open time left in the work day against the area goals
    still to do. Tapping that line sets the work hours (kept with the account, so every device agrees). */
 import * as store from './store.js';
 import * as aday from './areaday.js';
@@ -126,20 +126,22 @@ export function goalsLeft(d) {
   return aday.cardsOn(d).filter(c => c.target > 0 && !aday.doneOn(c.a, d)).reduce((t, c) => t + Math.max(0, c.target - c.min), 0);
 }
 
+const span = (E, ST = []) => [Math.max(0, Math.floor(Math.min(360, ...E.map(e => e.s), ...ST.map(x => x.s)) / 60) * 60), 1440];
+
 export function html(d) {
   const E = timedOn(d).filter(e => e.s + (e.m || 0) > 0 && e.s < 1440), T = today(), isT = d === T, past = d < T;
   const ST = stretches(d), n = isT ? nowMin() : null, H = hoursOn(d), off = !H, h = H || { from: 720, to: 720 };
-  let a = Math.min(H ? h.from : 480, ...E.map(e => e.s), ...ST.map(x => x.s)), z = Math.max(H ? h.to : 1080, ...E.map(e => e.s + (e.m || 0)));
-  a = Math.max(0, Math.floor(a / 60) * 60); z = Math.min(1440, Math.ceil(z / 60) * 60);
-  // Today: what's gone takes the first 14%, the rest of the day the other 86%
-  const squeeze = isT && n > a + 30 && n < z - 30, K = 14;
-  const P = m => { m = Math.max(a, Math.min(z, m)); return squeeze ? (m <= n ? (m - a) / (n - a) * K : K + (m - n) / (z - n) * (100 - K)) : (m - a) / (z - a) * 100; };
+  // A steady scale: always 6am to midnight (earlier only if something starts before 6am), never rescaled through the day
+  const [a, z] = span(E, ST);
+  const P = m => (Math.max(a, Math.min(z, m)) - a) / (z - a) * 100;
   const box = (cls, s, e, inner = '', extra = '') => `<div class="${cls}" style="left:${P(s).toFixed(2)}%;width:${(P(e) - P(s)).toFixed(2)}%"${extra}>${inner}</div>`;
   const from = isT && H ? Math.min(h.from, Math.max(a, n)) : h.from, wins = H ? windows(E, from, h.to) : [];
   const cur = isT && wins.find(w => w.s <= n && n < w.e), next = isT ? E.find(e => e.s > n) : null, inEv = isT && E.find(e => e.s <= n && n < e.s + (e.m || 0));
   const parts = [];
   if (off) parts.push(box('ds-off', a, z)); else { if (h.from > a) parts.push(box('ds-off', a, h.from)); if (h.to < z) parts.push(box('ds-off', h.to, z)); }
-  if (squeeze) parts.push(box('ds-gone', a, n));
+  if (isT && n > a) parts.push(box('ds-gone', a, Math.min(n, z)));
+  // Faint hour lines every 3 hours so the steady scale reads at a glance (noon a bit stronger)
+  for (let m = Math.ceil((a + 1) / 180) * 180; m < z; m += 180) parts.push(`<i class="ds-hr${m === 720 ? ' noon' : ''}" style="left:${P(m).toFixed(2)}%"></i>`);
   for (const w of wins) {
     const s = isT ? Math.max(w.s, n) : w.s; if (w.e <= s || (past)) continue;
     if (w === cur) { const left = w.e - n, why = next && next.s === w.e ? `until ${esc(next.t || 'the next event')}` : 'until the end of the work day';
@@ -178,7 +180,7 @@ export function html(d) {
     const left = cur ? cur.e - n : 0, why = cur ? (next && next.s === cur.e ? `until ${esc(next.t || 'the next event')}` : 'left in the work day') : '';
     // Outside work hours: in an event, say until when; otherwise the free time until the next event
     const extra = cur ? ` \u00b7 <b>${fmtDur(left)}</b> ${why}` : inEv ? ` \u00b7 ${esc(inEv.t || 'Busy')} until ${fmtT(inEv.s + (inEv.m || 0))}` : next ? ` \u00b7 <b>${fmtDur(next.s - n)}</b> free until ${esc(next.t || 'the next event')}` : '';
-    tick = `<span class="ds-tnow" style="left:${P(n).toFixed(2)}%">${fmtT(n)}${extra}</span>`;
+    tick = `<span class="ds-tnow" style="left:${P(n).toFixed(2)}%;transform:translateX(-${P(n).toFixed(2)}%)">${fmtT(n)}${extra}</span>`;
   } else tick = `<span style="left:0">${fmtT(a)}</span>`;
   const ticks = tick;
   // Open time left against the area goals still to do
@@ -225,8 +227,7 @@ export function info(d) {
 }
 /** Week view: the strip without labels, and the fit line as a small chip that opens the day (where it can be adjusted). */
 export function mini(d) {
-  const I = info(d), h = I.H || { from: 720, to: 720 }, a = Math.min(I.H ? h.from : 480, ...I.E.map(e => e.s)), z = Math.max(I.H ? h.to : 1080, ...I.E.map(e => e.s + (e.m || 0)));
-  const A = Math.max(0, Math.floor(a / 60) * 60), Z = Math.min(1440, Math.ceil(z / 60) * 60), P = m => ((Math.max(A, Math.min(Z, m)) - A) / (Z - A) * 100).toFixed(2);
+  const I = info(d), h = I.H || { from: 720, to: 720 }, [A, Z] = span(I.E, stretches(d)), P = m => ((Math.max(A, Math.min(Z, m)) - A) / (Z - A) * 100).toFixed(2);
   const box = (c, s, e) => `<div class="${c}" style="left:${P(s)}%;width:${(P(e) - P(s)).toFixed(2)}%"></div>`;
   let p = I.off ? box('ds-off', A, Z) : (h.from > A ? box('ds-off', A, h.from) : '') + (h.to < Z ? box('ds-off', h.to, Z) : '');
   if (I.isT) p += box('ds-gone', A, I.n);
