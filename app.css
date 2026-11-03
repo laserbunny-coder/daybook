@@ -2635,3 +2635,5 @@ body.took-on #toast.toast{bottom:calc(var(--took-b) + var(--took-h,120px) + 10px
 .ad-tasks+.ad-pick{border-top:0}
 .wcol .ad-tt{font-size:12px;padding:5px 0}
 .wcol .ad-task .rec-b{display:none}
+.ad-task[data-drag]{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.ghost.ad-task{background:var(--solid);border:1px solid var(--edge);border-radius:12px;padding:0 8px}

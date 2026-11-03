@@ -264,6 +264,8 @@ function splitMeter(lg, target) {
 const habitStrip = d => { const h = habits.cardHTML(d, !!S.hbOpen?.[d], S.view === 'week' && d !== today()); return h ? `<div class="ad-strip hb-strip">${h}</div>` : ''; };
 /** The area an item on the plan belongs to (its top-level project's or its own), if that area has a card on day d. */
 const cardAreaOf = (n, ids) => { if (isBlock(n) || (n.rs && habits.isHabit(n))) return null; const r = rootOf(n.rs ? store.get(n.rs) || n : n); const a = r.k === 'area' ? r.id : r.ar; return a && ids.has(a) ? a : null; };
+/** An area card's tasks for the day: open ones in your order (hold one to move it), checked-off ones at the bottom by when they were done. */
+const adOrder = L => L.filter(n => !isDone(n)).sort((a, b) => (a.ds ?? a.o) - (b.ds ?? b.o)).concat(L.filter(isDone).sort((a, b) => (a.s ?? 0) - (b.s ?? 0)));
 /** The last thing in an area you stopped today and haven't finished, so the area card can start it again in one tap. */
 function pausedIn(a) {
   const t0 = pd(today()).getTime(); let best = null, at = 0;
@@ -278,12 +280,12 @@ function areaStrip(d) {
   const cards = aday.cardsOn(d); if (!cards.length) return '';
   const isT = d === today(), L = aday.loggedOn(d), ids = new Set(cards.map(c => c.a.id)), mine = new Map();
   for (const g of dayGaps(d).gaps) for (const n of g) { const a = cardAreaOf(n, ids); if (a) (mine.get(a) || mine.set(a, []).get(a)).push(n); }
-  const task = n => `<div class="ad-task${isDone(n) ? ' done' : ''}" style="--pc:${colorOf(n)}">${ckHTML(n)}<button class="ad-tt" data-act="open" data-id="${n.id}"><span>${esc(n.t || 'Untitled')}</span>${n.s != null ? `<small>${fmtT(n.s)}</small>` : ''}</button>${isT && !isDone(n) && !n.r ? `<button class="rec-b${track.isRec(n) ? ' on' : ''}" data-act="rec" data-id="${n.id}" aria-label="${track.isRec(n) ? 'Stop' : 'Start'} ${esc(n.t)}">${track.isRec(n) ? ICON.stop : ICON.play}</button>` : ''}</div>`;
+  const task = n => `<div class="ad-task${isDone(n) ? ' done' : ''}"${isDone(n) || n.rs ? '' : ` data-drag data-id="${n.id}"`} style="--pc:${colorOf(n)}">${ckHTML(n)}<button class="ad-tt" data-act="open" data-id="${n.id}" data-dragok><span>${esc(n.t || 'Untitled')}</span>${n.s != null ? `<small>${fmtT(n.s)}</small>` : ''}</button>${isT && !isDone(n) && !n.r ? `<button class="rec-b${track.isRec(n) ? ' on' : ''}" data-act="rec" data-id="${n.id}" aria-label="${track.isRec(n) ? 'Stop' : 'Start'} ${esc(n.t)}">${track.isRec(n) ? ICON.stop : ICON.play}</button>` : ''}</div>`;
   const card = c => { const a = c.a, on = track.isRec(a), lv = aday.live(a.id) && isT;
     const bar = splitMeter(L[a.id], c.target) || (c.target ? '<span class="ad-meter"></span>' : '');
     const dn = aday.doneOn(a, d), own = mine.get(a.id) || [], pz0 = isT && !dn && !lv && S.view === 'day' ? pausedIn(a) : null, pz = pz0 && !own.includes(pz0.n) ? pz0 : null;
     const pick = pz ? `<div class="ad-pick"><button class="ad-pt" data-act="open" data-id="${pz.n.id}"><span>${esc(pz.n.t || 'Untitled')}</span><small>paused ${fmtT(new Date(pz.at).getHours() * 60 + new Date(pz.at).getMinutes())}</small></button><button class="rec-b" data-act="rec" data-id="${pz.n.id}" aria-label="Start ${esc(pz.n.t)} again" title="Pick up where you left off">${ICON.play}</button></div>` : '';
-    return `<div class="ad-card ad-area${lv ? ' live' : ''}${c.target && c.min >= c.target ? ' met' : ''}${dn ? ' done' : ''}" style="--pc:${colorOf(a)}"><div class="ad-top"><button class="ck${dn ? ' on' : ''}" data-act="ad-done" data-id="${a.id}" data-d="${d}" aria-pressed="${dn}" aria-label="${dn ? 'Not done with' : 'Done with'} ${esc(a.t)} for the day" title="${dn ? 'Not done for the day' : 'Done for the day'}"></button><button class="ad-main" data-act="open" data-id="day:${a.id}:${d}"><span class="ad-t">${esc(a.t || 'Untitled area')}</span><span class="ad-s">${lv ? '<span class="ad-dot"></span>' : ''}<b>${fmtDur(c.min)}</b>${c.target ? ` of ${fmtDur(c.target)}` : ' logged'}${c.target && c.min - c.target >= 1 ? ` · <span class="ad-over">${fmtDur(c.min - c.target)} over</span>` : a.tp ? ` · ${a.tp}` : ''}</span></button>${isT ? `<button class="rec-b${on ? ' on' : ''}" data-act="rec" data-id="${a.id}" aria-label="${on ? 'Stop' : 'Start'} ${esc(a.t)} time" title="${on ? 'Stop' : `Start ${esc(a.t)} time`}">${on ? ICON.stop : ICON.play}</button>` : ''}</div>${bar ? `<button class="ad-bar" data-act="open" data-id="day:${a.id}:${d}" tabindex="-1" aria-hidden="true">${bar}</button>` : ''}${own.length ? `<div class="ad-tasks">${own.map(task).join('')}</div>` : ''}${pick}</div>`; };
+    return `<div class="ad-card ad-area${lv ? ' live' : ''}${c.target && c.min >= c.target ? ' met' : ''}${dn ? ' done' : ''}" style="--pc:${colorOf(a)}"><div class="ad-top"><button class="ck${dn ? ' on' : ''}" data-act="ad-done" data-id="${a.id}" data-d="${d}" aria-pressed="${dn}" aria-label="${dn ? 'Not done with' : 'Done with'} ${esc(a.t)} for the day" title="${dn ? 'Not done for the day' : 'Done for the day'}"></button><button class="ad-main" data-act="open" data-id="day:${a.id}:${d}"><span class="ad-t">${esc(a.t || 'Untitled area')}</span><span class="ad-s">${lv ? '<span class="ad-dot"></span>' : ''}<b>${fmtDur(c.min)}</b>${c.target ? ` of ${fmtDur(c.target)}` : ' logged'}${c.target && c.min - c.target >= 1 ? ` · <span class="ad-over">${fmtDur(c.min - c.target)} over</span>` : a.tp ? ` · ${a.tp}` : ''}</span></button>${isT ? `<button class="rec-b${on ? ' on' : ''}" data-act="rec" data-id="${a.id}" aria-label="${on ? 'Stop' : 'Start'} ${esc(a.t)} time" title="${on ? 'Stop' : `Start ${esc(a.t)} time`}">${on ? ICON.stop : ICON.play}</button>` : ''}</div>${bar ? `<button class="ad-bar" data-act="open" data-id="day:${a.id}:${d}" tabindex="-1" aria-hidden="true">${bar}</button>` : ''}${own.length ? `<div class="ad-tasks" data-drop="adt" data-date="${d}">${adOrder(own).map(task).join('')}</div>` : ''}${pick}</div>`; };
   return `<div class="ad-strip">${cards.map(card).join('')}</div>`;
 }
 /** Whether a block for this item's area or project is on right now (then its tasks can record on their own). */
@@ -2085,6 +2087,7 @@ function moveDrag(x, y) {
   if (!t) { const g = gridEdge(x, y); if (g) t = document.elementFromPoint(g.x, g.y)?.closest('[data-drop="col"], [data-drop="tray"]'); }
   // The nearest list that holds this item's siblings takes it at a new place among them
   const asBlk = n.k === 'area' || (D.list && isProj(n) && !isBlock(n));
+  if (t?.dataset.drop === 'adt' && t.querySelector(`[data-drag][data-id="${CSS.escape(n.id)}"]`)) return markAdt(t, n, y); // a new place among an area card's tasks
   if (!D.fromDr && n.k !== 'area') for (let s = t; s && (s.dataset.drop === 'sib' || s.dataset.drop === 'area'); s = s.parentElement.closest('[data-drop]')) if (holds(s, n)) return markAmong(s, n, y);
   while (t && t.dataset.drop === 'sib') t = t.parentElement.closest('[data-drop]');
   if (t && D.list && t.closest('.side, .board, .dt, .drawer')) t = null; // somewhere else among the projects: nothing to do there
@@ -2105,6 +2108,20 @@ function moveDrag(x, y) {
   } else t.classList.add('over');
 }
 // Show a line where the item would land among its siblings
+function markAdt(t, n, y) {
+  const rows = [...t.querySelectorAll('[data-drag]')].filter(el => el.dataset.id !== n.id), i = rows.findIndex(el => { const r = el.getBoundingClientRect(); return y < r.top + r.height / 2; });
+  D.t = t; ins.style.setProperty('--dep', 0);
+  if (!rows.length) { D.at = {}; return; }
+  if (i >= 0) { D.at = { before: rows[i].dataset.id }; rows[i].before(ins); } else { D.at = { after: rows[rows.length - 1].dataset.id }; rows[rows.length - 1].after(ins); }
+}
+/* Dropped among an area card's tasks: they swap their day-order numbers, so the rest of the day keeps its order. */
+function placeAdt(n, t, at) {
+  const ids = [...t.querySelectorAll('[data-drag]')].map(el => el.dataset.id).filter(id => id !== n.id), i = at.before ? ids.indexOf(at.before) : at.after ? ids.indexOf(at.after) + 1 : -1;
+  ids.splice(i < 0 ? ids.length : i, 0, n.id);
+  const L = ids.map(node).filter(Boolean), keys = L.map(x => x.ds ?? x.o ?? 0).sort((a, b) => a - b);
+  const ups = L.map((x, j) => [x.id, { ds: keys[j] + j * 1e-3 }]).filter(([id, p]) => node(id).ds !== p.ds);
+  if (ups.length) store.updateMany(ups); else render();
+}
 function markAmong(t, n, y) {
   const key = keyOf(t), rows = [...t.querySelectorAll('[data-drag]')].filter(el => el.closest('[data-drop]') === t && el.dataset.id !== n.id && !el.classList.contains('dr-sess') && node(el.dataset.id) && groupOf(node(el.dataset.id)) === key);
   const blk = el => el.matches('.proj-h') ? el.parentElement : el, mid = el => { const r = blk(el).getBoundingClientRect(); return r.top + Math.min(r.height, 60) / 2; };
@@ -2134,6 +2151,7 @@ function endDrag() {
   }
   if (isBlock(n) && !onPlan) { store.remove(n.id); toast(`Took ${short(blockTitle(n))} time off the plan`, urActs()); return; }
   if (n.r && ['col', 'tray', 'list'].includes(d.t.dataset.drop)) { toast(`${short(n.t)} is already on your plan, ${lower(ruleText(n.r, n.d))}`); return render(); }
+  if (d.t.dataset.drop === 'adt') return d.at ? placeAdt(n, d.t, d.at) : render();
   if (d.at) return placeAmong(n, d.t, d.at, d.list ? {} : { d: null, s: null, a: null }); // dragged back here from the plan, it comes off the plan
   const type = d.t.dataset.drop, date = d.t.dataset.date || null;
   if (type === 'col') store.update(n.id, { d: date, s: d.min, m: n.m || 60 });
