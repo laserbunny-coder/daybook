@@ -262,6 +262,8 @@ function splitMeter(lg, target) {
 }
 // The Habits card, above the area cards (js/habits.js draws it)
 const habitStrip = d => { const h = habits.cardHTML(d, !!S.hbOpen?.[d], S.view === 'week' && d !== today()); return h ? `<div class="ad-strip hb-strip">${h}</div>` : ''; };
+/** The area an item on the plan belongs to (its top-level project's or its own), if that area has a card on day d. */
+const cardAreaOf = (n, ids) => { if (isBlock(n) || (n.rs && habits.isHabit(n))) return null; const r = rootOf(n.rs ? store.get(n.rs) || n : n); const a = r.k === 'area' ? r.id : r.ar; return a && ids.has(a) ? a : null; };
 /** The last thing in an area you stopped today and haven't finished, so the area card can start it again in one tap. */
 function pausedIn(a) {
   const t0 = pd(today()).getTime(); let best = null, at = 0;
@@ -274,12 +276,14 @@ function pausedIn(a) {
 // A day's area cards at the top of its list: target, time logged so far (fills sideways), and the area's own timer
 function areaStrip(d) {
   const cards = aday.cardsOn(d); if (!cards.length) return '';
-  const isT = d === today(), L = aday.loggedOn(d);
+  const isT = d === today(), L = aday.loggedOn(d), ids = new Set(cards.map(c => c.a.id)), mine = new Map();
+  for (const g of dayGaps(d).gaps) for (const n of g) { const a = cardAreaOf(n, ids); if (a) (mine.get(a) || mine.set(a, []).get(a)).push(n); }
+  const task = n => `<div class="ad-task${isDone(n) ? ' done' : ''}" style="--pc:${colorOf(n)}">${ckHTML(n)}<button class="ad-tt" data-act="open" data-id="${n.id}"><span>${esc(n.t || 'Untitled')}</span>${n.s != null ? `<small>${fmtT(n.s)}</small>` : ''}</button>${isT && !isDone(n) && !n.r ? `<button class="rec-b${track.isRec(n) ? ' on' : ''}" data-act="rec" data-id="${n.id}" aria-label="${track.isRec(n) ? 'Stop' : 'Start'} ${esc(n.t)}">${track.isRec(n) ? ICON.stop : ICON.play}</button>` : ''}</div>`;
   const card = c => { const a = c.a, on = track.isRec(a), lv = aday.live(a.id) && isT;
     const bar = splitMeter(L[a.id], c.target) || (c.target ? '<span class="ad-meter"></span>' : '');
-    const dn = aday.doneOn(a, d), pz = isT && !dn && !lv && S.view === 'day' ? pausedIn(a) : null;
+    const dn = aday.doneOn(a, d), own = mine.get(a.id) || [], pz0 = isT && !dn && !lv && S.view === 'day' ? pausedIn(a) : null, pz = pz0 && !own.includes(pz0.n) ? pz0 : null;
     const pick = pz ? `<div class="ad-pick"><button class="ad-pt" data-act="open" data-id="${pz.n.id}"><span>${esc(pz.n.t || 'Untitled')}</span><small>paused ${fmtT(new Date(pz.at).getHours() * 60 + new Date(pz.at).getMinutes())}</small></button><button class="rec-b" data-act="rec" data-id="${pz.n.id}" aria-label="Start ${esc(pz.n.t)} again" title="Pick up where you left off">${ICON.play}</button></div>` : '';
-    return `<div class="ad-card ad-area${lv ? ' live' : ''}${c.target && c.min >= c.target ? ' met' : ''}${dn ? ' done' : ''}" style="--pc:${colorOf(a)}"><div class="ad-top"><button class="ck${dn ? ' on' : ''}" data-act="ad-done" data-id="${a.id}" data-d="${d}" aria-pressed="${dn}" aria-label="${dn ? 'Not done with' : 'Done with'} ${esc(a.t)} for the day" title="${dn ? 'Not done for the day' : 'Done for the day'}"></button><button class="ad-main" data-act="open" data-id="day:${a.id}:${d}"><span class="ad-t">${esc(a.t || 'Untitled area')}</span><span class="ad-s">${lv ? '<span class="ad-dot"></span>' : ''}<b>${fmtDur(c.min)}</b>${c.target ? ` of ${fmtDur(c.target)}` : ' logged'}${c.target && c.min - c.target >= 1 ? ` · <span class="ad-over">${fmtDur(c.min - c.target)} over</span>` : a.tp ? ` · ${a.tp}` : ''}</span></button>${isT ? `<button class="rec-b${on ? ' on' : ''}" data-act="rec" data-id="${a.id}" aria-label="${on ? 'Stop' : 'Start'} ${esc(a.t)} time" title="${on ? 'Stop' : `Start ${esc(a.t)} time`}">${on ? ICON.stop : ICON.play}</button>` : ''}</div>${bar ? `<button class="ad-bar" data-act="open" data-id="day:${a.id}:${d}" tabindex="-1" aria-hidden="true">${bar}</button>` : ''}${pick}</div>`; };
+    return `<div class="ad-card ad-area${lv ? ' live' : ''}${c.target && c.min >= c.target ? ' met' : ''}${dn ? ' done' : ''}" style="--pc:${colorOf(a)}"><div class="ad-top"><button class="ck${dn ? ' on' : ''}" data-act="ad-done" data-id="${a.id}" data-d="${d}" aria-pressed="${dn}" aria-label="${dn ? 'Not done with' : 'Done with'} ${esc(a.t)} for the day" title="${dn ? 'Not done for the day' : 'Done for the day'}"></button><button class="ad-main" data-act="open" data-id="day:${a.id}:${d}"><span class="ad-t">${esc(a.t || 'Untitled area')}</span><span class="ad-s">${lv ? '<span class="ad-dot"></span>' : ''}<b>${fmtDur(c.min)}</b>${c.target ? ` of ${fmtDur(c.target)}` : ' logged'}${c.target && c.min - c.target >= 1 ? ` · <span class="ad-over">${fmtDur(c.min - c.target)} over</span>` : a.tp ? ` · ${a.tp}` : ''}</span></button>${isT ? `<button class="rec-b${on ? ' on' : ''}" data-act="rec" data-id="${a.id}" aria-label="${on ? 'Stop' : 'Start'} ${esc(a.t)} time" title="${on ? 'Stop' : `Start ${esc(a.t)} time`}">${on ? ICON.stop : ICON.play}</button>` : ''}</div>${bar ? `<button class="ad-bar" data-act="open" data-id="day:${a.id}:${d}" tabindex="-1" aria-hidden="true">${bar}</button>` : ''}${own.length ? `<div class="ad-tasks">${own.map(task).join('')}</div>` : ''}${pick}</div>`; };
   return `<div class="ad-strip">${cards.map(card).join('')}</div>`;
 }
 /** Whether a block for this item's area or project is on right now (then its tasks can record on their own). */
@@ -306,13 +310,18 @@ function blockDetail(el, b, same) {
         <div class="bk-acts"><button class="tb pri" data-act="blk-next" data-id="${now.id}" data-next="${list[1]?.id || ''}">Done, next</button>${list.length > 1 ? `<button class="tb" data-act="blk-skip" data-id="${now.id}">Not now</button>` : ''}</div></div>
       ${list.length > 1 ? `<div class="bk-then"><div class="bk-lab">Then</div>${list.slice(1, 4).map(n => `<button data-act="open" data-id="${n.id}">${esc(n.t || 'Untitled')}</button>`).join('')}${list.length > 4 ? `<span>+ ${list.length - 4} more</span>` : ''}</div>` : ''}`;
   } else {
-    const drag = cards.length > 1 && cards[0].g.id !== t.id; // hold a project's card to drag it to a new place in the area's order
+    // The task to start with (planned for today, overdue or due soon) leads its own card and is highlighted there; a loose one gets a card of its own
+    const why = n => `<small class="bk-why">${sug.why || (sug.due ? 'due ' + (sug.due === today() ? 'today' : dayShort(sug.due)) : '')}</small>`;
+    const sugLoose = sug && !cards.some(c => c.open.includes(sug.n));
+    const list = cards.map(c => sug && c.open.includes(sug.n) ? { ...c, open: [sug.n, ...c.open.filter(n => n !== sug.n)] } : c).concat(sugLoose ? [{ g: sug.n, one: true }] : []).sort((x, y) => (x.g.o ?? 0) - (y.g.o ?? 0));
+    const drag = list.length > 1 && cards[0]?.g.id !== t.id; // hold a card to drag it to a new place in the area's order
     const card = c => { const rest = c.open.slice(1), m = more[c.g.id];
-      return `<div class="bk-card"${drag ? ` data-drag data-id="${c.g.id}"` : ''} style="--pc:${colorOf(c.g)}"><div class="bk-h"><span class="pdot"></span><button class="bk-name" data-act="open" data-id="${c.g.id}" data-dragok>${esc(c.g.t || 'Untitled')}</button><small>${agoText(c.last)}</small><button class="bk-f" data-act="blk-focus" data-id="${c.g.id}" title="Just this, one step at a time">Focus</button></div>
-        ${blkStep(c.open[0])}${m ? rest.map(n => blkStep(n)).join('') : ''}${rest.length ? `<button class="bk-more" data-act="blk-more" data-id="${c.g.id}">${m ? 'Show less' : `+ ${rest.length} more`}</button>` : ''}</div>`; };
+      if (c.one) return `<div class="bk-card has-sug"${drag ? ` data-drag data-id="${c.g.id}"` : ''} style="--pc:${colorOf(c.g)}">${blkStep(c.g)}${why(c.g)}</div>`;
+      const top = sug && c.open[0] === sug.n;
+      return `<div class="bk-card${top ? ' has-sug' : ''}"${drag ? ` data-drag data-id="${c.g.id}"` : ''} style="--pc:${colorOf(c.g)}"><div class="bk-h"><span class="pdot"></span><button class="bk-name" data-act="open" data-id="${c.g.id}" data-dragok>${esc(c.g.t || 'Untitled')}</button><small>${agoText(c.last)}</small><button class="bk-f" data-act="blk-focus" data-id="${c.g.id}" title="Just this, one step at a time">Focus</button></div>
+        ${blkStep(c.open[0])}${top ? why(sug.n) : ''}${m ? rest.map(n => blkStep(n)).join('') : ''}${rest.length ? `<button class="bk-more" data-act="blk-more" data-id="${c.g.id}">${m ? 'Show less' : `+ ${rest.length} more`}</button>` : ''}</div>`; };
     const lz = loose.filter(n => !sug || n !== sug.n); // loose tasks, less the Start here one
-    work = (sug ? `<div class="bk-sug"><div class="bk-lab">Start here</div>${blkStep(sug.n)}<small>${esc(rootOf(sug.n).id !== sug.n.id ? rootOf(sug.n).t + ' · ' : '')}${sug.why || (sug.due ? 'due ' + (sug.due === today() ? 'today' : dayShort(sug.due)) : '')}</small></div>` : '')
-      + `<div class="bk-list"${drag ? (t.k === 'area' ? ` data-drop="area" data-area="${t.id}"` : ` data-drop="sib" data-g="p:${t.id}"`) : ''}>${cards.map(c => sug ? { ...c, open: c.open.filter(n => n !== sug.n) } : c).filter(c => c.open.length).map(card).join('')}</div>` // the Start here step isn't repeated in its card; hold a card to move it
+    work = `<div class="bk-list"${drag ? (t.k === 'area' ? ` data-drop="area" data-area="${t.id}"` : ` data-drop="sib" data-g="p:${t.id}"`) : ''}>${list.map(card).join('')}</div>` // hold a card to move it
       + (lz.length ? `<div class="bk-card loose"><div class="bk-h"><span class="bk-name">Loose in ${esc(t.t || 'this area')}</span>${lz.length > 1 ? `<button class="bk-f" data-act="blk-focus" data-id="loose">Focus</button>` : ''}</div>${lz.map(n => blkStep(n)).join('')}</div>` : '')
       || `<div class="dt-note">Nothing open in ${esc(t.t || 'here')}. Add tasks in Projects, or use this time to plan what's next.</div>`;
   }
@@ -483,8 +492,8 @@ function dayGaps(d) {
   return { E, gaps };
 }
 function listHTML(d, wide = false) {
-  const { gaps } = dayGaps(d);
-  const chips = g => g.filter(n => !(n.rs && habits.isHabit(n))).map(n => chipHTML(n, { time: true, min: S.min })).join(''); // habits live in their own card
+  const { gaps } = dayGaps(d), carded = new Set(aday.cardsOn(d).map(c => c.a.id));
+  const chips = g => g.filter(n => !(n.rs && habits.isHabit(n)) && !cardAreaOf(n, carded)) // an area's own tasks sit on its card.map(n => chipHTML(n, { time: true, min: S.min })).join(''); // habits live in their own card
   // Timed events no longer sit in the list (the strip and Timeline show them); tasks keep the same order around them
   const body = gaps.map(chips).join('');
   const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a task to ${esc(dayShort(d))}"><span aria-hidden="true">+</span>${body ? '' : ' Add a task'}</button>`;
