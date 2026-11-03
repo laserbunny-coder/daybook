@@ -55,3 +55,7 @@ verify_jwt = false
 # Acro HQ tasks <-> Daybook: woken by the database job every 2 minutes; it only looks, through HQ's connector.
 [functions.acro-tasks]
 verify_jwt = false
+
+# Phone alerts: the app signs in, the database trigger shows its own secret instead.
+[functions.alerts]
+verify_jwt = false
