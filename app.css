@@ -2620,3 +2620,18 @@ body.took-on #toast.toast{bottom:calc(var(--took-b) + var(--took-h,120px) + 10px
 .ad-pt span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ad-pt small{color:var(--faint);font-size:11.5px;white-space:nowrap;margin-left:auto}
 .ad-pick .rec-b{flex:none}
+/* Area page: the task to start with stays highlighted inside its own card, which keeps its place in the order */
+.bk-card.has-sug{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));background:linear-gradient(var(--accent-soft),var(--accent-soft)),var(--card)}
+.bk-why{display:block;color:var(--accent);font-size:12px;margin:-2px 0 2px 32px}
+/* Area card on the day list: that area's tasks planned for the day, inside the card instead of as rows of their own */
+.ad-tasks{display:grid;border-top:1px solid var(--line);margin:0 8px 0 12px;padding:2px 0}
+.ad-task{display:flex;align-items:center;gap:8px;min-width:0}
+.ad-task>.ck{flex:none}
+.ad-tt{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;text-align:left;font-size:13.5px;padding:7px 0}
+.ad-tt span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ad-tt small{color:var(--accent);font-size:12px;white-space:nowrap;margin-left:auto}
+.ad-task.done .ad-tt span{text-decoration:line-through;color:var(--faint)}
+.ad-task .rec-b{flex:none}
+.ad-tasks+.ad-pick{border-top:0}
+.wcol .ad-tt{font-size:12px;padding:5px 0}
+.wcol .ad-task .rec-b{display:none}
