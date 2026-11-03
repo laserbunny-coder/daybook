@@ -87,6 +87,8 @@ export const STARTER_MODES: Mode[] = [
 
 export const MODEL_IDS: Record<Model, string> = { haiku: "claude-haiku-5-5", sonnet: "claude-sonnet-5-5", opus: "claude-opus-5-5" };
 export const modelOf = (m: unknown): Model | null => (MODELS as unknown[]).includes(m) ? m as Model : null;
+// Room for a long instruction pasted in from a chat with Claude.
+export const PROMPT_MAX = 8000;
 
 // A person's modes, in order; the starting set is copied in the first time.
 export async function modesOf(userId: string): Promise<Mode[]> {
@@ -119,7 +121,7 @@ export async function saveMode(userId: string, modes: Mode[], m: Record<string, 
   const apps = m.apps === undefined && at >= 0 ? modes[at].apps : cleanApps(m.apps);
   // An app from before "Keep in Inkwell" sends nothing for it: keep what the mode had.
   const keep = typeof m.keep === "boolean" ? m.keep : at >= 0 ? !!modes[at].keep : false;
-  const row = { user_id: userId, id, name, prompt: clean(m.prompt, 2000), apps, model, keep, sort: at >= 0 ? at * 10 : modes.length * 10, updated_at: new Date().toISOString() };
+  const row = { user_id: userId, id, name, prompt: clean(m.prompt, PROMPT_MAX), apps, model, keep, sort: at >= 0 ? at * 10 : modes.length * 10, updated_at: new Date().toISOString() };
   const { error } = await admin().from("scribe_modes").upsert(row, { onConflict: "user_id,id" });
   if (error) throw error;
   return { id, name: row.name, prompt: row.prompt, apps: row.apps, model, keep };
