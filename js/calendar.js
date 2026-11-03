@@ -34,10 +34,11 @@ export function useGoogle(client, userId) {
 
 function push(d, e) { if (!byDay.has(d)) byDay.set(d, []); byDay.get(d).push(e); }
 
-/** Make sure events for the given range are loaded (refreshes every 10 minutes). */
+/** Make sure events for the given range are loaded (refreshes every 3 minutes while open). */
 export async function ensure(from, to, force = false) {
   if (mode !== 'google' || !sb) return;
-  const fresh = Date.now() - loaded.at < 10 * 60e3;
+  if (cal.loading && !force) return;
+  const fresh = Date.now() - loaded.at < 3 * 60e3;
   if (!force && fresh && loaded.from && from >= loaded.from && to <= loaded.to) return;
   const a = from < today() ? from : add(today(), -7), b = to > add(today(), 28) ? to : add(today(), 28);
   cal.loading = true;
@@ -73,3 +74,10 @@ function place(ev) {
     if (em > sm) push(day, { ...base, s: sm, m: em - sm, allDay: false });
   }
 }
+
+// Coming back to the app (switching to it, unlocking the phone) re-reads the calendar if it's over a minute old,
+// so a change made in Google Calendar shows as soon as Daybook is opened again.
+addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || mode !== 'google' || !loaded.from) return;
+  if (Date.now() - loaded.at > 60e3) ensure(loaded.from, loaded.to, true);
+});
