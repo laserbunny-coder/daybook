@@ -59,6 +59,10 @@ jobs:
       - name: Deploy server functions
         if: steps.ready.outputs.ok == 'true'
         run: supabase functions deploy ask calendar mcp inkwell inkwell-mcp inkwell-digest inkwell-share acro-meetings acro-tasks scribe --project-ref "$PROJECT_REF" --use-api --yes
+      - name: Remove the old game functions
+        if: steps.ready.outputs.ok == 'true'
+        # The dragon games moved out of Daybook; these stay gone (each delete is skipped once it's done).
+        run: for f in quest voice push remind routine; do supabase functions delete "$f" --project-ref "$PROJECT_REF" --yes || true; done
 
   site:
     name: Publish the app
