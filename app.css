@@ -1236,6 +1236,15 @@ body.quiet .nb-dot{top:7px;right:7px}
 .n-task.done span:last-child{text-decoration:line-through;color:var(--muted)}
 .n-task.gone{--pc:var(--faint);color:var(--faint);font-weight:500}
 @media (hover:hover){button.n-task:hover{background:color-mix(in srgb,var(--pc) 24%,transparent)}}
+.n-offers{display:flex;flex-direction:column;gap:2px;margin:-2px 0 2px}
+.n-offer{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--edge)}
+.n-offer:first-child{border-top:0}
+.n-of-t{font-size:13.5px;line-height:1.35;min-width:0}
+.n-of-t small{color:var(--faint);font-size:12px}
+.n-of-b{flex:none;font-size:12.5px;font-weight:700;padding:5px 12px;border-radius:999px;border:1px solid var(--edge);background:var(--surface);color:var(--fg)}
+.n-of-b.in{font-weight:600;color:var(--muted);background:transparent}
+.n-offer.made .n-of-t{color:var(--muted)}
+@media (hover:hover){.n-of-b:hover{background:var(--sunk)}}
 .n-acts{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:2px}
 .n-talk{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:700;color:var(--accent-fg);text-decoration:none;padding:8px 15px 8px 12px;border-radius:999px;background:var(--glow);box-shadow:none}
 .n-talk svg{width:16px;height:16px}

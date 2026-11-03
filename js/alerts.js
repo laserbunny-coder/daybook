@@ -2,6 +2,8 @@
 // Turning them on here signs this device up (push_subs). What to hear about is one switch per kind,
 // kept on the account (alert_prefs) so it's the same on every device:
 //   review  the 9 pm "Your day review" from Inkwell
+//   week    Inkwell's Monday "Your week" note
+//   month   Inkwell's "Your month" note
 //   needs   a Claude thread putting something on Needs you
 //   notes   any other note from Claude (off at first)
 // The server sends them as they happen (supabase/functions/alerts).
@@ -10,11 +12,14 @@ import { lsGet, lsSet } from './util.js';
 const KEY = 'daybook-alerts';
 export const KINDS = [
   { k: 'review', name: 'Day review at 9 pm', hint: 'The nudge to look back over today in Inkwell.' },
+  { k: 'week', name: 'Your week, on Mondays', hint: "Last week in Inkwell and the things you said you'd do, each one tap from a task." },
+  { k: 'month', name: 'Your month', hint: 'When last month in Inkwell is summed up, early in a new month.' },
   { k: 'needs', name: 'Needs you', hint: 'When a Claude thread needs a decision, is blocked on you, or has something to review.' },
   { k: 'notes', name: 'Other notes from Claude', hint: 'Everything else Claude leaves you in Notes.' },
 ];
 let client = null, uid = null, render = () => {};
-const S = { on: false, busy: false, prefs: { review: true, needs: true, notes: false }, msg: '', ...lsGet(KEY, {}) };
+const S = { on: false, busy: false, prefs: { review: true, needs: true, notes: false, week: true, month: true }, msg: '', ...lsGet(KEY, {}) };
+S.prefs = { review: true, needs: true, notes: false, week: true, month: true, ...S.prefs };
 const save = () => lsSet(KEY, { on: S.on, prefs: S.prefs });
 
 export const supported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
@@ -25,7 +30,7 @@ const device = () => /Android/.test(navigator.userAgent) ? 'Android phone' : /iP
 export function init(c, userId, onChange) {
   client = c; uid = userId; render = onChange || render;
   if (!client) return;
-  client.from('alert_prefs').select('review,needs,notes').maybeSingle().then(({ data }) => { if (data) { S.prefs = { review: data.review, needs: data.needs, notes: data.notes }; save(); render(); } });
+  client.from('alert_prefs').select('review,needs,notes,week,month').maybeSingle().then(({ data }) => { if (data) { S.prefs = { review: data.review, needs: data.needs, notes: data.notes, week: data.week ?? true, month: data.month ?? true }; save(); render(); } });
   // Each time Daybook opens with alerts on, make sure this device is still signed up. The phone's push
   // service can drop a sign-up on its own (the server then forgets it), so sign up again quietly and resave it.
   if (S.on && supported()) {

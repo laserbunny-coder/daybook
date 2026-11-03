@@ -5,7 +5,7 @@
 // page or straight into a draft (voice.ts), and meeting recordings become notes (meeting.ts), a business meeting's tasks going to Acro HQ (acro.ts). It lives here because Inkwell syncs
 // through this same Supabase project and uses the same Claude key.
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
-import { cors, json, userFrom } from "../_shared/common.ts";
+import { admin, cors, json, userFrom } from "../_shared/common.ts";
 import { capture } from "./capture.ts";
 import { snapshot } from "./snapshot.ts";
 import { sortTags } from "./tags.ts";
@@ -19,6 +19,7 @@ import { pages } from "./pages.ts";
 import { bringIn } from "./bringin.ts";
 import { meetingNotes, writeOutMeeting } from "./meeting.ts";
 import { sendToAcro } from "./acro.ts";
+import { makeTidy } from "../_shared/tidyrun.ts";
 
 const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
 
@@ -113,6 +114,19 @@ Deno.serve(async (req) => {
     try { return await voiceModes(user.id, body as never); } catch (err) { console.error(err); return json({ error: "Couldn't reach your modes. Try again." }, 500); }
   }
   if (body && (body as { mode: string }).mode === "review") return review(client, body as never);
+  // A tidy pass now (the weekly one is made early on Monday): suggestions saved
+  // as a batch for the app to show; nothing in the notes changes here.
+  if (body && (body as { mode: string }).mode === "tidy") {
+    try {
+      const tz = typeof user.user_metadata?.tz === "string" && user.user_metadata.tz ? user.user_metadata.tz : "America/Los_Angeles";
+      const id = `td_${Date.now().toString(36).padStart(9, "0")}${crypto.randomUUID().slice(0, 8)}`;
+      const count = await makeTidy(admin(), client, user.id, tz, id, null);
+      return json({ id, count });
+    } catch (err) {
+      console.error(err);
+      return json({ error: "Claude couldn't look things over just now. Try again in a minute." }, 500);
+    }
+  }
   if (body && (body as { mode: string }).mode === "grid") return grid(client, body as never);
   if (body && (body as { mode: string }).mode === "production") return production(client, body as never);
   if (body && (body as { mode: string }).mode === "revise") return revise(client, body as never);
