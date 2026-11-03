@@ -2610,3 +2610,13 @@ body.took-on #toast.toast{bottom:calc(var(--took-b) + var(--took-h,120px) + 10px
 .ds-wh{position:absolute;top:-6px;bottom:-6px;width:28px;margin-left:-14px;display:grid;place-items:center;cursor:ew-resize;touch-action:none}
 .ds-wh::before{content:"";width:4px;height:16px;border-radius:2px;background:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
 .ds-bar .ds-cur.ds-free{background:color-mix(in srgb,var(--accent) 7%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--accent) 55%,transparent)}
+
+/* Area page: hold a project's card to move it up or down the area's order */
+.bk-card[data-drag]{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+@media (hover:hover){.bk-card[data-drag]{cursor:grab}}
+/* Area card on the day list: the last thing paused in it today, to start again in one tap */
+.ad-pick{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line);margin:0 8px 0 12px;padding:4px 0 4px}
+.ad-pt{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;text-align:left;font-size:13px;color:var(--muted);padding:4px 0}
+.ad-pt span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ad-pt small{color:var(--faint);font-size:11.5px;white-space:nowrap;margin-left:auto}
+.ad-pick .rec-b{flex:none}
