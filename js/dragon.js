@@ -15,6 +15,7 @@ import { questsOn, gold, deadline, streakOf } from './quest.js';
 import { timedOn } from './calendar.js';
 import { add, lsGet, lsSet, pd, today, nowMin, daysBetween } from './util.js';
 import { children, colorOf, isDone, leaves, node, rootOf } from './tree.js';
+import * as game from './gamestate.js';
 
 const KEY = 'daybook-dragon';
 export const WIN = 0.7;
@@ -23,13 +24,13 @@ let D = { start: null, startMin: null, open: {}, wake: 8 * 60, bed: 22 * 60 + 30
 D.open = D.open || {}; D.played = D.played || {}; D.deck = D.deck || null;
 D.charms = D.charms || []; D.eq = D.eq || []; D.spent = D.spent || []; D.packs = D.packs || []; D.off = D.off || {}; D.dawn = D.dawn || {}; D.goals = D.goals || {}; D.hits = D.hits || {};
 const save = () => lsSet(KEY, D);
-const sync = () => { if (client && me) client.auth.updateUser({ data: { dragon: D } }).then(({ data }) => { if (data?.user) me = data.user; }).catch(() => {}); };
+const sync = () => { if (client && me) game.save({ dragon: D }); };
 
 export function init(o) { client = o.client ?? client; onUpdate = o.update ?? onUpdate; }
 /** The day the fight began, kept on the account so every device agrees. carry: gold brought over from Hold the Keep. */
 export function begin(u, carry = 0) {
   me = u || null;
-  const theirs = u?.user_metadata?.dragon;
+  const theirs = game.view(u)?.user_metadata?.dragon;
   if (theirs?.start && (!D.start || theirs.start < D.start || (theirs.start === D.start && (theirs.startMin ?? 0) < (D.startMin ?? 0)))) { D.start = theirs.start; D.startMin = theirs.startMin; D.carry = theirs.carry ?? D.carry; }
   if (theirs) {
     for (const [d, m] of Object.entries(theirs.open || {})) D.open[d] = Math.min(m, D.open[d] ?? 1e4);

@@ -15,6 +15,7 @@ import { CAMPAIGN_DAYS, MARCH_AT, REGIONS, regionOf, titleFor } from './regions.
 import { paint, phaseOf, SW, SH, SWOOP, whenReady, nudge, resetView } from './keep3d.js';
 import * as sfx from './sfx.js';
 import { screen, mount } from './crt.js';
+import * as game from './gamestate.js';
 
 const KEY = 'daybook-quest';
 const WIN = 0.7;
@@ -32,7 +33,7 @@ const saveQ = () => lsSet(KEY, Q);
 export function init(o) { client = o.client ?? client; onUpdate = o.update ?? onUpdate; }
 /** The day the realm began: set the first time Quest is opened, and kept on the account so every device agrees. */
 export function begin(u) {
-  me = u || null;
+  me = u || null; u = game.view(u);
   const sw = u?.user_metadata?.quest_swipes; // swipes made on another device
   if (sw) for (const [d, m] of Object.entries(sw)) Q.swipes[d] = { ...m, ...Q.swipes[d] };
   const bo = u?.user_metadata?.quest_bonus; // events claimed on another device
@@ -50,9 +51,9 @@ export function begin(u) {
   const theirs = u?.user_metadata?.quest_start;
   if (theirs && theirs !== Q.start && (!Q.start || theirs < Q.start)) { Q.start = theirs; saveQ(); }
   if (!Q.start) { Q.start = today(); saveQ(); }
-  if (client && u && theirs !== Q.start) client.auth.updateUser({ data: { quest_start: Q.start } }).catch(() => {});
-  // the account as this device last saw it can be out of date, so ask for it fresh once and catch up on what other devices did
-  if (client && u && !fresh) { fresh = true; client.auth.getUser().then(({ data }) => { if (data?.user) { begin(data.user); onUpdate(); } }).catch(() => {}); }
+  if (client && u && theirs !== Q.start) game.save({ quest_start: Q.start });
+  // what this device last saw can be out of date, so fetch the saved progress fresh once and catch up on what other devices did
+  if (client && u && !fresh) { fresh = true; game.load(client, me, true).then(() => { if (me) { begin(me); onUpdate(); } }); }
 }
 let fresh = false;
 /** Two devices' building choices, slot by slot: the one chosen first wins a slot (older choices without a time: by name,
@@ -97,7 +98,7 @@ function pushed(id, before, after) {
   for (const k of Object.keys(Q.delays)) if (daysBetween(k, T) > 21) delete Q.delays[k];
   saveQ(); sync(); return true;
 }
-const sync = () => { if (client && me) client.auth.updateUser({ data: { quest_swipes: Q.swipes, quest_seen: Q.seen, quest_bonus: Q.bonus, quest_marks: Q.marks, quest_kingdom: Q.kg, quest_picks: Q.picks, quest_delays: Q.delays } }).then(({ data }) => { if (data?.user) me = data.user; }).catch(() => {}); };
+const sync = () => { if (client && me) game.save({ quest_swipes: Q.swipes, quest_seen: Q.seen, quest_bonus: Q.bonus, quest_marks: Q.marks, quest_kingdom: Q.kg, quest_picks: Q.picks, quest_delays: Q.delays }); };
 
 /* ---------- moves made elsewhere ---------- */
 // Moves made outside this app (Claude rolling unfinished tasks forward, the connector, another device) never pass

@@ -23,6 +23,7 @@ import * as took from './took.js';
 import { cleanRule, ruleText, splitOcc, WEEK } from './repeat.js';
 import { add, DAYL, DAYN, MON, daysBetween, dayShort, esc, fd, fmtDur, fmtShort, fmtT, lsDel, lsGet, lsSet, nowMin, pd, today, weekStart } from './util.js';
 import { ancestors, blockTitle, children, colorOf, dayItems, glow, hasKids, ink, isBlock, isDone, isProj, leaves, node, PALETTE, progress, projColor, rootOf, targetOf, within } from './tree.js';
+import * as game from './gamestate.js';
 
 const H0 = 6, H1 = 23;
 const HP = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hp')) || 48;
@@ -2390,7 +2391,9 @@ async function enterCloud(u) {
   daystrip.useHours(u.user_metadata?.work_hours, h => client.auth.updateUser({ data: { work_hours: h } }).catch(() => {})); // work hours follow the account
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; // so Claude reads and writes finish times in local time
   if (tz && u.user_metadata?.tz !== tz) client.auth.updateUser({ data: { tz } }).catch(() => {});
-  calendar.useGoogle(client, u.id); initAI({ cloud: true, client }); notes.useCloud(client, u); quest.init({ client }); fight.init({ client, free: () => +S.free || 10 }); dragon.init({ client }); if (S.games && (S.mode === 'quest' || S.mode === 'dragon' || u.user_metadata?.quest_start)) quest.begin(u); if (S.games && (S.mode === 'dragon' || u.user_metadata?.dragon)) beginDragon(); remind.init(client); gamesQuiet(); routine.init({ client });
+  calendar.useGoogle(client, u.id); initAI({ cloud: true, client }); notes.useCloud(client, u); quest.init({ client }); fight.init({ client, free: () => +S.free || 10 }); dragon.init({ client }); if (S.games && (S.mode === 'quest' || S.mode === 'dragon')) quest.begin(u); if (S.games && S.mode === 'dragon') beginDragon();
+  game.load(client, u).then(() => { if (user !== u) return; const v = game.view(u).user_metadata; let k = false; if (S.games && (S.mode === 'quest' || S.mode === 'dragon' || v.quest_start)) { quest.begin(u); k = true; } if (S.games && (S.mode === 'dragon' || v.dragon)) { beginDragon(); k = true; } if (k) render(); }); // the games' saved progress
+  remind.init(client); gamesQuiet(); routine.init({ client });
   render();
   await store.useCloud(client, u);
   calendar.ensure(add(today(), -7), add(today(), 28), true);
