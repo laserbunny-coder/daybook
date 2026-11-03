@@ -26,10 +26,12 @@ export function init(c, userId, onChange) {
   client = c; uid = userId; render = onChange || render;
   if (!client) return;
   client.from('alert_prefs').select('review,needs,notes').maybeSingle().then(({ data }) => { if (data) { S.prefs = { review: data.review, needs: data.needs, notes: data.notes }; save(); render(); } });
-  // Still signed up here? (Clearing site data or a blocked permission ends it quietly.)
-  if (S.on && supported()) navigator.serviceWorker.ready.then(r => r.pushManager.getSubscription()).then(sub => {
-    if (!sub || Notification.permission !== 'granted') { S.on = false; save(); render(); }
-  }).catch(() => {});
+  // Each time Daybook opens with alerts on, make sure this device is still signed up. The phone's push
+  // service can drop a sign-up on its own (the server then forgets it), so sign up again quietly and resave it.
+  if (S.on && supported()) {
+    if (Notification.permission !== 'granted') { S.on = false; save(); render(); }
+    else signUp().catch(e => console.warn('alerts: renew', e));
+  }
 }
 export const prefs = () => S.prefs;
 
@@ -50,19 +52,25 @@ export async function enable() {
   S.busy = true; S.msg = ''; render();
   try {
     if (await Notification.requestPermission() !== 'granted') { S.msg = 'Daybook needs permission to show notifications. Tap Allow when your phone asks.'; return; }
-    const reg = await navigator.serviceWorker.ready;
-    const { data, error } = await client.functions.invoke('alerts', { body: { action: 'key' } });
-    if (error || !data?.key) throw error || new Error('no key');
-    let sub = await reg.pushManager.getSubscription();
-    if (sub && sub.options?.applicationServerKey && b64(sub.options.applicationServerKey) !== data.key) { await sub.unsubscribe(); sub = null; }
-    sub = sub || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: unb64(data.key) });
-    const j = sub.toJSON();
-    const { error: e2 } = await client.from('push_subs').upsert({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, device: device() });
-    if (e2) throw e2;
+    const endpoint = await signUp();
     S.on = true; save();
-    await test(j.endpoint);
+    await test(endpoint);
   } catch (e) { console.warn('alerts', e); S.msg = "Couldn't turn alerts on. Check your connection and try again."; }
   finally { S.busy = false; render(); }
+}
+
+/** Signs this device up for Web Push (or reuses its sign-up) and saves it on the server. */
+async function signUp() {
+  const reg = await navigator.serviceWorker.ready;
+  const { data, error } = await client.functions.invoke('alerts', { body: { action: 'key' } });
+  if (error || !data?.key) throw error || new Error('no key');
+  let sub = await reg.pushManager.getSubscription();
+  if (sub && sub.options?.applicationServerKey && b64(sub.options.applicationServerKey) !== data.key) { await sub.unsubscribe(); sub = null; }
+  sub = sub || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: unb64(data.key) });
+  const j = sub.toJSON();
+  const { error: e2 } = await client.from('push_subs').upsert({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, device: device() });
+  if (e2) throw e2;
+  return j.endpoint;
 }
 
 export async function disable() {
