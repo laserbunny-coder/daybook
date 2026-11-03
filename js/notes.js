@@ -6,7 +6,7 @@
 // raised by a thread in any Claude project. They stay out of Notes and show on the Plan until cleared (resolved_at).
 import { add, lsGet, lsSet, today } from './util.js';
 
-const COLS = 'id,author,title,body,link,task_ids,created_at,read_at,kind,project,project_link,resolved_at';
+const COLS = 'id,author,title,body,link,task_ids,created_at,read_at,kind,project,project_link,resolved_at,offers';
 let sb = null, userId = null, channel = null, key = null, retry = 0;
 let list = [];                 // newest first
 let reads = new Set();         // marked read here, not saved yet
@@ -98,6 +98,13 @@ function sampleNotes(ids) {
     need('need-3', 'blocked', 'Business Dashboard', 'Meta ads numbers need a fresh sign-in', -2, 10),
     need('need-4', 'review', 'Business Dashboard', 'October report draft is ready to read', 0, 6),
     need('need-5', 'decision', 'Daybook', 'Pick a look for the Needs you line', 0, 4),
+    { id: 'note-3', author: 'Inkwell', title: 'Your week, Oct 26 – Nov 1', link: 'https://laserbunny-coder.github.io/inkwell/?tidy=sample', task_ids: [], created_at: at(0, 4, 23), read_at: null,
+      body: "You spent the week on The Ninja Bunch's dentist reel and on Christmas: the cabin, gifts for Mom, and who's cooking.\n\nClaude also has 4 tidy-ups for Inkwell waiting for a yes or no. Open Inkwell to go through them.\n\n**You said you'd…** Tap + to make any of these a task in your Inbox.",
+      offers: [
+        { id: 'inkwell-week-sample-1', title: 'Book the cabin for Christmas week', link: 'https://laserbunny-coder.github.io/inkwell/', day: 'Tue' },
+        { id: 'inkwell-week-sample-2', title: 'Send Nate the dentist reel cut', link: 'https://laserbunny-coder.github.io/inkwell/', day: 'Thu' },
+        { id: 'inkwell-week-sample-3', title: 'Order the ramen kit for Mom', link: 'https://laserbunny-coder.github.io/inkwell/', day: 'Sat' }
+      ] },
     { id: 'note-2', author: 'Claude', title: 'Morning plan check', link: 'https://claude.ai/', task_ids: ids.slice(0, 2), created_at: at(0, 7, 2), read_at: null,
       body: "Yesterday ran long, so I gave today some room:\n\n- **Rewrite services copy** moved to tomorrow morning.\n- **Write About page** stays today, but now it's the first thing after your 9:00.\n\nThe week is at 9 of your 10 free hours." },
     { id: 'note-1', author: 'Claude', title: 'Sunday week review', link: 'https://claude.ai/', task_ids: ids.slice(2, 3), created_at: at(-1, 18, 30), read_at: null,

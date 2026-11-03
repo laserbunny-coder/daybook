@@ -1422,6 +1422,25 @@ const android = /Android/.test(navigator.userAgent);
 const inkHref = u => !android || !inInkwell(u) ? { href: u, target: ' target="_blank" rel="noopener"' }
   : { href: `intent://${u.replace(/^https:\/\//, '')}#Intent;scheme=https;S.browser_fallback_url=${encodeURIComponent(u)};end`, target: '' };
 const noteTalk = n => { const u = safeLink(n.link); if (!u) return ''; const h = inkHref(u); return `<a class="n-talk" href="${esc(h.href)}"${h.target}>${inInkwell(u) ? ICON.link : ICON.ask}<span>${inInkwell(u) ? 'Open in Inkwell' : 'Talk about this'}</span></a>`; };
+/* Things a note offers to make tasks of (the Monday note from Inkwell: "you said you'd…"). One tap makes the task in
+   the Inbox, linked back to the line it came from. Its id comes with the offer, so another tap or device finds it. */
+function noteOffers(n) {
+  if (!Array.isArray(n.offers) || !n.offers.length) return '';
+  return `<div class="n-offers">${n.offers.map((o, i) => {
+    const t = store.peek(o.id), made = t && !t.x;
+    const what = `<span class="n-of-t">${esc(o.title)}${o.day ? `<small> · ${esc(o.day)}</small>` : ''}</span>`;
+    return made
+      ? `<div class="n-offer made">${what}<button class="n-of-b in" data-act="note-task" data-id="${esc(o.id)}" title="Open the task">${isDone(t) ? 'Done' : 'In Daybook'}</button></div>`
+      : `<div class="n-offer">${what}<button class="n-of-b" data-act="note-offer" data-id="${esc(n.id)}" data-i="${i}" aria-label="Make “${esc(o.title)}” a task">+ Task</button></div>`;
+  }).join('')}</div>`;
+}
+function takeOffer(noteId, i) {
+  const n = notes.all().find(x => x.id === noteId), o = n?.offers?.[i]; if (!o) return;
+  const t = store.peek(o.id);
+  if (t?.x) store.untrash(o.id);
+  else if (!t) store.create({ id: o.id, t: o.title, link: safeLink(o.link) || null, notes: 'From your week in Inkwell' });
+  toast(`Added to your Inbox: ${short(o.title)}`);
+}
 function noteTasks(n) {
   if (!n.task_ids?.length) return '';
   return `<div class="n-tasks">${n.task_ids.map(id => {
@@ -1439,7 +1458,7 @@ function renderNote() {
   if (!n || S.notesOpen || !document.getElementById('welcome').hidden) { noteEl.hidden = true; noteEl.innerHTML = ''; noteEl.h = null; delete noteEl.dataset.id; return; }
   const h = `<div class="nc">
     <div class="n-h"><i class="orb" aria-hidden="true"></i><div class="n-from"><b>${noteFrom(n)}</b><small>${noteWhen(n.created_at)}</small></div>${un.length > 1 ? `<button class="n-count" data-act="notes" title="See them all in Notes">${un.length} unread</button>` : ''}<button class="ib n-x" data-act="note-later" aria-label="Not now" title="Not now (it stays in Notes)">${ICON.close}</button></div>
-    <div class="n-b md vscroll">${md(n.body)}</div>${noteTasks(n)}
+    <div class="n-b md vscroll">${md(n.body)}</div>${noteOffers(n)}${noteTasks(n)}
     <div class="n-acts">${noteTalk(n)}<button class="n-ok" data-act="note-ok" data-id="${esc(n.id)}">Got it</button></div></div>`;
   if (noteEl.h === h) return;
   const was = noteEl.hidden ? null : noteEl.dataset.id, sc = was === n.id ? noteEl.querySelector('.n-b')?.scrollTop || 0 : 0;
@@ -1452,7 +1471,7 @@ function renderNotes() {
   const L = notes.all(), k = notes.unread().length;
   const items = L.length ? L.map(n => `<article class="nn${n.read_at ? '' : ' un'}">
       <div class="n-from"><b>${noteFrom(n)}</b><small>${noteWhen(n.created_at)}${n.read_at ? '' : ' · <span class="n-new">Unread</span>'}</small></div>
-      <div class="n-b md">${md(n.body)}</div>${noteTasks(n)}
+      <div class="n-b md">${md(n.body)}</div>${noteOffers(n)}${noteTasks(n)}
       <div class="n-acts">${noteTalk(n)}${n.read_at ? '' : `<button class="n-ok" data-act="note-ok" data-id="${esc(n.id)}">Got it</button>`}</div></article>`).join('')
     : '<div class="n-empty">No notes yet. When Claude leaves you one, say after your morning plan check, it shows up here and as a card when you open Daybook.</div>';
   const h = `<div class="dt-back" data-act="notes-close"></div><div class="dt nl"><div class="dt-top"><h2 class="nl-t">Notes${k ? ` <small>${k} unread</small>` : ''}</h2><div class="nl-acts">${k > 1 ? '<button class="link" data-act="notes-allread">Mark all read</button>' : ''}<button class="ib" data-act="notes-close" aria-label="Close">${ICON.close}</button></div></div><div class="dt-body vscroll">${items}</div></div>`;
@@ -1918,6 +1937,7 @@ document.addEventListener('click', e => {
       else { if (quiet() && !qPin) setQPin(true); else renderSide(); }
       setTimeout(() => { const sb = document.querySelector('#side .side-b'); if (sb) sb.scrollTop = 0; }, 50); break;
     case 'settings': S.settings = !S.settings; if (!S.settings) { S.alerts = false; S.mcp = null; } renderSide(); if (S.settings) { const sb = document.querySelector('#side .side-b'); if (sb) sb.scrollTop = 0; } break;
+    case 'note-offer': takeOffer(id, +b.dataset.i); break;
     case 'mcp': S.mcp = S.mcp ? null : {}; renderSide(); break;
     case 'alerts': S.alerts = !S.alerts; renderSide(); if (S.alerts) document.getElementById('alerts-panel')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); break;
     case 'alerts-close': S.alerts = false; renderSide(); break;

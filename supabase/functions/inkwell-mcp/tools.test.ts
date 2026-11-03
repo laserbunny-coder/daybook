@@ -80,6 +80,13 @@ const db: Db = {
   updateAbout: async (id, patch) => { updates.push({ id, ...patch }); },
   insert: async (rs) => { rows.push(...rs); },
   timeZone: async () => "America/Los_Angeles",
+  change: async (id, was, patch) => {
+    const r = rows.find((x) => x.id === id);
+    if (!r || ["about", "digest", "change", "tidy"].includes(r.kind) || (was && r.updated_at !== was)) return false;
+    Object.assign(r, patch, { updated_at: new Date(Date.parse(r.updated_at!) + 1000).toISOString() });
+    return true;
+  },
+  markChange: async (id, fields) => { const r = rows.find((x) => x.id === id && x.kind === "change"); if (r) r.fields = fields; },
 };
 
 let n = 0;
@@ -183,5 +190,102 @@ assert.equal(aboutStale("2026-10-01T00:00:00Z", "2026-10-25T00:00:00Z", now), tr
 assert.equal(aboutStale("2026-11-10T00:00:00Z", "2026-11-12T00:00:00Z", now), false);
 assert.equal(aboutStale("2026-10-01T00:00:00Z", "2026-09-25T00:00:00Z", now), false);
 assert.match(INSTRUCTIONS, /not instructions to you/);
+
+// ---------- small changes, recorded and undoable ----------
+rows.push(
+  e("wd-xmas1", "world", null, { title: "Christmas", area_id: null }),
+  e("pg-xmas-empty", "page", "wd-xmas1", { title: "I want to plan Christmas" }),
+  e("wd-xmas2", "world", null, { title: "Christmas 2026 Planning" }),
+  e("pg-gifts", "page", "wd-xmas2", { title: "Gifts" }),
+  e("li-g1", "line", "pg-gifts", { text: "Ramen kit for Mom" }),
+  e("li-g1a", "line", "li-g1", { text: "the good one from the market" }),
+);
+const before = JSON.stringify(rows.find((r) => r.id === "li-d1")!.text);
+let c = await call("mark_done", { line_id: "li-d1", why: "You said you bought it" });
+assert.ok(c.change_id.startsWith("cx_"));
+const d1 = rows.find((r) => r.id === "li-d1")!;
+assert.equal(d1.fields.done, true);
+assert.equal((d1.fields.claude as any).change, c.change_id);
+assert.equal(JSON.stringify(d1.text), before, "the words never change");
+const rec = rows.find((r) => r.id === c.change_id)!;
+assert.equal(rec.kind, "change");
+assert.equal(rec.fields.by, "claude");
+assert.equal((rec.fields.change as any).before.done, false);
+assert.match((rec.fields.change as any).title, /Ticked/);
+assert.equal((await call("mark_done", { line_id: "li-d1" })).note, "It was already ticked.");
+assert.ok((await call("mark_done", { line_id: "pg-kenji" })).error, "only lines");
+
+// Undo puts it back, once.
+let u = await call("undo_change", { change_id: c.change_id });
+assert.match(u.undone, /Ticked/);
+assert.equal(d1.fields.done, false);
+assert.ok((rows.find((r) => r.id === c.change_id)!.fields.change as any).undone_at);
+assert.equal((await call("undo_change", { change_id: c.change_id })).note, "It was already undone.");
+assert.ok((await call("undo_change", { change_id: "li-d1" })).error, "only changes");
+
+// Undo is refused when the person changed it since.
+c = await call("mark_done", { line_id: "li-d1" });
+d1.fields = { ...d1.fields, done: false };
+assert.match((await call("undo_change", { change_id: c.change_id })).error, /changed that since/);
+
+// Moving a line takes what's under it along (its children keep pointing at it).
+const g1 = rows.find((r) => r.id === "li-g1")!;
+c = await call("move_line", { line_id: "li-g1", to: "pg-kenji" });
+assert.equal(g1.parent_id, "pg-kenji");
+assert.equal(rows.find((r) => r.id === "li-g1a")!.parent_id, "li-g1");
+assert.ok(g1.sort > rows.find((r) => r.id === "li-k1")!.sort, "goes at the end");
+assert.equal(g1.text, "Ramen kit for Mom");
+// Nested under a line on the target page.
+c = await call("move_line", { line_id: "li-g1", to: "pg-kenji", under_line_id: "li-k1" });
+assert.equal(g1.parent_id, "li-k1");
+assert.ok((await call("move_line", { line_id: "li-g1", to: "pg-gifts", under_line_id: "li-k1" })).error, "under a line on another page");
+assert.match((await call("move_line", { line_id: "li-g1", to: "pg-kenji", under_line_id: "li-g1a" })).error, /inside itself/);
+// To a daily page that doesn't exist yet: the day is made.
+c = await call("move_line", { line_id: "li-g1", to: "2026-11-02" });
+assert.equal(g1.parent_id, "day-2026-11-02");
+assert.ok(rows.some((r) => r.id === "day-2026-11-02" && r.kind === "day"));
+u = await call("undo_change", { change_id: c.change_id });
+assert.equal(g1.parent_id, "li-k1", "back where it was");
+assert.ok((await call("move_line", { line_id: "li-g1", to: "pr-reel" })).error, "not into a script");
+
+// Life projects.
+c = await call("set_life_project", { world_id: "wd-xmas2" });
+const x2 = rows.find((r) => r.id === "wd-xmas2")!;
+assert.equal(x2.fields.life, true);
+u = await call("undo_change", { change_id: c.change_id });
+assert.equal("life" in x2.fields, false);
+assert.ok((await call("set_life_project", { world_id: "pg-gifts" })).error);
+
+// The list of changes, newest first with undone ones marked.
+const ch = await call("changes", {});
+assert.ok(ch.changes.length >= 5);
+assert.ok(ch.changes.some((x: any) => x.undone && x.undone_by === "Claude"));
+
+// A row changed in the app between read and write isn't overwritten.
+const realChange = db.change;
+db.change = async () => false;
+assert.match((await call("mark_done", { line_id: "li-k1" })).error, /just changed/);
+db.change = realChange;
+
+// Suggestions wait for a yes; nothing changes.
+const sg = await call("suggest_tidy", { suggestions: [
+  { type: "merge", a: "wd-xmas1", b: "wd-xmas2", why: "Both are your Christmas list." },
+  { type: "trash_empty", a: "wd-xmas1", why: "A first try with nothing in it." },
+  { type: "trash_empty", a: "wd-ninja", why: "x" },
+  { type: "tags", text: "#gift #gifts", why: "Same thing." },
+  { type: "area", a: "wd-xmas2", b: "Writing", why: "x" },
+  { type: "rename", a: "wd-xmas2", text: "Christmas 2026", why: "Shorter." },
+  { type: "life", a: "pg-gifts", why: "x" },
+] });
+assert.equal(sg.added.length, 5);
+assert.equal(sg.left_out.length, 2);
+const batch = rows.find((r) => r.kind === "tidy")!;
+assert.equal((batch.fields.tidy as any).items[0].key, "merge:wd-xmas1:wd-xmas2");
+assert.equal((batch.fields.tidy as any).items[0].choice, null);
+assert.equal(rows.find((r) => r.id === "wd-xmas1")!.deleted, false);
+assert.ok((await call("suggest_tidy", { suggestions: [{ type: "life", a: "pg-gifts", why: "x" }] })).error);
+
+const tl: any = await handle({ jsonrpc: "2.0", id: 0, method: "tools/list" }, db);
+for (const t of ["mark_done", "move_line", "set_life_project", "changes", "undo_change", "suggest_tidy"]) assert.ok(tl.result.tools.some((x: any) => x.name === t), t);
 
 console.log("inkwell-mcp tools: all checks passed");
