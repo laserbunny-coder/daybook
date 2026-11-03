@@ -7,13 +7,6 @@ import * as roadmap from './roadmap.js';
 import * as stats from './stats.js';
 import * as track from './track.js';
 import * as notes from './notes.js';
-import * as quest from './quest.js';
-import * as dragon from './dragon.js';
-import * as fight from './fight.js';
-import * as sfx from './sfx.js';
-import * as remind from './remind.js';
-import * as routine from './routine.js';
-import * as kingdom from './kingdom.js';
 import * as blocks from './blocks.js';
 import * as aday from './areaday.js';
 import * as habits from './habits.js';
@@ -68,8 +61,8 @@ const ICON = {
 const UI_KEY = 'daybook-ui';
 const S = { view: phone() ? 'day' : 'week', mode: 'list', anchor: today(), col: {}, tab: 'plan', page: 'plan', tip: true, demo: false, min: false, ...lsGet(UI_KEY, {}), focus: false, pick: null, adding: null, new: null, drOpen: false, drAt: null, open: null, dtpick: false, confirmDel: false, linkEdit: false, notesEdit: false, waitEdit: false, rpEdit: false, scope: 'one', mcp: null };
 S.anchor = today();
-if (!S.games && (S.mode === 'quest' || S.mode === 'dragon')) S.mode = 'timed'; // game modes are tucked away unless switched on in Projects
-const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min, games: S.games, rmZoom: S.rmZoom, free: S.free, stK: S.stK, stCard: S.stCard, stMode: S.stMode, hbCard: S.hbCard, cave: S.cave });
+if (S.mode === 'quest' || S.mode === 'dragon') S.mode = 'timed'; // the game modes moved out of Daybook
+const saveUI = () => lsSet(UI_KEY, { view: S.view, mode: S.mode, col: S.col, tab: S.tab, page: S.page, tip: S.tip, demo: S.demo, min: S.min, rmZoom: S.rmZoom, free: S.free, stK: S.stK, stCard: S.stCard, stMode: S.stMode, hbCard: S.hbCard });
 let client = null, user = null, configured = false, shown = today(), supaUrl = '';
 
 /* Links on items, such as the Thymer page a task came from */
@@ -426,10 +419,10 @@ function footHTML() {
       <div class="acct">${esc(user.email || '')}</div>
       <div class="sync ${store.sync.state}">${SYNC_TEXT[store.sync.state] || ''}</div>
       <div>${c.connected && !c.reconnect ? 'Google Calendar connected (read-only).' : 'Google Calendar isn\'t connected.'} ${!c.connected || c.reconnect ? '<button class="link" data-act="signin">Connect it</button>' : ''}</div>
-      <div class="foot-acts"><button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="trash">Trash</button><button class="link" data-act="mcp">Connect to Claude</button><button class="link" data-act="signout">Sign out</button></div><div class="foot-set"><button class="link" data-act="min">${S.min ? 'Leave Quiet' : 'Go Quiet'}</button><button class="link" data-act="games">${S.games ? 'Hide game modes' : 'Game modes'}</button></div>${mcpHTML()}</div>`;
+      <div class="foot-acts"><button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="trash">Trash</button><button class="link" data-act="mcp">Connect to Claude</button><button class="link" data-act="signout">Sign out</button></div><div class="foot-set"><button class="link" data-act="min">${S.min ? 'Leave Quiet' : 'Go Quiet'}</button></div>${mcpHTML()}</div>`;
   }
   return `<div class="side-f">Sample data, stored only on this device. Drag anything onto the plan, or back here to unschedule it.
-    <div class="foot-acts">${configured ? '<button class="link" data-act="signin">Sign in with Google</button>' : ''}<button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="trash">Trash</button><button class="link" data-act="reset">Reset sample data</button></div><div class="foot-set"><button class="link" data-act="min">${S.min ? 'Leave Quiet' : 'Go Quiet'}</button><button class="link" data-act="games">${S.games ? 'Hide game modes' : 'Game modes'}</button></div></div>`;
+    <div class="foot-acts">${configured ? '<button class="link" data-act="signin">Sign in with Google</button>' : ''}<button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="trash">Trash</button><button class="link" data-act="reset">Reset sample data</button></div><div class="foot-set"><button class="link" data-act="min">${S.min ? 'Leave Quiet' : 'Go Quiet'}</button></div></div>`;
 }
 /* Areas group the top-level projects, and tasks that belong to an area without being part of a project.
    Such a task becomes a project in that area as soon as it gets steps. A project whose area is gone shows under "No area";
@@ -832,16 +825,12 @@ function renderStats(el) {
 stats.init({ S, saveUI, render: () => render() });
 // Time blocks scrolls both ways in one box, so one finger can go sideways and up/down in the same swipe, and the day names stay pinned on top
 const vScroller = mb => (mb?.classList.contains('timed') && mb.querySelector('.tw')) || mb;
-// On a phone the Dragon view is the whole app (rooms over the cave), so the Daybook header and tab bar step aside
-const caveShell = () => S.mode === 'dragon' && phone() && S.tab === 'plan';
 function renderMain() {
   const el = document.getElementById('main');
-  document.body.classList.toggle('td-shell', caveShell());
   document.body.classList.toggle('quiet', quietLook()); document.body.classList.toggle('q-strip', quiet() && !!S.qstrip);
   if (boardShown()) return renderBoard(el);
   if (roadShown()) return renderRoad(el);
   if (statsShown()) return renderStats(el);
-  if ((S.mode === 'quest' || S.mode === 'dragon') && S.view === 'week') S.view = 'day'; // Quest and Task Dragon play one day at a time
   const strip = S.view === 'week';
   const prev = document.getElementById('mbody'); const key = S.view + S.mode + (strip ? '' : S.anchor);
   const same = prev && prev.dataset.k === key; const sc = same ? vScroller(prev).scrollTop : null;
@@ -858,13 +847,13 @@ function renderMain() {
   el.innerHTML = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">${title}</span></button>` : ''}${qBack()}<header class="mh">
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg" role="group" aria-label="Range"><button data-act="view" data-v="day" ${P('view', 'day')}>Day</button><button data-act="view" data-v="week" ${P('view', 'week')}>Week</button></div>
-    <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Timeline</button>${S.games ? `<button data-act="mode" data-v="quest" ${P('mode', 'quest')}>Quest</button><button data-act="mode" data-v="dragon" ${P('mode', 'dragon')}>Dragon</button>` : ''}</div>
+    <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Timeline</button></div>
     <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
     <button class="ib q-only" data-act="qproj" aria-pressed="${qp || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
-    <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>${qp || S.mode === 'dragon' || S.mode === 'quest' ? '' : nowLine() + needLine()}
-  <div class="mbody${S.mode === 'timed' ? ' timed' : S.mode === 'dragon' ? ' td-body' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
-    ${S.tip && S.mode !== 'dragon' ? `<div class="tip"><span>Tap a task to open it and add notes. Tap an empty time, or the + under a day, to add one. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
-    ${S.mode === 'dragon' ? fightHTML(days[0]) : S.mode === 'quest' ? questHTML(days[0]) : S.mode === 'list' ? (S.view === 'week' ? weekList(days) : dayList(days[0])) : timed(days)}
+    <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>${qp ? '' : nowLine() + needLine()}
+  <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
+    ${S.tip ? `<div class="tip"><span>Tap a task to open it and add notes. Tap an empty time, or the + under a day, to add one. Drag to move it. On a phone, press and hold, then drag. Swipe up from the tab bar to pick from your projects.</span><button data-act="tip" aria-label="Dismiss tip">×</button></div>` : ''}
+    ${S.mode === 'list' ? (S.view === 'week' ? weekList(days) : dayList(days[0])) : timed(days)}
   </div>${drawerHTML()}${quiet() ? `<button class="qgrab" data-act="drawer" aria-label="Show projects to schedule"></button>` : ''}`;
   const dr = document.getElementById('dr-b'); if (dr) dr.scrollTop = drSc;
   const mb = document.getElementById('mbody');
@@ -880,24 +869,6 @@ function renderMain() {
     stripTitle();
   }
   trayObs.disconnect(); mb.querySelectorAll('.tw, .tri').forEach(x => trayObs.observe(x));
-  if (S.mode === 'quest') quest.mounted(QR);
-  if (S.mode === 'dragon') fight.mounted(days[0]);
-}
-/* Task Dragon (js/dragon.js, js/fight.js): the day as a battle against a close-up dragon. Its + adds a quest to that day. */
-function fightHTML(d) {
-  const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a quest to ${esc(dayShort(d))}"><span aria-hidden="true">+</span> Quest</button>`;
-  return fight.html(d, { adder, needs: needLine() });
-}
-// With game modes hidden, the dragon's reminders stop too (they come back with Turn on reminders in Quest)
-const gamesQuiet = () => { if (!S.games && remind.state().act === 'off') remind.disable(() => {}); };
-const beginDragon = () => dragon.begin(user, quest.started() ? quest.realm().vault : 0); // the keep's gold comes along into the hoard
-/* Quest (js/quest.js): the day played against Claude as a dragon. Its + adds a task to that day, like the list's. */
-let QR = null;
-function questHTML(d) {
-  quest.settle(); // a campaign won or run out closes the first time Quest is drawn after
-  QR = quest.realm();
-  const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a quest to ${esc(dayShort(d))}"><span aria-hidden="true">+</span> Add a quest</button>`;
-  return quest.html(d, QR, { adder, noHabits: !routine.habits().length, remind: remind.state() });
 }
 /* The "Any time" row is only as tall as the busiest day on screen, not the busiest of the days drawn off to either side.
    Should a day still outgrow its cap, it scrolls inside its own cell, fading at the foot to show there's more. */
@@ -1611,7 +1582,6 @@ let occOffer = null, occAll = null;
 // A new step: offer Undo, keeping any message the change just showed (like a project's progress)
 function onStep(st) {
   urSync();
-  if (st) for (const [id, b, a] of st.ch) quest.moved(id, b, a); // moving a quest off its day costs a swipe of gold
   const off = occOffer; occOffer = null;
   if (!st || st.text) return; // typing a name or notes: the box is right there, no pill needed
   if (off && st.ch.some(c => c[0] === off.id)) { occAll = off; toast(`${describe(st)}, just this one`, `<button data-act="occ-all">${ICON.rep}All repeats</button>${urActs(true)}`, 8000); return; }
@@ -1721,8 +1691,6 @@ function newProject(ar) { const n = makeProject('', ar); if (ar) S.col['area:' +
 function newArea() { const n = store.create({ k: 'area', t: '', c: store.nextAreaColor(), o: Math.max(0, ...store.areas().map(a => a.o)) + 1 }); openItem(n.id, true); }
 // Switching List and Time blocks in Week view stays on the days you were looking at
 function setMode(m) {
-  if (m === 'quest') { S.mode = m; S.view = 'day'; W = null; quest.begin(user); render(); return; }
-  if (m === 'dragon') { S.mode = m; S.view = 'day'; S.tab = 'plan'; S.cave = false; W = null; quest.begin(user); beginDragon(); render(); return; }
   const first = S.view === 'week' && W ? visibleDays()[0] : null;
   S.mode = m; if (first) W.jump = first; else W = null; render();
 }
@@ -1794,17 +1762,6 @@ document.addEventListener('click', e => {
     case 'blk-focus': S.blkView = 'next'; S.blkFocus = id || null; S.blkSkip = []; renderDetail(); break;
     case 'blk-skip': (S.blkSkip || (S.blkSkip = [])).push(id); renderDetail(); break;
     case 'blk-new': { const t = node(id); const n = t && newBlock(id); if (n) { openItem(n.id); toast(`${short(t.t)} time added today. Drag it on the plan to move it.`); } break; }
-    case 'q-routine': routine.open(); break;
-    case 'q-kingdom': kingdom.open(); break;
-    case 'q-bonus': quest.claim(b.dataset.d, +b.dataset.i); render(); break;
-    case 'q-taunt': quest.taunt(); b.classList.add('poked'); break;
-    case 'q-pick': quest.choose(b.dataset.b); render(); break;
-    case 'q-intro': quest.next(); render(); break;
-    case 'q-help': quest.help(); render(); break;
-    case 'q-sound': sfx.set(!sfx.on()); render(); if (sfx.on()) sfx.coin(); break;
-    case 'q-report-x': quest.closeReport(b.dataset.w); render(); break;
-    case 'q-report': quest.closeReport(b.dataset.w, false); render(); break;
-    case 'q-remind': if (b.dataset.v === 'info') { toast(remind.state().txt, '', 7000); break; } if (b.dataset.v === 'off' && b.classList.contains('q-pill')) { toast('Reminders are on here.', '<button data-act="q-remind" data-v="off">Turn off</button>', 7000); break; } if (b.dataset.v === 'on') remind.enable(later).then(r => { if (r === 'on') toast('Reminders are on. A test one is on its way.'); else if (r === 'error') toast("Couldn't turn reminders on. Try again in a moment."); else toast(remind.state().txt, '', 7000); }); else remind.disable(later); break;
     case 'rec': if (track.isRec(node(id))) track.stop(id); else { const a = node(id); if (a?.k === 'area' && aday.doneOn(a, today())) store.update(id, { dd: aday.withDone(a, today(), false) }); track.start(id); } break; // starting an area again opens it back up for the day
     case 'ad-skip': { const a = node(id), d = b.dataset.d; if (!a) break; if (track.isRec(a)) track.stop(id); store.update(id, { dg: withDay(a.dg, d, 0), dd: aday.withDone(a, d, false) }); S.open = null; S.fromBlk = null; renderDetail(); break; } // takes the area off that day: its card leaves the List, logged time stays
     case 'ad-unskip': { const a = node(id), d = b.dataset.d; if (a) store.update(id, { dg: withDay(a.dg, d, '') }); break; }
@@ -1878,10 +1835,9 @@ document.addEventListener('click', e => {
     case 'rm-zoom': roadmap.setZoom(+b.dataset.v); break;
     case 'rm-fold': S.col['rm:' + id] = !S.col['rm:' + id]; saveUI(); render(); break;
     case 'rm-week': S.anchor = b.dataset.d; S.view = 'week'; W = null; leaveRoad(); render(); break;
-    case 'view': leaveRoad(); S.view = b.dataset.v; if (S.view === 'week' && (S.mode === 'quest' || S.mode === 'dragon')) S.mode = 'list'; W = null; render(); break;
-    case 'mode': leaveRoad(); S.cave = false; setMode(b.dataset.v); break;
+    case 'view': leaveRoad(); S.view = b.dataset.v; W = null; render(); break;
+    case 'mode': leaveRoad(); setMode(b.dataset.v); break;
     case 'min': setQuiet(!S.min); break;
-    case 'games': S.games = !S.games; gamesQuiet(); if (!S.games && (S.mode === 'quest' || S.mode === 'dragon')) S.mode = 'timed'; if (S.games && phone()) quietPlan(); render(); toast(S.games ? 'Quest and Dragon are back in the layout switch' : 'Game modes hidden. Your progress is kept.'); break;
     case 'qstrip': setStrip(!S.qstrip); break;
     case 'qproj': if (!phone()) setQPin(!qPin); else if (qProjects()) { quietPlan(); render(); } else quietProjects(); break;
     case 'prev': case 'next': if (roadShown()) { roadmap.go(a === 'prev' ? -1 : 1); break; } if (statsShown()) { stats.go(a === 'prev' ? -1 : 1); break; } if (qProjects()) { quietPlan(); render(); break; } {
@@ -2296,7 +2252,7 @@ document.addEventListener('touchend', e => { if (e.touches.length < 2) Z = null;
 /* Day view: swipe sideways to go to the next or previous day. The day slides along under the finger and the
    day it's heading to peeks in from the side. A trackpad's two-finger sideways swipe does the same on a computer. */
 let DS = null, WS = null, swBusy = false; const swp = document.createElement('div'); swp.className = 'swp';
-const dayBody = t => { if (document.body.classList.contains('td-shell')) return null; const mb = document.getElementById('mbody'); return mb?.classList.contains('day') && t instanceof Element && mb.contains(t) ? mb : null; };
+const dayBody = t => { const mb = document.getElementById('mbody'); return mb?.classList.contains('day') && t instanceof Element && mb.contains(t) ? mb : null; };
 function swSet(dx, o) {
   const mb = document.getElementById('mbody'); if (!mb) return; const w = mb.clientWidth || 1;
   mb.classList.add('swiping'); mb.style.setProperty('--swx', dx + 'px'); mb.style.setProperty('--swo', o ?? 1 - Math.min(1, Math.abs(dx) / w) * .6);
@@ -2325,7 +2281,7 @@ function swGo(dir) { // dir 1 = next day, -1 = previous
 }
 document.addEventListener('touchstart', e => {
   DS = null; if (e.touches.length !== 1 || swBusy || D) return;
-  const mb = dayBody(e.target); if (!mb || e.target.closest('input,textarea,select,.rs,.q-scene')) return; // the Quest picture uses drags to look around
+  const mb = dayBody(e.target); if (!mb || e.target.closest('input,textarea,select,.rs')) return;
   if (quiet() && e.touches[0].clientY > innerHeight - 40) return; // Quiet: the bottom edge brings in projects
   const t = e.touches[0]; DS = { x: t.clientX, y: t.clientY, lx: t.clientX, h: [[e.timeStamp, t.clientX]], on: false };
 }, { passive: true });
@@ -2383,33 +2339,24 @@ function showWelcome(show) { document.getElementById('welcome').hidden = !show; 
 function enterDemo() {
   S.demo = true; saveUI(); user = null; showWelcome(false);
   store.useLocal('daybook-sample', store.sampleData); calendar.useSample(); notes.useLocal(['s4', 's3', 's26']);
-  initAI({ cloud: false, client: null }); quest.init({ client: null }); fight.init({ client: null, free: () => +S.free || 10 }); remind.init(null); routine.init({ client: null }); if (S.games && (S.mode === 'quest' || S.mode === 'dragon')) quest.begin(null); if (S.games && S.mode === 'dragon') beginDragon(); render();
+  initAI({ cloud: false, client: null }); render();
 }
 async function enterCloud(u) {
   user = u; S.demo = false; if (u.user_metadata?.free_hours) S.free = u.user_metadata.free_hours; saveUI(); showWelcome(false);
   daystrip.useHours(u.user_metadata?.work_hours, h => client.auth.updateUser({ data: { work_hours: h } }).catch(() => {})); // work hours follow the account
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; // so Claude reads and writes finish times in local time
   if (tz && u.user_metadata?.tz !== tz) client.auth.updateUser({ data: { tz } }).catch(() => {});
-  calendar.useGoogle(client, u.id); initAI({ cloud: true, client }); notes.useCloud(client, u); quest.init({ client }); fight.init({ client, free: () => +S.free || 10 }); dragon.init({ client }); if (S.games && (S.mode === 'quest' || S.mode === 'dragon' || u.user_metadata?.quest_start)) quest.begin(u); if (S.games && (S.mode === 'dragon' || u.user_metadata?.dragon)) beginDragon(); remind.init(client); gamesQuiet(); routine.init({ client });
+  calendar.useGoogle(client, u.id); initAI({ cloud: true, client }); notes.useCloud(client, u);
   render();
   await store.useCloud(client, u);
   calendar.ensure(add(today(), -7), add(today(), 28), true);
 }
-store.onChange(kind => { if (kind !== 'sync' && kind !== 'step') remind.later(); });
 store.onChange((kind, st) => { if (kind === 'occ') { if (!S.open && !('done' in st.patch) && !('tl' in st.patch)) occOffer = occOffer || st; return; } if (kind === 'step') return onStep(st); if (kind === 'sync') { if (!D) later(); return; } if (!D) later(); });
 calendar.onCalendarChange(() => { if (!D) later(); });
 notes.onChange(() => { if (!D) later(); renderMsgs(); });
 initAI({ anchor: () => S.anchor, showPlan, render: later });
-quest.init({ update: later });
-dragon.init({ update: later });
-sfx.init({ quiet });
-kingdom.init({ changed: t => { render(); toast(t); } });
-routine.init({ ended: t => toast(`Removed ${t || 'the habit'} from today on`, urActs()), done: k => { if (k) { quest.begin(user); S.mode = 'quest'; S.view = 'day'; S.anchor = today(); render(); toast(`Routine saved: ${k} habit${k > 1 ? 's' : ''}. The dragon is watching.`); } } });
-// A reminder opens Daybook on Quest (see sw.js)
-if (new URLSearchParams(location.search).has('quest') && S.games) { S.mode = 'quest'; S.view = 'day'; S.anchor = today(); history.replaceState(null, '', location.pathname); }
 initVoice(q => ask(q, { voice: true }), msg => toast(msg, '', 5000));
 setInterval(() => { if (today() !== shown) { shown = today(); if (S.anchor === add(today(), -1)) S.anchor = today(); later(); } else if (track.running() && !D) later(); // what's recording grows in Time blocks
-  else if ((S.mode === 'quest' || S.mode === 'dragon') && !D) later(); // the dragon swoops on the minute
   else if (S.mode === 'list' && S.view === 'day' && !D) later(); // the day strip counts down
   else if (S.mode === 'timed' && !D) { document.querySelectorAll('.now').forEach(n => n.style.top = hpx((nowMin() - H0 * 60) / 60)); } }, 60e3);
 if (!matchMedia('(min-width:1500px)').matches) document.body.classList.add('ai-off');

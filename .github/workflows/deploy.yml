@@ -58,7 +58,11 @@ jobs:
           if [ ${#args[@]} -gt 0 ]; then supabase secrets set --yes --project-ref "$PROJECT_REF" "${args[@]}"; fi
       - name: Deploy server functions
         if: steps.ready.outputs.ok == 'true'
-        run: supabase functions deploy ask calendar mcp inkwell inkwell-mcp inkwell-digest inkwell-share acro-meetings acro-tasks scribe quest push remind routine voice --project-ref "$PROJECT_REF" --use-api --yes
+        run: supabase functions deploy ask calendar mcp inkwell inkwell-mcp inkwell-digest inkwell-share acro-meetings acro-tasks scribe --project-ref "$PROJECT_REF" --use-api --yes
+      - name: Remove the old game functions
+        if: steps.ready.outputs.ok == 'true'
+        # The dragon games moved out of Daybook; these stay gone (each delete is skipped once it's done).
+        run: for f in quest voice push remind routine; do supabase functions delete "$f" --project-ref "$PROJECT_REF" --yes || true; done
 
   site:
     name: Publish the app
@@ -75,7 +79,7 @@ jobs:
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
         run: |
           mkdir -p _site
-          cp -r index.html privacy.html lab.html voices.html app.css manifest.webmanifest sw.js favicon.ico icons js art _site/
+          cp -r index.html privacy.html app.css manifest.webmanifest sw.js favicon.ico icons js _site/
           printf "export default { supabaseUrl: '%s', supabaseAnonKey: '%s' };\n" "$SUPABASE_URL" "$SUPABASE_ANON_KEY" > _site/js/config.js
           # New cache name on every publish so phones pick up the update.
           sed -i "s/daybook-v1/daybook-${GITHUB_SHA::8}/" _site/sw.js
