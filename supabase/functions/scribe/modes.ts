@@ -6,12 +6,13 @@
 // voice from the keyboard or by asking Claude. `model` is which Claude
 // rewrites it: haiku for quick light jobs, sonnet for emails, opus where the
 // writing matters. Inkwell's Capture and walk-and-talk drafting use the same
-// modes, so a mode made in either app shows in both.
+// modes, so a mode made in either app shows in both. `keep` files the
+// recording and its words in Inkwell, on that day's page (keep.ts).
 import { admin } from "../_shared/common.ts";
 
 export type Model = "haiku" | "sonnet" | "opus";
 export const MODELS: Model[] = ["haiku", "sonnet", "opus"];
-export type Mode = { id: string; name: string; apps: string[]; prompt: string; model: Model };
+export type Mode = { id: string; name: string; apps: string[]; prompt: string; model: Model; keep: boolean };
 
 // Idea's instruction before it became an outline (2026-10-24); a mode still
 // saying exactly this is moved to the new one.
@@ -21,6 +22,7 @@ export const IDEA_PROMPT = "A note to self about an idea, often a long ramble. S
 export const STARTER_MODES: Mode[] = [
   {
     id: "text",
+    keep: false,
     name: "Text message",
     model: "haiku",
     apps: [
@@ -37,6 +39,7 @@ export const STARTER_MODES: Mode[] = [
   },
   {
     id: "email",
+    keep: false,
     name: "Email",
     model: "sonnet",
     apps: [
@@ -50,6 +53,7 @@ export const STARTER_MODES: Mode[] = [
   },
   {
     id: "clean",
+    keep: false,
     name: "Clean only",
     model: "haiku",
     apps: [],
@@ -57,6 +61,7 @@ export const STARTER_MODES: Mode[] = [
   },
   {
     id: "idea",
+    keep: true,
     name: "Idea",
     model: "opus",
     apps: [],
@@ -64,6 +69,7 @@ export const STARTER_MODES: Mode[] = [
   },
   {
     id: "journal",
+    keep: true,
     name: "Journal",
     model: "opus",
     apps: [],
@@ -71,6 +77,7 @@ export const STARTER_MODES: Mode[] = [
   },
   {
     id: "scene",
+    keep: true,
     name: "Scene",
     model: "opus",
     apps: [],
@@ -84,7 +91,7 @@ export const modelOf = (m: unknown): Model | null => (MODELS as unknown[]).inclu
 // A person's modes, in order; the starting set is copied in the first time.
 export async function modesOf(userId: string): Promise<Mode[]> {
   const sb = admin();
-  const { data, error } = await sb.from("scribe_modes").select("id,name,prompt,apps,model").eq("user_id", userId).order("sort").order("id");
+  const { data, error } = await sb.from("scribe_modes").select("id,name,prompt,apps,model,keep").eq("user_id", userId).order("sort").order("id");
   if (error) throw error;
   if (data.length) return data as Mode[];
   const rows = STARTER_MODES.map((m, i) => ({ ...m, user_id: userId, sort: i * 10 }));
@@ -110,10 +117,12 @@ export async function saveMode(userId: string, modes: Mode[], m: Record<string, 
   const model = modelOf(m.model) ?? (at >= 0 ? modes[at].model : null) ?? "opus";
   // Inkwell has no say in which apps a mode is for, so it sends none: keep them.
   const apps = m.apps === undefined && at >= 0 ? modes[at].apps : cleanApps(m.apps);
-  const row = { user_id: userId, id, name, prompt: clean(m.prompt, 2000), apps, model, sort: at >= 0 ? at * 10 : modes.length * 10, updated_at: new Date().toISOString() };
+  // An app from before "Keep in Inkwell" sends nothing for it: keep what the mode had.
+  const keep = typeof m.keep === "boolean" ? m.keep : at >= 0 ? !!modes[at].keep : false;
+  const row = { user_id: userId, id, name, prompt: clean(m.prompt, 2000), apps, model, keep, sort: at >= 0 ? at * 10 : modes.length * 10, updated_at: new Date().toISOString() };
   const { error } = await admin().from("scribe_modes").upsert(row, { onConflict: "user_id,id" });
   if (error) throw error;
-  return { id, name: row.name, prompt: row.prompt, apps: row.apps, model };
+  return { id, name: row.name, prompt: row.prompt, apps: row.apps, model, keep };
 }
 
 // Returns the reason it wasn't deleted, if it wasn't.
