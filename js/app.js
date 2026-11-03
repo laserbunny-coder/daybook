@@ -7,6 +7,7 @@ import * as roadmap from './roadmap.js';
 import * as stats from './stats.js';
 import * as track from './track.js';
 import * as notes from './notes.js';
+import * as alerts from './alerts.js';
 import * as blocks from './blocks.js';
 import * as aday from './areaday.js';
 import * as habits from './habits.js';
@@ -412,6 +413,18 @@ async function mcpOff() {
   const { error } = await client.rpc('revoke_mcp_token');
   S.mcp = null; renderSide(); toast(error ? "Couldn't turn it off. Try again." : "Claude's access to Daybook is off");
 }
+/* Phone alerts (js/alerts.js): buzz this device for the 9 pm day review, Needs you, and other notes, even with Daybook closed */
+function alertsHTML() {
+  if (!S.alerts) return '';
+  const st = alerts.state(), p = alerts.prefs(), msg = alerts.message();
+  const row = x => `<label class="al-row"><span><b>${esc(x.name)}</b><small>${esc(x.hint)}</small></span><input type="checkbox" role="switch" class="al-sw" data-act="alerts-pref" data-k="${x.k}" ${p[x.k] ? 'checked' : ''}></label>`;
+  return `<div class="mcp al" id="alerts-panel"><p><b>Phone alerts</b></p><p>${esc(st.txt)}</p>
+    ${st.act ? `<div class="foot-acts">${st.on ? '<button class="tb" data-act="alerts-test">Send a test</button><button class="link" data-act="alerts-off">Turn off here</button>' : '<button class="tb" data-act="alerts-on">Turn on alerts here</button>'}</div>` : ''}
+    ${msg ? `<p class="al-msg">${esc(msg)}</p>` : ''}
+    <div class="al-kinds">${alerts.KINDS.map(row).join('')}</div>
+    <p class="al-note">These switches are the same on every device. To let alerts through Do Not Disturb, add Daybook as an allowed app in your phone's Do Not Disturb settings.</p>
+    <div class="foot-acts"><button class="link" data-act="alerts-close">Done</button></div></div>`;
+}
 function footHTML() {
   if (user) {
     const c = calendar.cal;
@@ -419,7 +432,7 @@ function footHTML() {
       <div class="acct">${esc(user.email || '')}</div>
       <div class="sync ${store.sync.state}">${SYNC_TEXT[store.sync.state] || ''}</div>
       <div>${c.connected && !c.reconnect ? 'Google Calendar connected (read-only).' : 'Google Calendar isn\'t connected.'} ${!c.connected || c.reconnect ? '<button class="link" data-act="signin">Connect it</button>' : ''}</div>
-      <div class="foot-acts"><button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="trash">Trash</button><button class="link" data-act="mcp">Connect to Claude</button><button class="link" data-act="signout">Sign out</button></div><div class="foot-set"><button class="link" data-act="min">${S.min ? 'Leave Quiet' : 'Go Quiet'}</button></div>${mcpHTML()}</div>`;
+      <div class="foot-acts"><button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="trash">Trash</button><button class="link" data-act="mcp">Connect to Claude</button><button class="link" data-act="signout">Sign out</button></div><div class="foot-set"><button class="link" data-act="min">${S.min ? 'Leave Quiet' : 'Go Quiet'}</button><button class="link" data-act="alerts" aria-expanded="${!!S.alerts}">Phone alerts</button></div>${mcpHTML()}${alertsHTML()}</div>`;
   }
   return `<div class="side-f">Sample data, stored only on this device. Drag anything onto the plan, or back here to unschedule it.
     <div class="foot-acts">${configured ? '<button class="link" data-act="signin">Sign in with Google</button>' : ''}<button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="trash">Trash</button><button class="link" data-act="reset">Reset sample data</button></div><div class="foot-set"><button class="link" data-act="min">${S.min ? 'Leave Quiet' : 'Go Quiet'}</button></div></div>`;
@@ -1881,6 +1894,12 @@ document.addEventListener('click', e => {
     case 'note-later': notes.unread().forEach(n => noteLater.add(n.id)); renderNote(); break;
     case 'note-task': openItem(id); break;
     case 'mcp': S.mcp = S.mcp ? null : {}; renderSide(); break;
+    case 'alerts': S.alerts = !S.alerts; renderSide(); if (S.alerts) document.getElementById('alerts-panel')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); break;
+    case 'alerts-close': S.alerts = false; renderSide(); break;
+    case 'alerts-on': alerts.enable(); break;
+    case 'alerts-off': alerts.disable(); break;
+    case 'alerts-test': alerts.test(); break;
+    case 'alerts-pref': alerts.setPref(b.dataset.k, b.checked); break;
     case 'mcp-close': S.mcp = null; renderSide(); break;
     case 'mcp-make': mcpMake(); break;
     case 'mcp-off': mcpOff(); break;
@@ -2347,6 +2366,7 @@ async function enterCloud(u) {
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; // so Claude reads and writes finish times in local time
   if (tz && u.user_metadata?.tz !== tz) client.auth.updateUser({ data: { tz } }).catch(() => {});
   calendar.useGoogle(client, u.id); initAI({ cloud: true, client }); notes.useCloud(client, u);
+  alerts.init(client, u.id, () => { if (S.alerts) renderSide(); });
   render();
   await store.useCloud(client, u);
   calendar.ensure(add(today(), -7), add(today(), 28), true);
@@ -2382,4 +2402,11 @@ async function boot() {
   else { renderTabs(); showWelcome(true); }
 }
 boot();
+// A tapped alert opens Daybook on Notes (?notes) or Needs you (?needs)
+function openFromLink(q) {
+  if (q.has('notes')) { S.needsOpen = false; S.notesOpen = true; } else if (q.has('needs')) { S.notesOpen = false; S.needsOpen = true; } else return;
+  history.replaceState(null, '', location.pathname); render();
+}
+openFromLink(new URLSearchParams(location.search));
+navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.open) openFromLink(new URLSearchParams(e.data.open)); });
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('./sw.js').catch(() => {});
