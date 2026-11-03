@@ -495,7 +495,7 @@ function dayGaps(d) {
 }
 function listHTML(d, wide = false) {
   const { gaps } = dayGaps(d), carded = new Set(aday.cardsOn(d).map(c => c.a.id));
-  const chips = g => g.filter(n => !(n.rs && habits.isHabit(n)) && !cardAreaOf(n, carded)) // an area's own tasks sit on its card.map(n => chipHTML(n, { time: true, min: S.min })).join(''); // habits live in their own card
+  const chips = g => g.filter(n => !(n.rs && habits.isHabit(n)) && !cardAreaOf(n, carded)).map(n => chipHTML(n, { time: true, min: S.min })).join(''); // habits live in their own card; an area's own tasks sit on its card
   // Timed events no longer sit in the list (the strip and Timeline show them); tasks keep the same order around them
   const body = gaps.map(chips).join('');
   const adder = S.new?.at === 'list' && S.new.d === d ? newHTML() : `<button class="ladd" data-act="new-day" data-d="${d}" aria-label="Add a task to ${esc(dayShort(d))}"><span aria-hidden="true">+</span>${body ? '' : ' Add a task'}</button>`;
