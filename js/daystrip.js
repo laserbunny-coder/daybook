@@ -93,9 +93,16 @@ const evTimes = e => e.allDay ? 'All day' : `${fmtT(e.s)} to ${fmtT(e.s + (e.m |
 function allDay(d, A) {
   return A.length ? `<div class="ds-ad">${A.map((e, i) => `<button class="ds-adp${sel === `${d}|a${i}` ? ' sel' : ''}" style="${tint(e)}" data-act="ds-ev" data-k="${d}|a${i}" title="${esc(e.t || 'All day')}">${esc(e.t || 'All day')}</button>`).join('')}</div>` : '';
 }
-function caption(d, E, A) {
+function caption(d, E, A, ST = []) {
   if (!sel || !sel.startsWith(d + '|')) return '';
-  const k = sel.slice(d.length + 1), e = k[0] === 'a' ? A[+k.slice(1)] : E[+k.slice(1)];
+  const k = sel.slice(d.length + 1);
+  if (k[0] === 'w') { // a stretch of recorded time: what it was, which project, and when
+    const x = ST[+k.slice(1)]; if (!x) return '';
+    let r = x.n; while (r.p && store.get(r.p) && !store.get(r.p).x) r = store.get(r.p);
+    const at = ms => fmtT(new Date(ms).getHours() * 60 + new Date(ms).getMinutes());
+    return `<div class="ds-cap" style="--c:${x.c}"><span class="pdot"></span><b>${esc(x.n.t || 'Untitled')}${r !== x.n ? ` <span class="ds-cp">\u00b7 ${esc(r.t || 'Untitled')}</span>` : ''}</b><small>${at(x.t0)} to ${x.live ? 'now' : at(x.t1)} \u00b7 ${fmtDur(Math.max(1, Math.round((x.t1 - x.t0) / 6e4)))}</small></div>`;
+  }
+  const e = k[0] === 'a' ? A[+k.slice(1)] : E[+k.slice(1)];
   if (!e) return '';
   const n = d === today() ? nowMin() : null, soon = !e.allDay && n != null && e.s > n ? ` \u00b7 in ${fmtDur(e.s - n)}` : '';
   return `<div class="ds-cap" style="${tint(e)}"><span class="pdot"></span><b>${esc(e.t || 'Busy')}</b><small>${evTimes(e)}${soon}</small></div>`;
@@ -117,7 +124,7 @@ function stretches(d) {
     if (e.guess) continue;
     const s = Date.parse(e.start), f = e.end ? Date.parse(e.end) : Date.now();
     if (f <= a || s >= z) continue;
-    out.push({ s: Math.max(0, (s - a) / 6e4), e: Math.min(1440, (f - a) / 6e4), c: colorOf(n) });
+    out.push({ s: Math.max(0, (s - a) / 6e4), e: Math.min(1440, (f - a) / 6e4), c: colorOf(n), n, live: !e.end, t0: s, t1: f });
   }
   return out;
 }
@@ -162,7 +169,7 @@ export function html(d) {
       end = Math.max(end ?? 0, e.s + (e.m || 0)); } }
   E.forEach((e, i) => { const w = P(e.s + (e.m || 0)) - P(e.s), t = e.t || 'Busy', k = `${d}|e${i}`;
     parts.push(box(`ds-ev${inEv === e ? ' now' : ''}${sel === k ? ' sel' : ''}`, e.s, e.s + (e.m || 0), w > t.length * 1.7 ? esc(t) : '', ` data-act="ds-ev" data-k="${k}" role="button" title="${esc(t)} · ${evTimes(e)}"`).replace('" data-act', `${tint(e) ? ';' + tint(e) : ''}" data-act`)); });
-  for (const x of ST) parts.push(`<i class="ds-sw" style="left:${P(x.s).toFixed(2)}%;width:${Math.max(.6, P(x.e) - P(x.s)).toFixed(2)}%;--pc:${x.c}"></i>`);
+  ST.forEach((x, i) => { const k = `${d}|w${i}`; parts.push(`<i class="ds-sw${sel === k ? ' sel' : ''}" style="left:${P(x.s).toFixed(2)}%;width:${Math.max(.6, P(x.e) - P(x.s)).toFixed(2)}%;--pc:${x.c}" data-act="ds-ev" data-k="${k}" role="button" title="${esc(x.n.t || 'Untitled')}"></i>`); });
   if (isT && n >= a && n <= z) parts.push(`<i class="ds-nw" style="left:${P(n).toFixed(2)}%"></i>`);
   // Over the bar: each event ahead, its time and name in its colour (dropped where they'd crowd, cut short to fit)
   const ahead = E.map((e, i) => ({ e, i, p: P(e.s) })).filter(x => !isT || x.e.s > n).filter(x => x.p < 100);
@@ -214,7 +221,7 @@ export function html(d) {
     }
   }
   const A = eventsOn(d).filter(e => e.allDay);
-  return `<div class="ds${isT ? ' today' : ''}${past ? ' past' : ''}">${allDay(d, A)}${names ? `<div class="ds-names">${names}</div>` : ''}<div class="ds-bar" role="img" aria-label="${isT && cur ? `${fmtDur(cur.e - n)} free${next && next.s === cur.e ? ' until ' + esc(next.t || 'the next event') : ''}` : 'The day'}">${parts.join('')}</div><div class="ds-ticks">${ticks}</div>${caption(d, E, A)}${fit}</div>`;
+  return `<div class="ds${isT ? ' today' : ''}${past ? ' past' : ''}">${allDay(d, A)}${names ? `<div class="ds-names">${names}</div>` : ''}<div class="ds-bar" role="img" aria-label="${isT && cur ? `${fmtDur(cur.e - n)} free${next && next.s === cur.e ? ' until ' + esc(next.t || 'the next event') : ''}` : 'The day'}">${parts.join('')}</div><div class="ds-ticks">${ticks}</div>${caption(d, E, A, ST)}${fit}</div>`;
 }
 
 /** A day's work windows and what's left: open minutes in the work hours (from now on, for today) and goal minutes still to do. */
