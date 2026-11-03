@@ -11,7 +11,11 @@ import type { Mode } from "./modes.ts";
 const GAP = 1024;
 const MAX_BYTES = 50 * 1024 * 1024; // the same as a file added in Inkwell
 
-export type Keep = { said: string; text: string; mode: Mode; app: string; duration: number; heardBy?: string };
+export type Keep = {
+  said: string; text: string; mode: Mode; app: string; duration: number; heardBy?: string;
+  // From the Record tile: Inkwell's own write-up (paragraphs, notes to self, a title).
+  blocks?: { text: string; el: string; new_scene: boolean }[]; notes?: { text: string; after: number }[]; title?: string;
+};
 type Row = Record<string, unknown> & { id: string; kind: string };
 
 export function newId(prefix: string): string {
@@ -50,7 +54,10 @@ export function rowsFor(o: { fileId: string; lineId: string; type: string; size:
     tags: ["idea"], type: null, area_id: null, links: [], deleted: false,
     fields: {
       done: false, gather: null, gathered: null, mirror: null, capture: "voice", said: o.clock,
-      scribe: { raw: keep.said, text: keep.text, mode: keep.mode.id, name: keep.mode.name, app: keep.app || null, by: keep.heardBy || null },
+      scribe: {
+        raw: keep.said, text: keep.text, mode: keep.mode.id, name: keep.mode.name, app: keep.app || null, by: keep.heardBy || null,
+        ...(keep.blocks?.length ? { blocks: keep.blocks, notes: keep.notes ?? [] } : {}), ...(keep.title ? { title: keep.title } : {}),
+      },
     },
   };
   return { file, line };
@@ -63,8 +70,13 @@ async function timeZone(userId: string): Promise<string | null> {
   return typeof tz === "string" && tz ? tz : null;
 }
 
-/** Files the recording in Inkwell. Errors are logged, never thrown: what was typed in has already gone back. */
-export async function keepInInkwell(userId: string, audio: File, keep: Keep, now = new Date()): Promise<string | null> {
+/**
+ * Files the recording in Inkwell. Errors are logged, never thrown, after a
+ * dictation (what was typed in has already gone back); with `strict` (the
+ * Record tile, where Inkwell is the only place it goes) they're thrown, so the
+ * phone keeps the recording and tries again.
+ */
+export async function keepInInkwell(userId: string, audio: File, keep: Keep, now = new Date(), strict = false): Promise<string | null> {
   try {
     if (!audio.size || audio.size > MAX_BYTES || !keep.said.trim()) return null;
     const sb = admin();
@@ -94,6 +106,7 @@ export async function keepInInkwell(userId: string, audio: File, keep: Keep, now
     return line.id;
   } catch (err) {
     console.error("couldn't keep the recording in Inkwell", err);
+    if (strict) throw err;
     return null;
   }
 }
