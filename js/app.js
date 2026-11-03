@@ -479,7 +479,7 @@ function renderSide() {
   el.innerHTML = `<div class="side-h"><div class="brand">Daybook</div>${user ? '' : '<span class="tag">Sample</span>'}<button class="ib set-btn" data-act="settings" aria-pressed="${!!S.settings}" aria-label="Settings" title="Settings: alerts, notes, trash, Quiet, sign out">${ICON.gear}</button></div>
   <div class="side-rs" title="Drag to make the sidebar wider or narrower. Double-click to reset." aria-hidden="true"></div>
   <div class="side-b vscroll" data-drop="inbox">${settingsHTML()}
-    <div class="sec">Projects <span class="sec-acts"><button class="sec-add q-unpin" data-act="qproj" aria-label="Close projects" title="Close (P)">×</button><button class="sec-add desk-only" data-act="page" data-v="projects" title="See all projects on one big board">Full view</button><button class="sec-add" data-act="new-area">+ Area</button></span></div>
+    <div class="sec">Projects <span class="sec-acts"><button class="sec-add q-gear" data-act="settings" aria-pressed="${!!S.settings}" aria-label="Settings" title="Settings">${ICON.gear}</button><button class="sec-add q-unpin" data-act="qproj" aria-label="Close projects" title="Close (P)">×</button><button class="sec-add desk-only" data-act="page" data-v="projects" title="See all projects on one big board">Full view</button><button class="sec-add" data-act="new-area">+ Area</button></span></div>
     ${groups.map(g => areaHTML(g)).join('')}
     <div class="sec">Inbox <small>loose tasks</small></div>
     <div class="tree" data-drop="sib" data-g="loose">${loose.map(n => treeRows(n, 0)).join('')}</div>
@@ -811,7 +811,7 @@ function renderRoad(el) {
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">Roadmap</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Earlier">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Later">${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg rm-zoom" role="group" aria-label="Zoom">${[1, 3, 6].map(m => `<button data-act="rm-zoom" data-v="${m}" aria-pressed="${z === m}">${m} mo</button>`).join('')}</div>
     <label class="chip rm-free" title="How many hours a week you have for planned tasks. Weeks with more scheduled than this stand out."><input id="rm-free" type="number" inputmode="numeric" min="1" max="168" step="1" value="${free}" aria-label="Free hours per week"><span class="k">h free a week</span></label>
-    <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
+    <div class="mh-i"><button class="ib gear-btn" data-act="settings-go" aria-label="Settings" title="Settings">${ICON.gear}</button>${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
     <button class="ib q-only" data-act="qproj" aria-pressed="${qProjects() || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>`;
   const box = document.getElementById('rmsc'); const width = (box ? box.clientWidth : el.clientWidth) || innerWidth;
@@ -840,7 +840,7 @@ function renderStats(el) {
   el.innerHTML = `${quiet() ? `<button class="qh" data-act="qstrip" aria-expanded="${!!S.qstrip}" aria-label="Show the controls"><span id="qtitle">Stats · ${esc(R.label)}</span></button><div class="qmode" role="group" aria-label="Show"><button data-act="st-mode" data-v="time" aria-pressed="${S.stMode !== 'habits'}">Time</button><button data-act="st-mode" data-v="habits" aria-pressed="${S.stMode === 'habits'}">Habits</button></div>` : ''}${qBack()}<header class="mh st-mh">
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">Stats</h1><div class="seg st-mode" role="group" aria-label="Show"><button data-act="st-mode" data-v="time" aria-pressed="${S.stMode !== 'habits'}">Time</button><button data-act="st-mode" data-v="habits" aria-pressed="${S.stMode === 'habits'}">Habits</button></div><div class="nav"><button class="ib" data-act="prev" aria-label="Earlier"${fixed ? ' disabled' : ''}>${ICON.prev}</button><button class="tb" data-act="today"${fixed ? ' disabled' : ''}>${k === 'day' ? 'Today' : 'Now'}</button><button class="ib" data-act="next" aria-label="Later"${fixed ? ' disabled' : ''}>${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg st-kinds" role="group" aria-label="Range">${stats.KINDS.map(([v, l]) => `<button data-act="st-k" data-v="${v}" aria-pressed="${k === v}">${l}</button>`).join('')}</div>
-    <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
+    <div class="mh-i"><button class="ib gear-btn" data-act="settings-go" aria-label="Settings" title="Settings">${ICON.gear}</button>${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
     <button class="ib q-only" data-act="qproj" aria-pressed="${qProjects() || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>
   <div class="mbody st-b vscroll" id="mbody" data-k="stats">${S.stMode === 'habits' ? habitStats(R) : stats.html()}</div>`;
@@ -873,7 +873,7 @@ function renderMain() {
     <div class="mh-l">${pageSeg()}<h1 id="mtitle">${title}</h1><div class="nav"><button class="ib" data-act="prev" aria-label="Previous">${ICON.prev}</button><button class="tb" data-act="today">Today</button><button class="ib" data-act="next" aria-label="Next">${ICON.next}</button></div>${urBtns()}</div>
     <div class="mh-r"><div class="seg" role="group" aria-label="Range"><button data-act="view" data-v="day" ${P('view', 'day')}>Day</button><button data-act="view" data-v="week" ${P('view', 'week')}>Week</button></div>
     <div class="seg" role="group" aria-label="Layout"><button data-act="mode" data-v="list" ${P('mode', 'list')}>List</button><button data-act="mode" data-v="timed" ${P('mode', 'timed')}>Timeline</button></div>
-    <div class="mh-i">${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
+    <div class="mh-i"><button class="ib gear-btn" data-act="settings-go" aria-label="Settings" title="Settings">${ICON.gear}</button>${notesBtn()}<button class="ib min-btn" data-act="min" aria-pressed="${!!S.min}" aria-label="Quiet" title="Quiet (Q): titles only, and everything else tucked away until you reach for it">${ICON.min}</button>
     <button class="ib q-only" data-act="qproj" aria-pressed="${qp || qPin}" aria-label="Projects" title="Projects (P)">${ICON.board}</button>${roadBtn()}</div>
     <button class="ask-btn" data-act="ai-toggle">✦ Ask Claude</button></div></header>${qp ? '' : nowLine() + needLine()}
   <div class="mbody${S.mode === 'timed' ? ' timed' : ' vscroll'}${strip ? '' : ' day'}${S.min && S.mode === 'list' ? ' min' : ''}" id="mbody" data-k="${key}">${warn}
@@ -1913,6 +1913,10 @@ document.addEventListener('click', e => {
     case 'note-ok': notes.markRead([id]); break;
     case 'note-later': notes.unread().forEach(n => noteLater.add(n.id)); renderNote(); break;
     case 'note-task': openItem(id); break;
+    case 'settings-go': S.settings = true; setStrip(false);
+      if (phone()) { if (quiet()) { if (!qProjects()) quietProjects(); else render(); } else { S.tab = 'projects'; render(); } }
+      else { if (quiet() && !qPin) setQPin(true); else renderSide(); }
+      setTimeout(() => { const sb = document.querySelector('#side .side-b'); if (sb) sb.scrollTop = 0; }, 50); break;
     case 'settings': S.settings = !S.settings; if (!S.settings) { S.alerts = false; S.mcp = null; } renderSide(); if (S.settings) { const sb = document.querySelector('#side .side-b'); if (sb) sb.scrollTop = 0; } break;
     case 'mcp': S.mcp = S.mcp ? null : {}; renderSide(); break;
     case 'alerts': S.alerts = !S.alerts; renderSide(); if (S.alerts) document.getElementById('alerts-panel')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); break;
