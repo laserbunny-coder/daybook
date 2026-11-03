@@ -113,12 +113,23 @@ async function forUser(sb: Sb, userId: string, tz: string, budget: { left: numbe
     });
     exists.add(id);
     made.push(id);
-    // A new month summed up: a note in Daybook (it can buzz the phone), only
-    // for the latest finished month, so catching up never sends a pile.
-    if (month === due.months[due.months.length - 1]) await monthNote(sb, userId, month, out.summary, out.threads);
+  }
+  // The latest month summed up: a note in Daybook (it can buzz the phone), in
+  // waking hours during the week after it's written. Only the latest, so
+  // catching up never sends a pile; once only (deduped on its link).
+  const latest = due.months[due.months.length - 1];
+  if (!behind && latest && awake(tz) && today < addDays(mondayOf(monthEnd(latest)), 14)) {
+    const { data: m } = await sb.from("writing_entries").select("text,fields").eq("user_id", userId).eq("id", `dg-month-${latest}`).eq("deleted", false).maybeSingle();
+    if (m?.text) await monthNote(sb, userId, latest, m.text, (m.fields?.threads ?? []) as { title: string }[]);
   }
   if (!behind) made.push(...await weekly(sb, userId, tz, today, budget, force));
   return made;
+}
+
+/** Waking hours where they are (8 am to 8 pm): notes that can buzz the phone wait for these. */
+export function awake(tz: string, now = new Date()): boolean {
+  const h = Number(new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hourCycle: "h23" }).format(now));
+  return h >= 8 && h < 20;
 }
 
 /** The "Your month" note in Daybook, once per month (deduped on its link). */
@@ -157,7 +168,9 @@ async function weekly(sb: Sb, userId: string, tz: string, today: string, budget:
     }
   }
 
-  // The Monday note, once a week, from last week's summary.
+  // The Monday note, once a week, from last week's summary. Only in waking
+  // hours, since it can buzz the phone (the hourly run posts it from 8 am).
+  if (!awake(tz)) return made;
   const link = `${INKWELL}?tidy=${monday}`;
   const { data: sent } = await sb.from("notes").select("id").eq("user_id", userId).eq("link", link).limit(1);
   if (sent?.length) return made;
