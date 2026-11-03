@@ -45,6 +45,7 @@ const ICON = {
   linkS: '<svg class="ni" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-label="Has a link"><path d="M6.5 9.5l3-3M7.3 4.2l.9-.9a2.8 2.8 0 0 1 4 4l-.9.9M8.7 11.8l-.9.9a2.8 2.8 0 0 1-4-4l.9-.9"/></svg>',
   board: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1.3"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1.3"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1.3"/><rect x="9" y="9" width="4.5" height="4.5" rx="1.3"/></svg>',
   min: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4.5h10M3 8h10M3 11.5h6"/></svg>',
+  gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
   close: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
   stats: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 19.5V13M10 19.5V6.5M15 19.5V10M20 19.5V4.5"/></svg>',
   road: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 6.5h8M8 12h10M6 17.5h7"/><path d="M15.5 4.5l2 2-2 2-2-2z" stroke-linejoin="round"/></svg>',
@@ -418,24 +419,36 @@ function alertsHTML() {
   if (!S.alerts) return '';
   const st = alerts.state(), p = alerts.prefs(), msg = alerts.message();
   const row = x => `<label class="al-row"><span><b>${esc(x.name)}</b><small>${esc(x.hint)}</small></span><input type="checkbox" role="switch" class="al-sw" data-act="alerts-pref" data-k="${x.k}" ${p[x.k] ? 'checked' : ''}></label>`;
-  return `<div class="mcp al" id="alerts-panel"><p><b>Phone alerts</b></p><p>${esc(st.txt)}</p>
+  return `<div class="mcp al" id="alerts-panel"><p>${esc(st.txt)}</p>
     ${st.act ? `<div class="foot-acts">${st.on ? '<button class="tb" data-act="alerts-test">Send a test</button><button class="link" data-act="alerts-off">Turn off here</button>' : '<button class="tb" data-act="alerts-on">Turn on alerts here</button>'}</div>` : ''}
     ${msg ? `<p class="al-msg">${esc(msg)}</p>` : ''}
     <div class="al-kinds">${alerts.KINDS.map(row).join('')}</div>
     <p class="al-note">These switches are the same on every device. To let alerts through Do Not Disturb, add Daybook as an allowed app in your phone's Do Not Disturb settings.</p>
     <div class="foot-acts"><button class="link" data-act="alerts-close">Done</button></div></div>`;
 }
-function footHTML() {
+/* Settings: one sheet behind the gear at the top of Projects, so nothing waits at the bottom of a long list */
+function settingsHTML() {
+  if (!S.settings) return '';
+  const row = (act, label, hint, extra = '') => `<button class="set-row" data-act="${act}"${extra}><span><b>${label}</b>${hint ? `<small>${hint}</small>` : ''}</span><i aria-hidden="true">›</i></button>`;
+  const quiet = row('min', S.min ? 'Leave Quiet' : 'Go Quiet', 'Titles only, everything else tucked away (Q)');
+  const k = notes.unread().length;
   if (user) {
     const c = calendar.cal;
-    return `<div class="side-f">
-      <div class="acct">${esc(user.email || '')}</div>
-      <div class="sync ${store.sync.state}">${SYNC_TEXT[store.sync.state] || ''}</div>
-      <div>${c.connected && !c.reconnect ? 'Google Calendar connected (read-only).' : 'Google Calendar isn\'t connected.'} ${!c.connected || c.reconnect ? '<button class="link" data-act="signin">Connect it</button>' : ''}</div>
-      <div class="foot-acts"><button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="trash">Trash</button><button class="link" data-act="mcp">Connect to Claude</button><button class="link" data-act="signout">Sign out</button></div><div class="foot-set"><button class="link" data-act="min">${S.min ? 'Leave Quiet' : 'Go Quiet'}</button><button class="link" data-act="alerts" aria-expanded="${!!S.alerts}">Phone alerts</button></div>${mcpHTML()}${alertsHTML()}</div>`;
+    return `<div class="sets" id="sets"><div class="sets-h"><b>Settings</b><button class="ib" data-act="settings" aria-label="Close settings">${ICON.close}</button></div>
+      <div class="sets-acct"><div class="acct">${esc(user.email || '')}</div><div class="sync ${store.sync.state}">${SYNC_TEXT[store.sync.state] || ''}</div>
+      <div>${c.connected && !c.reconnect ? 'Google Calendar connected (read-only).' : 'Google Calendar isn\'t connected.'} ${!c.connected || c.reconnect ? '<button class="link" data-act="signin">Connect it</button>' : ''}</div></div>
+      <div class="set-list">
+        ${row('alerts', 'Phone alerts', alerts.state().on ? 'On for this device' : 'Day review and Needs you on your phone', ` aria-expanded="${!!S.alerts}"`)}${alertsHTML()}
+        ${row('notes', 'Notes from Claude', k ? `${k} unread (N)` : 'Everything Claude has left you (N)')}
+        ${row('trash', 'Trash', 'Bring back something you deleted')}
+        ${quiet}
+        ${row('mcp', 'Connect to Claude', 'Let Claude see and change your tasks', ` aria-expanded="${!!S.mcp}"`)}${mcpHTML()}
+        ${row('signout', 'Sign out', '')}
+      </div></div>`;
   }
-  return `<div class="side-f">Sample data, stored only on this device. Drag anything onto the plan, or back here to unschedule it.
-    <div class="foot-acts">${configured ? '<button class="link" data-act="signin">Sign in with Google</button>' : ''}<button class="link" data-act="notes">Notes from Claude</button><button class="link" data-act="trash">Trash</button><button class="link" data-act="reset">Reset sample data</button></div><div class="foot-set"><button class="link" data-act="min">${S.min ? 'Leave Quiet' : 'Go Quiet'}</button></div></div>`;
+  return `<div class="sets" id="sets"><div class="sets-h"><b>Settings</b><button class="ib" data-act="settings" aria-label="Close settings">${ICON.close}</button></div>
+    <div class="sets-acct">Sample data, stored only on this device. Drag anything onto the plan, or back here to unschedule it.</div>
+    <div class="set-list">${configured ? row('signin', 'Sign in with Google', 'Keep your tasks in sync on every device') : ''}${row('notes', 'Notes from Claude', '')}${row('trash', 'Trash', '')}${quiet}${row('reset', 'Reset sample data', '')}</div></div>`;
 }
 /* Areas group the top-level projects, and tasks that belong to an area without being part of a project.
    Such a task becomes a project in that area as soon as it gets steps. A project whose area is gone shows under "No area";
@@ -463,15 +476,14 @@ function renderSide() {
   if (boardShown()) { el.innerHTML = ''; return; } // the board has it all, and the sidebar steps aside
   const { groups, loose } = areaGroups();
   const sc = el.querySelector('.side-b')?.scrollTop || 0;
-  el.innerHTML = `<div class="side-h"><div class="brand">Daybook</div>${user ? '' : '<span class="tag">Sample</span>'}</div>
+  el.innerHTML = `<div class="side-h"><div class="brand">Daybook</div>${user ? '' : '<span class="tag">Sample</span>'}<button class="ib set-btn" data-act="settings" aria-pressed="${!!S.settings}" aria-label="Settings" title="Settings: alerts, notes, trash, Quiet, sign out">${ICON.gear}</button></div>
   <div class="side-rs" title="Drag to make the sidebar wider or narrower. Double-click to reset." aria-hidden="true"></div>
-  <div class="side-b vscroll" data-drop="inbox">
+  <div class="side-b vscroll" data-drop="inbox">${settingsHTML()}
     <div class="sec">Projects <span class="sec-acts"><button class="sec-add q-unpin" data-act="qproj" aria-label="Close projects" title="Close (P)">×</button><button class="sec-add desk-only" data-act="page" data-v="projects" title="See all projects on one big board">Full view</button><button class="sec-add" data-act="new-area">+ Area</button></span></div>
     ${groups.map(g => areaHTML(g)).join('')}
     <div class="sec">Inbox <small>loose tasks</small></div>
     <div class="tree" data-drop="sib" data-g="loose">${loose.map(n => treeRows(n, 0)).join('')}</div>
     <form class="qa" data-form="inbox"><input id="qa-in" placeholder="+ Add a task" autocomplete="off" aria-label="Add a task to the inbox" enterkeyhint="enter"></form>
-    ${footHTML()}
   </div>`;
   el.querySelector('.side-b').scrollTop = sc;
 }
@@ -1895,6 +1907,7 @@ document.addEventListener('click', e => {
     case 'note-ok': notes.markRead([id]); break;
     case 'note-later': notes.unread().forEach(n => noteLater.add(n.id)); renderNote(); break;
     case 'note-task': openItem(id); break;
+    case 'settings': S.settings = !S.settings; if (!S.settings) { S.alerts = false; S.mcp = null; } renderSide(); if (S.settings) { const sb = document.querySelector('#side .side-b'); if (sb) sb.scrollTop = 0; } break;
     case 'mcp': S.mcp = S.mcp ? null : {}; renderSide(); break;
     case 'alerts': S.alerts = !S.alerts; renderSide(); if (S.alerts) document.getElementById('alerts-panel')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); break;
     case 'alerts-close': S.alerts = false; renderSide(); break;
