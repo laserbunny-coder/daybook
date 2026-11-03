@@ -2583,6 +2583,10 @@ body.took-on #toast.toast{bottom:calc(var(--took-b) + var(--took-h,120px) + 10px
 /* Recorded time: a rounded band through the middle of the bar, in the colour of what was worked on */
 .ds-bar .ds-sw{top:32%;bottom:32%;height:auto;border-radius:5px;background:color-mix(in srgb,var(--pc) 75%,transparent);box-shadow:inset 0 0 0 1px var(--pc)}
 .ds-mini .ds-bar .ds-sw{top:28%;bottom:28%;height:auto;border-radius:3px}
+.ds-bar .ds-sw[data-act]{cursor:pointer}
+.ds-bar .ds-sw[data-act]::after{content:"";position:absolute;inset:-9px 0}
+.ds-bar .ds-sw.sel{box-shadow:inset 0 0 0 1px var(--pc),0 0 0 2px color-mix(in srgb,var(--fg) 70%,transparent)}
+.ds-cap .ds-cp{color:var(--muted);font-weight:400}
 /* Work hours in the Adjust panel: this day's start and finish, and the weekly schedule one tap deeper */
 .ds-gl{display:flex;align-items:baseline;gap:4px}
 .ds-gl .ds-usual{margin-left:auto;width:auto}
