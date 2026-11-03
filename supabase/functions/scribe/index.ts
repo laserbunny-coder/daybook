@@ -12,7 +12,8 @@
 //   POST …/scribe  multipart: audio, mode, app, duration (ms)
 //                                           -> { original, text, mode }
 //   POST …/scribe  multipart: action=make-mode, audio, [current = the mode being changed, as JSON]
-//                                           -> { said, mode }  (not saved yet)
+//                                           -> { said, mode, added? }  (not saved yet; `added` is
+//                                              the part tacked on the end of the current instruction)
 //   POST …/scribe  JSON { action: "redo", original, mode, app } -> { text, mode }
 //   POST …/scribe  JSON { action: "save-mode", mode: { id?, name, prompt, apps, model?, keep? } } -> { mode }
 //   POST …/scribe  JSON { action: "delete-mode", id } -> { ok }
@@ -20,7 +21,7 @@ import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import { admin, cors } from "../_shared/common.ts";
 import { hear } from "../inkwell/speech.ts";
 import { keepInInkwell, namesFrom } from "./keep.ts";
-import { cleanApps, deleteMode, type Mode, type Model, MODEL_IDS, modelOf, MODELS, modesOf, saveMode } from "./modes.ts";
+import { cleanApps, deleteMode, type Mode, type Model, MODEL_IDS, modelOf, MODELS, modesOf, PROMPT_MAX, saveMode } from "./modes.ts";
 
 const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
 
@@ -44,12 +45,48 @@ const TEXT_SCHEMA = {
   properties: { text: { type: "string", description: "The finished text, ready to type in." } },
 };
 
-const MODE_SYSTEM = `You help someone set up a mode in Scribe, their dictation keyboard. A mode is a short instruction, in plain words, for how their dictated words get rewritten before they're typed in (for example "A text message. Short and casual, keep my wording, no emoji."). They describe the mode they want out loud, or a change to one they have.
+const MODE_SYSTEM = `You help someone set up a mode in Scribe, their dictation keyboard. A mode is a short instruction, in plain words, for how their dictated words get rewritten before they're typed in (for example "A text message. Short and casual, keep my wording, no emoji."). They describe the mode they want out loud.
 
 - name: two or three words, like "Work Slack" or "Email".
-- prompt: the instruction, written as they'd say it, 1 to 4 sentences. Keep everything they asked for and add nothing they didn't. For a change, start from the current instruction and change only what they asked.
-- model: which Claude writes it. "haiku" is quick and cheap, right for texts, chat and light clean-ups; "sonnet" suits emails and everyday writing with some tone; "opus" is for writing that matters: long idea dumps, journaling, characters and voices, anything creative. If they name one ("use Opus for this", "the cheap one", "the best one"), use it. For a change they didn't ask about, keep the current one; for a new mode, pick by what it's for.
-- apps: the apps they said it's for, as Android app ids (Slack is "com.Slack", Gmail "com.google.android.gm", WhatsApp "com.whatsapp", Google Messages "com.google.android.apps.messaging", Outlook "com.microsoft.office.outlook", LinkedIn "com.linkedin.android", Discord "com.discord") plus the Windows program name when there's a desktop app ("slack.exe", "outlook.exe"). Only apps they named or that are already on the mode; empty if none.`;
+- prompt: the instruction, written as they'd say it, 1 to 4 sentences. Keep everything they asked for and add nothing they didn't.
+- model: which Claude writes it. "haiku" is quick and cheap, right for texts, chat and light clean-ups; "sonnet" suits emails and everyday writing with some tone; "opus" is for writing that matters: long idea dumps, journaling, characters and voices, anything creative. If they name one ("use Opus for this", "the cheap one", "the best one"), use it; otherwise pick by what it's for.
+- apps: the apps they said it's for, as Android app ids (Slack is "com.Slack", Gmail "com.google.android.gm", WhatsApp "com.whatsapp", Google Messages "com.google.android.apps.messaging", Outlook "com.microsoft.office.outlook", LinkedIn "com.linkedin.android", Discord "com.discord") plus the Windows program name when there's a desktop app ("slack.exe", "outlook.exe"). Only apps they named; empty if none.`;
+
+// A change to a mode they have. The instruction they have is kept word for
+// word: most changes are something to add, which goes on the end; only when
+// they ask to take out or change part of it is the whole thing rewritten, and
+// then only that part changes.
+const CHANGE_SYSTEM = `You help someone change a mode in Scribe, their dictation keyboard. A mode is an instruction, in plain words, for how their dictated words get rewritten before they're typed in. They like the instruction they have and said out loud what to change about it.
+
+- kind: "add" when they want something added to it ("also break long ones into paragraphs", "add that it should never use emoji"); this is most changes. "rewrite" only when they ask to take something out, or to change or replace something the instruction already says (it says "no greeting" and they now want one).
+- add: for "add", only the new sentence or sentences, in plain words as they'd say it, written to read well after the current instruction (same voice: if it says "they", say "they"; if it says "I", say "I"). Never repeat what the instruction already says. Empty for "rewrite".
+- prompt: for "rewrite", the whole new instruction: every sentence they didn't ask to change stays exactly as it is, word for word; change only what they asked. Empty for "add".
+- name: keep the current name unless they asked to rename it.
+- model: keep the current one unless they named another ("use Opus for this", "the cheap one" = haiku, "the best one" = opus).
+- apps: keep the current list; add or take out only apps they named, as Android app ids (Slack "com.Slack", Gmail "com.google.android.gm", WhatsApp "com.whatsapp", Google Messages "com.google.android.apps.messaging", Outlook "com.microsoft.office.outlook") plus the Windows program name when there's a desktop app ("slack.exe", "outlook.exe").`;
+
+const CHANGE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["kind", "add", "prompt", "name", "model", "apps"],
+  properties: {
+    kind: { type: "string", enum: ["add", "rewrite"] },
+    add: { type: "string" },
+    prompt: { type: "string" },
+    name: { type: "string" },
+    model: { type: "string", enum: MODELS },
+    apps: { type: "array", items: { type: "string" } },
+  },
+};
+
+/** The current instruction with `add` on the end, as its own sentence(s). */
+export function addTo(prompt: string, add: string): string {
+  const p = prompt.trim();
+  const a = add.trim();
+  if (!a) return p;
+  if (!p) return a;
+  return /[.!?:)"'”]$/.test(p) ? `${p} ${a}` : `${p}. ${a}`;
+}
 
 const MODE_SCHEMA = {
   type: "object",
@@ -182,12 +219,21 @@ Deno.serve(async (req) => {
       let current: Mode | undefined = modes.find((m) => m.id === form.get("mode"));
       try {
         const c = JSON.parse(String(form.get("current") ?? "null"));
-        if (c && typeof c === "object") current = { id: clean(c.id, 40), name: clean(c.name, 40), prompt: clean(c.prompt, 2000), apps: cleanApps(c.apps), model: modelOf(c.model) ?? modes.find((m) => m.id === c.id)?.model ?? "opus", keep: typeof c.keep === "boolean" ? c.keep : !!modes.find((m) => m.id === c.id)?.keep };
+        if (c && typeof c === "object") current = { id: clean(c.id, 40), name: clean(c.name, 40), prompt: clean(c.prompt, PROMPT_MAX), apps: cleanApps(c.apps), model: modelOf(c.model) ?? modes.find((m) => m.id === c.id)?.model ?? "opus", keep: typeof c.keep === "boolean" ? c.keep : !!modes.find((m) => m.id === c.id)?.keep };
       } catch { /* not sent */ }
-      const out = await ask(MODE_SYSTEM, current
-        ? `The mode now:\nName: ${current.name}\nInstruction: ${current.prompt}\nModel: ${current.model}\nApps: ${current.apps.join(", ") || "none"}\n\nThe change they asked for:\n${said}`
-        : `The mode they asked for:\n${said}`, MODE_SCHEMA);
-      return reply({ said, mode: { id: current?.id || null, name: clean(out.name, 40), prompt: clean(out.prompt, 2000), apps: cleanApps(out.apps), model: modelOf(out.model) ?? current?.model ?? "opus", keep: !!current?.keep } });
+      if (!current) {
+        const out = await ask(MODE_SYSTEM, `The mode they asked for:\n${said}`, MODE_SCHEMA);
+        return reply({ said, mode: { id: null, name: clean(out.name, 40), prompt: clean(out.prompt, PROMPT_MAX), apps: cleanApps(out.apps), model: modelOf(out.model) ?? "opus", keep: false } });
+      }
+      const out = await ask(CHANGE_SYSTEM, `The mode now:\nName: ${current.name}\nInstruction: ${current.prompt || "(none: it types the words as said)"}\nModel: ${current.model}\nApps: ${current.apps.join(", ") || "none"}\n\nThe change they asked for:\n${said}`, CHANGE_SCHEMA);
+      const added = out.kind === "rewrite" ? "" : clean(out.add, PROMPT_MAX);
+      // "add" never touches what's there; a rewrite that came back empty keeps it too.
+      const prompt = out.kind === "rewrite" ? clean(out.prompt, PROMPT_MAX) || current.prompt : addTo(current.prompt, added).slice(0, PROMPT_MAX);
+      return reply({
+        said,
+        added,
+        mode: { id: current.id || null, name: clean(out.name, 40) || current.name, prompt, apps: cleanApps(out.apps), model: modelOf(out.model) ?? current.model, keep: !!current.keep },
+      });
     }
 
     if (action === "save-mode" && body && typeof body.mode === "object" && body.mode) {
