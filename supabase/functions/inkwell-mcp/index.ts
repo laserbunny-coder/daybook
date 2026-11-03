@@ -86,6 +86,20 @@ function dbFor(userId: string): Db {
       const { error } = await sb.from("writing_entries").update(patch).eq("user_id", userId).eq("id", id).eq("kind", "about");
       if (error) throw error;
     },
+    async change(id, was, patch) {
+      // Only where a line sits and its fields; the words are never part of it.
+      const safe: Record<string, unknown> = {};
+      for (const k of ["parent_id", "sort", "fields"] as const) if (k in patch) safe[k] = patch[k];
+      let q = sb.from("writing_entries").update(safe).eq("user_id", userId).eq("id", id).not("kind", "in", "(about,digest,change,tidy)");
+      if (was) q = q.eq("updated_at", was);
+      const { data, error } = await q.select("id");
+      if (error) throw error;
+      return (data ?? []).length > 0;
+    },
+    async markChange(id, fields) {
+      const { error } = await sb.from("writing_entries").update({ fields }).eq("user_id", userId).eq("id", id).eq("kind", "change");
+      if (error) throw error;
+    },
     async insert(rows) {
       if (!rows.length) return;
       const { error } = await sb.from("writing_entries").insert(rows.map((r) => ({ ...r, user_id: userId })));

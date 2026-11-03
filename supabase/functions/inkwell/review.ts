@@ -1,7 +1,8 @@
 // The day review: Claude reads a day's page in Inkwell (captures, journaling,
 // notes, ideas), writes a few sentences on what the day was like, and sorts
 // what's on it into threads, each with a suggestion: make it a task in
-// Daybook, keep thinking about it, split it into parts, or let it go. The
+// Daybook, keep thinking about it, split it into parts, or let it go, plus a
+// world or page to link it to and tags that fit. The
 // writer decides each one in Inkwell; nothing here sends anything anywhere.
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import { json } from "../_shared/common.ts";
@@ -22,6 +23,10 @@ Write two things.
 
 3. still: they may have things they were already mulling over from earlier days, labelled M1, M2. Bring back at most three: ones today's page touches on first, then ones that have sat longest. For each, a short note on why it's coming up now ("You talked about the sequel again today", "It's been two weeks"). None if there are none.
 
+4. For every thread and part, also:
+   - link: the label (like P3) of the one world, piece or page in their Library it's clearly about, from the list of their worlds and pages, when its lines don't already link there ([[Name]] in a line is a link). A line about a character, place or running gag links to that page rather than the whole world. "" when nothing clearly fits or you're unsure; a wrong link is worse than none.
+   - tags: up to three tags that would help them find it later, chosen from the tags they already use (written without #). Only suggest a new tag when none of theirs fits and it would clearly help. Leave out tags already on those lines. None is fine.
+
 Use their words and names. Never invent tasks, details or ideas they didn't have.`;
 
 const TASK = {
@@ -34,13 +39,15 @@ const TASK = {
 const PART = {
   type: "object",
   additionalProperties: false,
-  required: ["title", "gist", "lines", "suggest", "task"],
+  required: ["title", "gist", "lines", "suggest", "task", "link", "tags"],
   properties: {
     title: { type: "string" },
     gist: { type: "string" },
     lines: { type: "array", items: { type: "string" } },
     suggest: { type: "string", enum: ["daybook", "mull", "drawer", "let_go"] },
     task: TASK,
+    link: { type: "string" },
+    tags: { type: "array", items: { type: "string" } },
   },
 };
 
@@ -55,7 +62,7 @@ const SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["title", "gist", "lines", "suggest", "task", "parts"],
+        required: ["title", "gist", "lines", "suggest", "task", "parts", "link", "tags"],
         properties: {
           title: { type: "string" },
           gist: { type: "string" },
@@ -63,6 +70,8 @@ const SCHEMA = {
           suggest: { type: "string", enum: ["daybook", "mull", "drawer", "split", "let_go"] },
           task: TASK,
           parts: { type: "array", items: PART },
+          link: { type: "string" },
+          tags: { type: "array", items: { type: "string" } },
         },
       },
     },
@@ -81,13 +90,16 @@ const SCHEMA = {
 type Line = { id: string; text: string; depth?: number };
 type Mulling = { id: string; text: string; since?: string };
 type Area = { id: string; title: string };
-export type ReviewBody = { day?: string; title?: string; lines?: Line[]; mulling?: Mulling[]; areas?: Area[] };
+// Somewhere a line can link to: a world, piece or page ("in" names its world).
+type Place = { id: string; title: string; kind?: string; in?: string };
+export type ReviewBody = { day?: string; title?: string; lines?: Line[]; mulling?: Mulling[]; areas?: Area[]; places?: Place[]; tags?: string[] };
 
 type Task = { title: string; area_id: string };
-type Part = { title: string; gist: string; lines: string[]; suggest: string; task: Task };
+type Part = { title: string; gist: string; lines: string[]; suggest: string; task: Task; link?: string; tags?: string[] };
 type Thread = Part & { parts: Part[] };
 
 const str = (s: unknown, n: number) => (typeof s === "string" ? s.slice(0, n) : "");
+export const cleanTag = (t: unknown) => String(t ?? "").trim().replace(/^#+/, "").toLowerCase().replace(/\s+/g, "-").replace(/[^\p{L}\p{N}_-]/gu, "").slice(0, 40);
 
 // Lines and mulled items go to Claude with short labels (L1, M1) and come back
 // as their real ids; labels that don't match are dropped.
@@ -95,9 +107,13 @@ export function prompt(b: ReviewBody) {
   const lines = (b.lines ?? []).filter((l) => l && typeof l.id === "string" && typeof l.text === "string" && l.text.trim()).slice(0, 400);
   const mulling = (b.mulling ?? []).filter((m) => m && typeof m.id === "string" && typeof m.text === "string").slice(0, 60);
   const areas = (b.areas ?? []).filter((a) => a && typeof a.id === "string" && typeof a.title === "string").slice(0, 40);
+  const places = (b.places ?? []).filter((p) => p && typeof p.id === "string" && typeof p.title === "string" && p.title.trim()).slice(0, 300);
+  const tags = [...new Set((b.tags ?? []).map(cleanTag).filter(Boolean))].slice(0, 120);
   const parts: string[] = [];
   parts.push(`The day: ${str(b.title, 80) || str(b.day, 20)}`);
   parts.push(`Their areas in Daybook:\n${areas.map((a) => `${a.id}: ${a.title}`).join("\n") || "(none)"}`);
+  parts.push(`Their worlds and pages in Inkwell (for links):\n${places.map((p, i) => `P${i + 1}: ${str(p.title, 120)}${p.kind ? ` (${str(p.kind, 20)}${p.in ? ` in ${str(p.in, 80)}` : ""})` : ""}`).join("\n") || "(none)"}`);
+  parts.push(`Tags they use: ${tags.map((t) => `#${t}`).join(" ") || "(none)"}`);
   let budget = 60000;
   const shown: string[] = [];
   lines.forEach((l, i) => {
@@ -108,7 +124,7 @@ export function prompt(b: ReviewBody) {
   });
   parts.push(`The page:\n${shown.join("\n")}`);
   if (mulling.length) parts.push(`Already mulling over:\n${mulling.map((m, i) => `M${i + 1}${m.since ? ` (since ${str(m.since, 20)})` : ""}: ${str(m.text, 500)}`).join("\n")}`);
-  return { text: parts.join("\n\n"), lines, mulling, areas };
+  return { text: parts.join("\n\n"), lines, mulling, areas, places };
 }
 
 export function tidy(out: { summary?: string; threads?: Thread[]; still?: { mulling: string; note: string }[] }, ctx: ReturnType<typeof prompt>) {
@@ -127,10 +143,16 @@ export function tidy(out: { summary?: string; threads?: Thread[]; still?: { mull
     title: str(t?.title, 200).trim() || title,
     area_id: t?.area_id && areaIds.has(t.area_id) ? t.area_id : null,
   });
+  // A suggested link comes back as a place label (P3); tags come back cleaned, at most three.
+  const link = (label: unknown) => {
+    const p = ctx.places[Number(String(label ?? "").trim().replace(/^P/i, "")) - 1];
+    return p && /^P?\d+$/i.test(String(label).trim()) ? { id: p.id, title: str(p.title, 120).trim() } : null;
+  };
+  const tagsOf = (list: unknown) => [...new Set((Array.isArray(list) ? list : []).map(cleanTag).filter(Boolean))].slice(0, 3);
   const part = (p: Part, allowed: string[] | null) => {
     const lines = ids(p.lines).filter((id) => !allowed || allowed.includes(id));
     const title = str(p.title, 200).trim();
-    return { title, gist: str(p.gist, 600).trim(), lines, suggest: ["daybook", "mull", "drawer", "let_go"].includes(p.suggest) ? p.suggest : "mull", task: task(p.task, title) };
+    return { title, gist: str(p.gist, 600).trim(), lines, suggest: ["daybook", "mull", "drawer", "let_go"].includes(p.suggest) ? p.suggest : "mull", task: task(p.task, title), link: link(p.link), tags: tagsOf(p.tags) };
   };
   const threads = [];
   for (const t of out.threads ?? []) {
@@ -140,7 +162,7 @@ export function tidy(out: { summary?: string; threads?: Thread[]; still?: { mull
     lines.forEach((id) => taken.add(id));
     const parts = t.suggest === "split" ? (t.parts ?? []).map((p) => part(p, lines.length ? lines : null)).filter((p) => p.title) : [];
     const suggest = t.suggest === "split" && parts.length < 2 ? "mull" : (["daybook", "mull", "drawer", "split", "let_go"].includes(t.suggest) ? t.suggest : "mull");
-    threads.push({ title, gist: str(t.gist, 600).trim(), lines, suggest, task: task(t.task, title), parts: suggest === "split" ? parts : [] });
+    threads.push({ title, gist: str(t.gist, 600).trim(), lines, suggest, task: task(t.task, title), parts: suggest === "split" ? parts : [], link: link(t.link), tags: tagsOf(t.tags) });
   }
   const still: { id: string; note: string }[] = [];
   for (const s of out.still ?? []) {

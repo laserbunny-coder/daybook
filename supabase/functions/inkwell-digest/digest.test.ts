@@ -19,4 +19,25 @@ const rows = [
 const w = d.weekPrompt(rows as any, (r)=> r.kind==="para" ? "Novel › Ch 1" : "Daily page 2026-10-27");
 const t = d.tidy({summary:"x",threads:[{title:"Gift",gist:"g",from:["L2","L9"]}],tags:["#Mom"]}, w.labels, "L");
 assert.deepEqual(t.threads[0].ids,["b"]); assert.deepEqual(t.keywords,["mom"]);
+// Promises: labels back to line ids, one per line, empty tasks dropped.
+const t2 = d.tidy({ summary: "x", threads: [], tags: [], promises: [{ task: "Call the venue", from: "L1" }, { task: "Again", from: "L1" }, { task: "", from: "L2" }, { task: "Nope", from: "L9" }] }, w.labels, "L");
+assert.deepEqual(t2.promises, [{ task: "Call the venue", line: "a" }]);
+assert.ok(d.WEEK_SCHEMA.required.includes("promises") && !d.SCHEMA.required.includes("promises"));
+// Done lines are marked for Claude.
+const w2 = d.weekPrompt([{ ...rows[0], fields: { done: true } }] as any, () => "Daily page");
+assert.match(w2.text, /\(done\)/);
+// The Monday note: gist, offers for open promises only, the tidy count.
+const week = { id: "dg-week-2026-10-26", title: "Week of Oct 26 – Nov 1, 2026", text: "You planned Christmas.\n\nMore.", fields: { promises: [{ task: "Book the cabin", line: "a" }, { task: "Call Nate", line: "b" }, { task: "Gone", line: "z" }] } };
+const note = d.mondayNote(week, new Map([["a", { created_at: "2026-10-27T18:00:00Z" }], ["b", { done: true }]]), 3, "https://x/inkwell/", "America/Los_Angeles");
+assert.equal(note.title, "Your week, Oct 26 – Nov 1");
+assert.equal(note.offers.length, 1);
+assert.deepEqual(note.offers[0], { id: "inkwell-week-2026-10-26-1", title: "Book the cabin", link: "https://x/inkwell/?open=a", day: "Tue" });
+assert.match(note.body, /^You planned Christmas\./);
+assert.match(note.body, /3 tidy-ups/);
+assert.doesNotMatch(d.mondayNote(week, new Map(), 0, "", "UTC").body, /said you'd|tidy/);
 console.log("ok");
+const ml = d.monthLetter("2026-10", "You spent October on the Ninja Bunch.\n\nLater, gifts.", [{ title: "Ninja Bunch reels" }, { title: "Christmas" }]);
+assert.equal(ml.title, "Your month, October");
+assert.match(ml.body, /^You spent October on the Ninja Bunch\.\n\n\*\*What it was about:\*\* Ninja Bunch reels · Christmas/);
+assert.doesNotMatch(ml.body, /gifts/);
+console.log("month letter ok");

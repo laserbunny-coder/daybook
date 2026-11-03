@@ -6,9 +6,12 @@
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import { admin, json } from "../_shared/common.ts";
 import {
-  addDays, dayStart, localDate, MODEL, monthEnd, monthPrompt, monthTitle, MONTH_SYSTEM, periodsDue, type Row, SCHEMA, tidy,
-  weekPrompt, weekTitle, WEEK_SYSTEM,
+  addDays, dayStart, localDate, mondayNote, mondayOf, MODEL, monthEnd, monthLetter, monthPrompt, monthTitle, MONTH_SYSTEM, periodsDue, type Row, SCHEMA, tidy,
+  WEEK_SCHEMA, weekPrompt, weekTitle, WEEK_SYSTEM,
 } from "./digest.ts";
+import { makeTidy } from "../_shared/tidyrun.ts";
+
+const INKWELL = "https://laserbunny-coder.github.io/inkwell/";
 
 const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
 const COLS = "id,kind,parent_id,title,text,tags,fields,created_at";
@@ -16,13 +19,13 @@ const PER_RUN = 6;
 
 type Sb = ReturnType<typeof admin>;
 
-async function ask(system: string, text: string) {
+async function ask(system: string, text: string, schema: Record<string, unknown> = SCHEMA) {
   const response = await client.beta.messages.create({
     model: MODEL,
     max_tokens: 16000,
     system,
     messages: [{ role: "user", content: text }],
-    output_config: { effort: "medium", format: { type: "json_schema", schema: SCHEMA } },
+    output_config: { effort: "medium", format: { type: "json_schema", schema } },
     betas: ["server-side-fallback-2026-07-01"],
     // @ts-ignore: server-side fallback parameter (beta)
     fallbacks: "default",
@@ -81,11 +84,11 @@ async function forUser(sb: Sb, userId: string, tz: string, budget: { left: numbe
     const p = weekPrompt(rows, where);
     if (!p.labels.length && !p.paragraphs) continue;
     budget.left--;
-    const out = tidy(await ask(WEEK_SYSTEM, `${weekTitle(monday)}\n\n${p.text}`), p.labels, "L");
+    const out = tidy(await ask(WEEK_SYSTEM, `${weekTitle(monday)}\n\n${p.text}`, WEEK_SCHEMA), p.labels, "L");
     if (!out.summary) continue;
     await save(sb, userId, {
       id, kind: "digest", parent_id: null, title: weekTitle(monday), text: out.summary,
-      fields: { period: "week", from: monday, to: addDays(monday, 6), threads: out.threads, keywords: out.keywords, lines: p.lines, paragraphs: p.paragraphs, by: "claude", edited_by: "claude", model: MODEL },
+      fields: { period: "week", from: monday, to: addDays(monday, 6), threads: out.threads, keywords: out.keywords, promises: out.promises, lines: p.lines, paragraphs: p.paragraphs, by: "claude", edited_by: "claude", model: MODEL },
     });
     exists.add(id);
     made.push(id);
@@ -110,7 +113,65 @@ async function forUser(sb: Sb, userId: string, tz: string, budget: { left: numbe
     });
     exists.add(id);
     made.push(id);
+    // A new month summed up: a note in Daybook (it can buzz the phone), only
+    // for the latest finished month, so catching up never sends a pile.
+    if (month === due.months[due.months.length - 1]) await monthNote(sb, userId, month, out.summary, out.threads);
   }
+  if (!behind) made.push(...await weekly(sb, userId, tz, today, budget, force));
+  return made;
+}
+
+/** The "Your month" note in Daybook, once per month (deduped on its link). */
+async function monthNote(sb: Sb, userId: string, month: string, summary: string, threads: { title: string }[]) {
+  const link = `${INKWELL}?summaries=${month}`;
+  const { data: sent } = await sb.from("notes").select("id").eq("user_id", userId).eq("link", link).limit(1);
+  if (sent?.length) return;
+  const note = monthLetter(month, summary, threads);
+  const { error } = await sb.from("notes").insert({ user_id: userId, author: "Inkwell", title: note.title, body: note.body, link });
+  if (error) console.error("month note", userId, error);
+}
+
+/**
+ * Once a week, on the first run on or after Monday: the tidy pass (Claude's
+ * suggestions, waiting for a yes or no in Inkwell), then a note in Daybook with
+ * last week's gist, the things they said they'd do (one tap from a task each),
+ * and how many tidy-ups are waiting.
+ */
+async function weekly(sb: Sb, userId: string, tz: string, today: string, budget: { left: number }, force: boolean): Promise<string[]> {
+  const monday = mondayOf(today);
+  const made: string[] = [];
+  const tidyId = `td-week-${monday}`;
+  const { data: have } = await sb.from("writing_entries").select("id,fields").eq("user_id", userId).eq("id", tidyId).maybeSingle();
+  let count = have ? ((have.fields?.tidy?.items ?? []) as { choice: string | null }[]).filter((i) => !i.choice).length : 0;
+  if ((!have || force) && budget.left > 0) {
+    // Only for someone who writes in Inkwell: a world or a daily page.
+    const { count: n } = await sb.from("writing_entries").select("id", { count: "exact", head: true }).eq("user_id", userId).in("kind", ["world", "day"]).eq("deleted", false);
+    if (n) {
+      budget.left--;
+      try {
+        count = await makeTidy(sb, client, userId, tz, tidyId, monday);
+        made.push(tidyId);
+      } catch (e) {
+        console.error("tidy", userId, e);
+      }
+    }
+  }
+
+  // The Monday note, once a week, from last week's summary.
+  const link = `${INKWELL}?tidy=${monday}`;
+  const { data: sent } = await sb.from("notes").select("id").eq("user_id", userId).eq("link", link).limit(1);
+  if (sent?.length) return made;
+  const { data: week } = await sb.from("writing_entries").select("id,title,text,fields").eq("user_id", userId).eq("id", `dg-week-${addDays(monday, -7)}`).eq("deleted", false).maybeSingle();
+  if (!week && !count) return made;
+  const ids = ((week?.fields?.promises ?? []) as { line: string }[]).map((p) => p.line);
+  const { data: lines } = ids.length ? await sb.from("writing_entries").select("id,fields,created_at,deleted").eq("user_id", userId).in("id", ids) : { data: [] };
+  const state = new Map((lines ?? []).map((l: { id: string; fields: Record<string, unknown>; created_at: string; deleted: boolean }) => [l.id, { done: !!l.fields?.done, daybook: l.fields?.daybook, created_at: l.created_at, deleted: l.deleted || !!l.fields?.trashed }]));
+  const note = week
+    ? mondayNote(week, state, count, INKWELL, tz)
+    : { title: "Your tidy pass in Inkwell", body: `Claude has ${count === 1 ? "one tidy-up" : `${count} tidy-ups`} for Inkwell waiting for a yes or no. Open Inkwell to go through them.`, offers: [] };
+  const { error } = await sb.from("notes").insert({ user_id: userId, author: "Inkwell", title: note.title, body: note.body, link, offers: note.offers });
+  if (error) console.error("monday note", userId, error);
+  else made.push(link);
   return made;
 }
 
