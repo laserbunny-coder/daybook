@@ -1401,7 +1401,9 @@ function noteWhen(iso) {
   return (day === today() ? 'Today' : day === add(today(), -1) ? 'Yesterday' : `${DAYN[d.getDay()]}, ${MON[d.getMonth()]} ${d.getDate()}${d.getFullYear() !== new Date().getFullYear() ? ', ' + d.getFullYear() : ''}`) + ' · ' + t;
 }
 const noteFrom = n => `${esc(n.author || 'Claude')}: ${esc(n.title)}`;
-const noteTalk = n => { const u = safeLink(n.link); return u ? `<a class="n-talk" href="${esc(u)}" target="_blank" rel="noopener">${ICON.ask}<span>Talk about this</span></a>` : ''; };
+// A note that points into Inkwell (say the 9 pm day review) says so, instead of "Talk about this"
+const inInkwell = u => /^https:\/\/laserbunny-coder\.github\.io\/inkwell\//.test(u || '');
+const noteTalk = n => { const u = safeLink(n.link); return u ? `<a class="n-talk" href="${esc(u)}" target="_blank" rel="noopener">${inInkwell(u) ? ICON.link : ICON.ask}<span>${inInkwell(u) ? 'Open in Inkwell' : 'Talk about this'}</span></a>` : ''; };
 function noteTasks(n) {
   if (!n.task_ids?.length) return '';
   return `<div class="n-tasks">${n.task_ids.map(id => {
