@@ -29,6 +29,38 @@ function tokenFrom(req: Request): string | null {
   return /^[0-9a-f]{48}$/.test(bearer) ? bearer : null;
 }
 
+// A picture or video from a generator's link, brought home. Only https, only
+// public hosts, at most 50 MB, given up after a minute.
+const MAX = 50 * 1024 * 1024;
+const PRIVATE = /^(localhost|.*\.local|.*\.internal|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|\[?::1\]?|\[?f[cd][0-9a-f]{2}:)/i;
+async function fetchFile(url: string): Promise<{ bytes: Uint8Array; type: string; name: string } | null> {
+  let u: URL;
+  try { u = new URL(url); } catch { return null; }
+  if (u.protocol !== "https:" || PRIVATE.test(u.hostname)) return null;
+  try {
+    const res = await fetch(u, { redirect: "follow", signal: AbortSignal.timeout(60_000) });
+    if (!res.ok || !res.body) return null;
+    const type = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+    if (!/^(image|video)\//.test(type)) { await res.body.cancel(); return null; }
+    if (Number(res.headers.get("content-length") ?? 0) > MAX) { await res.body.cancel(); return null; }
+    const parts: Uint8Array[] = [];
+    let size = 0;
+    for await (const chunk of res.body) {
+      size += chunk.length;
+      if (size > MAX) return null;
+      parts.push(chunk);
+    }
+    const bytes = new Uint8Array(size);
+    let at = 0;
+    for (const p of parts) { bytes.set(p, at); at += p.length; }
+    const cd = /filename\*?=(?:UTF-8'')?"?([^";]+)/i.exec(res.headers.get("content-disposition") ?? "")?.[1];
+    const name = decodeURIComponent(cd ?? u.pathname.split("/").filter(Boolean).at(-1) ?? "").slice(0, 200);
+    return { bytes, type, name };
+  } catch {
+    return null;
+  }
+}
+
 const full = (r: Partial<Entry>): Entry => ({ text: "", content: null, tags: [], links: [], ...r } as Entry);
 
 function dbFor(userId: string): Db {
@@ -105,6 +137,18 @@ function dbFor(userId: string): Db {
       const { error } = await sb.from("writing_entries").insert(rows.map((r) => ({ ...r, user_id: userId })));
       if (error) throw error;
     },
+    async fileLinks(ids) {
+      if (!ids.length) return [];
+      const { data, error } = await sb.storage.from("writing-files").createSignedUrls(ids.map((id) => `${userId}/${id}`), 86400);
+      if (error) throw error;
+      const byPath = new Map((data ?? []).map((d: { path: string | null; signedUrl: string | null; error: string | null }) => [d.path, d.error ? null : d.signedUrl]));
+      return ids.map((id) => byPath.get(`${userId}/${id}`) ?? null);
+    },
+    async keepFile(id, bytes, type) {
+      const { error } = await sb.storage.from("writing-files").upload(`${userId}/${id}`, bytes, { contentType: type, upsert: true });
+      if (error) throw error;
+    },
+    fetchFile,
     async timeZone() {
       const { data, error } = await sb.auth.admin.getUserById(userId);
       if (error) throw error;
