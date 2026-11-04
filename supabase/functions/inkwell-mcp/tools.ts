@@ -78,6 +78,12 @@ export type Db = {
   markChange(id: string, fields: Record<string, unknown>): Promise<void>;
   /** The person's time zone (the Daybook app records it), such as America/Los_Angeles; null if unknown. */
   timeZone(): Promise<string | null>;
+  /** Links anyone can open for a day, to files kept in Inkwell (by file entry id); null where there's no file. */
+  fileLinks(ids: string[]): Promise<(string | null)[]>;
+  /** Keeps a file in Inkwell's file storage under this file entry id. */
+  keepFile(id: string, bytes: Uint8Array, type: string): Promise<void>;
+  /** Fetches a picture or video from the web (https only, up to 50 MB); null if it can't. */
+  fetchFile(url: string): Promise<{ bytes: Uint8Array; type: string; name: string } | null>;
 };
 
 const VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -101,7 +107,8 @@ export const INSTRUCTIONS = `Inkwell is this person's own writing app and notebo
 - What you add is marked as written by Claude and the person sees it on all their devices. You can't delete anything or change their words (only your own abouts). You can make three small changes when they ask, or when it's plainly what they want: mark_done ticks a line done (or not), move_line moves a line (with everything under it) to another page or day, and set_life_project makes a world a life project (or a story world again). Each is recorded as yours, shown to them with an Undo, and undo_change takes it back; changes lists what you've changed.
 - For bigger tidying (two worlds that are the same thing, a tag that means the same as another, a line that belongs on a bible page, an idea for the Drawer, a world in the wrong area, a name that's a whole sentence), don't do it: suggest it with suggest_tidy. It waits on their tidy pass in the app until they tick yes or no. A weekly tidy pass is also made for them early each Monday.
 - Keep to the person's voice and don't add more than they asked for.
-- Say what you added and where, in plain words, since the person sees your reply, not the tool calls.`;
+- Say what you added and where, in plain words, since the person sees your reply, not the tool calls.
+- Production (AI video): a piece's shots, each with a code that never changes (NB-E01-S03A-04), prompts for its still and its video, how it's generated (model, seconds, first and last frame, the line it's timed to, and a group when several shots are made in one generation), and its tries with a star on the one that worked. The world's kit holds each character's sheet (front, three-quarter, side, back), each location's lighting line and angles, the show rules (frame, frame rate, always and never) and each tool's ID for an element (Higgsfield Soul ID or Element, ComfyUI LoRA, Kling reference). To make shots in another tool (Higgsfield, Kling, ComfyUI…): read them with production, write prompts that use the kit's looks, lighting, rules and tool IDs, and pass the reference picture links along. Bring results back with add_try (the file or link, model, settings, seconds, cost), star the one that worked with star, and keep prompts or generation details current with update_shot. Old prompts are never lost: they stay with the try that used them. Prices (prices, update_prices) feed the cost estimate on the Make tab; when you check prices, update them with the source.`;
 
 const str = (description: string) => ({ type: "string", description });
 const LINES = {
@@ -334,6 +341,103 @@ export const TOOLS = [
             },
           },
         },
+      },
+    },
+  },
+  {
+    name: "production",
+    title: "Read a piece's production",
+    description: "A piece's production, for making its shots in another tool: the show rules and style, the kit (each element's looks, lighting, tool IDs, character sheet and reference pictures as links), and each scene's shots with their code, what happens, framing, prompts, how each is generated, the tries so far (model, cost, files as links) and what's starred. Links to pictures work for a day. Give scene to read one scene (its id or its number, like 3A).",
+    inputSchema: {
+      type: "object",
+      required: ["piece_id"],
+      properties: {
+        piece_id: str("The piece (a script or prose draft; see list_worlds)."),
+        scene: str("Optional: one scene, by its id or scene number (3, 3A)."),
+      },
+    },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "update_shot",
+    title: "Update a shot",
+    description: "Changes a shot's prompts or how it's generated. New prompts replace the current ones, which are kept with the tries (nothing is lost). Leave out what stays the same; give an empty string to clear a generation detail. What happens in the shot and its framing are the person's and don't change here.",
+    inputSchema: {
+      type: "object",
+      required: ["shot_id"],
+      properties: {
+        shot_id: str("The shot (ids from production)."),
+        still_prompt: str("The prompt for the first frame, as one picture."),
+        video_prompt: str("The prompt for how it moves."),
+        model: str("The model it's made with, as the price list names it (see prices), such as Kling 3.0 or Local ComfyUI."),
+        seconds: { type: ["number", "string"], description: "How long the shot is, in seconds." },
+        first_frame: str("A picture file id from this shot's tries to start from."),
+        last_frame: str("A picture file id from this shot's tries to end on."),
+        timed_to: str("The line of dialogue or song it's timed to, as written (WHO: words)."),
+        group_with_next: { type: ["boolean", "string"], description: "true: made in one generation with the next shot in the scene (a multi-shot clip). false: made on its own." },
+      },
+    },
+  },
+  {
+    name: "add_try",
+    title: "Add a try",
+    description: "Brings results home to a shot: pictures or videos by link (kept in Inkwell, up to 50 MB each; bigger ones or pages stay as links), with the model, settings, seconds and what it cost. The prompts it was made with go with it (the shot's current prompts unless given). Marked as yours.",
+    inputSchema: {
+      type: "object",
+      required: ["shot_id"],
+      properties: {
+        shot_id: str("The shot."),
+        results: {
+          type: "array",
+          description: "What came back, up to 10: each a link (https) to a picture or video, with a name if you like.",
+          items: { anyOf: [{ type: "string" }, { type: "object", required: ["url"], properties: { url: { type: "string" }, name: { type: "string" } } }] },
+        },
+        keep: { type: ["boolean", "string"], description: "Keep copies in Inkwell (the default). false keeps them only as links." },
+        model: str("The model, as the price list names it."),
+        seconds: { type: ["number", "string"], description: "Seconds of video made." },
+        settings: str("Settings worth remembering: seed, resolution, motion strength, LoRA weights…"),
+        cost_usd: { type: ["number", "string"], description: "What it cost in US dollars. Leave out to estimate it from the price list." },
+        still_prompt: str("The still prompt it was made with, if not the shot's current one."),
+        video_prompt: str("The video prompt it was made with, if not the shot's current one."),
+      },
+    },
+  },
+  {
+    name: "star",
+    title: "Star a result",
+    description: "Stars the picture or video on a shot that worked (one still and one video per shot; starring another replaces it). With off true, takes the star away.",
+    inputSchema: {
+      type: "object",
+      required: ["shot_id", "file_id"],
+      properties: { shot_id: str("The shot."), file_id: str("The file, from the shot's tries."), off: { type: ["boolean", "string"], description: "true to take the star away." } },
+    },
+  },
+  {
+    name: "prices",
+    title: "Prices",
+    description: "What each model costs, per second of video or per picture, in US dollars, with when each was checked. The Make tab's cost estimate uses these.",
+    inputSchema: { type: "object", properties: {} },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "update_prices",
+    title: "Update prices",
+    description: "Adds or updates prices on the list (matched by model name), dated today, with where each came from. Give remove to take models off. Prices the person typed themselves are only changed if you give a source.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        prices: {
+          type: "array",
+          items: {
+            type: "object", required: ["model", "usd"],
+            properties: {
+              model: str("The model's name, like Kling 3.0."), tool: str("Where it's bought: Higgsfield, Kling API, Comfy Cloud, Your PC…"),
+              unit: { type: "string", enum: ["second", "picture"], description: "Per second of video (the default) or per picture." },
+              usd: { type: ["number", "string"], description: "US dollars per unit." }, source: str("A link to where the price was checked."),
+            },
+          },
+        },
+        remove: { type: "array", items: { type: "string" }, description: "Model names to take off the list." },
       },
     },
   },
@@ -1228,6 +1332,432 @@ async function isEmpty(db: Db, id: string): Promise<boolean> {
   return true;
 }
 
+
+// ---------- production: shots out to the AI tools and results back ----------
+// The same rules as the app's src/production.js (codes, found elements,
+// prompts kept with their tries, prices); keep the two alike.
+
+const pad = (code: unknown) => {
+  const m = /^([A-Z]*)(\d+)([A-Z]*)$/i.exec(String(code ?? ""));
+  return m ? `${m[1]}${m[2].padStart(2, "0")}${m[3]}`.toUpperCase() : String(code ?? "").toUpperCase();
+};
+export function shotCode(o: { show?: unknown; piece?: unknown; scene?: unknown; shot?: unknown }): string {
+  const clean = (x: unknown) => String(x ?? "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "");
+  return [clean(o.show), clean(o.piece), o.scene ? `S${pad(o.scene)}` : "", o.shot ? pad(o.shot) : ""].filter(Boolean).join("-");
+}
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const elOf = (r: Entry) => (r.fields?.element ?? {}) as Record<string, any>;
+const namesOf = (r: Entry) => [r.title || "", ...((elOf(r).also as string[]) ?? [])].map((x) => String(x).trim()).filter((x) => x.length > 1);
+export function findElements(text: string, cues: string[], els: Entry[]): string[] {
+  const said = new Set(cues.map((c) => c.replace(/\(.*?\)/g, "").replace(/\^$/, "").trim().toUpperCase()));
+  return els.filter((el) => namesOf(el).some((n) => said.has(n.toUpperCase()) || new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(n)}(?![\\p{L}\\p{N}])`, "iu").test(text))).map((e) => e.id);
+}
+const VIEWS: Record<string, string[]> = { character: ["front", "three", "side", "back"], location: ["wide", "reverse", "close"] };
+const VIEW_NAME: Record<string, string> = { front: "front", three: "three-quarter", side: "side", back: "back", wide: "wide", reverse: "reverse", close: "close" };
+function toolIds(r: Entry): Record<string, string> {
+  const x = elOf(r);
+  const ids: Record<string, string> = { ...(x.ids ?? {}) };
+  if (x.look && !ids.lora) ids.lora = x.look;
+  const NAME: Record<string, string> = { soul: "higgsfield_soul_id", element: "higgsfield_element", lora: "comfyui_lora", kling: "kling_reference" };
+  return Object.fromEntries(Object.entries(ids).filter(([, v]) => typeof v === "string" && v.trim()).map(([k, v]) => [NAME[k] ?? k, v]));
+}
+
+export const PRICES_ID = "prices";
+// The first list, for a vault that has none yet (the same as the app's SEED_PRICES).
+export const SEED_PRICES = [
+  { model: "Kling 3.0", tool: "Higgsfield", unit: "second", usd: 0.08 },
+  { model: "Kling 4.0", tool: "Kling API", unit: "second", usd: 0.21 },
+  { model: "Seedance 2.0", tool: "Higgsfield", unit: "second", usd: 0.30 },
+  { model: "Seedance 2.5", tool: "Runway API, 720p", unit: "second", usd: 0.30 },
+  { model: "Veo 3.1", tool: "ComfyUI", unit: "second", usd: 0.40 },
+  { model: "Veo 3.1 Fast", tool: "ComfyUI", unit: "second", usd: 0.12 },
+  { model: "Wan 3.0", tool: "Runway API, 720p", unit: "second", usd: 0.10 },
+  { model: "MiniMax H3", tool: "API", unit: "second", usd: 0.10 },
+  { model: "Open model on Comfy Cloud", tool: "Comfy Cloud", unit: "second", usd: 0.05 },
+  { model: "Local ComfyUI", tool: "Your PC", unit: "second", usd: 0, local: true },
+  { model: "Still (Nano Banana, Seedream, FLUX)", tool: "Higgsfield", unit: "picture", usd: 0.10 },
+  { model: "Local still", tool: "Your PC", unit: "picture", usd: 0, local: true },
+].map((p) => ({ ...p, checked: "2026-11-03" }));
+type Price = { model: string; tool?: string; unit?: string; usd: number; checked?: string; by?: string; source?: string; local?: boolean };
+const normModel = (s: unknown) => String(s ?? "").toLowerCase().replace(/[^a-z0-9.]+/g, " ").trim();
+export function priceOf(list: Price[], model: unknown): Price | null {
+  const m = normModel(model);
+  if (!m) return null;
+  return list.find((p) => normModel(p.model) === m) ?? list.find((p) => m.includes(normModel(p.model)) || normModel(p.model).includes(m)) ?? null;
+}
+async function priceRow(db: Db): Promise<{ row: Entry | null; list: Price[] }> {
+  const [row] = await db.get([PRICES_ID]);
+  const ok = row && row.kind === "prices" && !row.deleted && Array.isArray(row.fields?.list);
+  return { row: row ?? null, list: ok ? (row!.fields.list as Price[]).filter((p) => p && p.model) : SEED_PRICES };
+}
+const DEFAULT_SECS = 5;
+const secsOf = (sh: Entry) => Number((sh.fields?.gen as any)?.secs) > 0 ? Number((sh.fields?.gen as any).secs) : DEFAULT_SECS;
+
+/** A piece's scenes in order, each with its words and its shots. */
+async function scenesOf(db: Db, shape: Shape, piece: Entry) {
+  const script = typeOf(piece) === "screenplay";
+  type Scene = { id: string; number: string | null; heading: string; text: string[]; cues: string[] };
+  const scenes: Scene[] = [];
+  for (const ch of shape.chapters(piece)) {
+    const rows = (await db.kids([ch.id])).filter((r) => ["para", "heading", "scene"].includes(r.kind) && !gone(r)).sort(bySort);
+    let cur: Scene | null = null;
+    if (!script) { cur = { id: ch.id, number: null, heading: ch.title || "Opening", text: [], cues: [] }; scenes.push(cur); }
+    for (const r of rows) {
+      const slug = script && r.kind === "para" && r.fields?.el === "scene" && (r.text || "").trim();
+      if (slug || (!script && r.kind === "scene")) {
+        cur = { id: r.id, number: (r.fields?.code as string) || null, heading: slug ? (r.text || "").trim().toUpperCase() : r.title || "Scene", text: [slug ? r.text : r.title], cues: [] };
+        scenes.push(cur);
+        continue;
+      }
+      if (!cur) continue;
+      cur.text.push(r.text || "");
+      if (r.fields?.el === "character") cur.cues.push(r.text || "");
+    }
+  }
+  const ids = scenes.map((s) => s.id);
+  const shots: Entry[] = [];
+  for (let i = 0; i < ids.length; i += 200) shots.push(...(await db.kids(ids.slice(i, i + 200))).filter((r) => r.kind === "shot" && !gone(r)));
+  const bds = await db.get(ids.map((id) => `bd-${id}`));
+  return scenes.map((s) => ({
+    ...s,
+    shots: shots.filter((x) => x.parent_id === s.id).sort(bySort),
+    bd: bds.find((b) => b.parent_id === s.id && !b.deleted) ?? null,
+  })).filter((s) => !script || s.shots.length || s.text.join("").trim());
+}
+
+async function productionOf(db: Db, pieceId: unknown) {
+  const piece = await one(db, pieceId, "piece_id");
+  if (piece.kind !== "project") throw new Bad("piece_id must be a piece (see list_worlds).");
+  if (!["screenplay", "novel"].includes(typeOf(piece))) throw new Bad("Production works on a script or prose draft. This piece is an outline.");
+  const shape = new Shape(await db.outline());
+  const world = shape.worldOf(piece);
+  return { piece, shape, world };
+}
+
+async function production(args: Record<string, unknown>, db: Db) {
+  const { piece, shape, world } = await productionOf(db, args.piece_id);
+  let scenes = await scenesOf(db, shape, piece);
+  const want = typeof args.scene === "string" && args.scene.trim() ? args.scene.trim() : null;
+  if (want) {
+    scenes = scenes.filter((s) => s.id === want || (s.number && s.number.toUpperCase() === want.toUpperCase()));
+    if (!scenes.length) throw new Bad(`No scene ${JSON.stringify(want)} in this piece. Leave scene out to see them all.`);
+  }
+  // The kit: the world's bible pages that are elements.
+  const kitRows: Entry[] = [];
+  if (world) {
+    const pageIds = new Set<string>();
+    const walk = (id: string) => { for (const p of shape.under(id, "page")) { pageIds.add(p.id); walk(p.id); } };
+    walk(world.id);
+    for (const p of shape.under(world.id, "project")) walk(p.id);
+    for (const id of pageIds) { const p = shape.byId.get(id)!; if (p.fields?.element) kitRows.push(p); }
+  }
+  const prod = (world?.fields?.production ?? {}) as Record<string, any>;
+  const show = prod.code, pc = piece.fields?.code;
+  const { list } = await priceRow(db);
+  // Which files are where, then one batch of links.
+  const fileIds = new Set<string>();
+  const sceneOut = scenes.map((s) => {
+    const found = findElements(s.text.join("\n"), s.cues, kitRows);
+    const add = (s.bd?.fields?.add as string[]) ?? [];
+    const drop = new Set((s.bd?.fields?.drop as string[]) ?? []);
+    const uses = [...new Set([...found, ...add])].filter((id) => !drop.has(id) && kitRows.some((k) => k.id === id));
+    return { s, uses };
+  });
+  const usedEls = new Set(sceneOut.flatMap((x) => x.uses));
+  const kit = kitRows.filter((k) => !want || usedEls.has(k.id));
+  for (const k of kit) {
+    for (const id of Object.values((elOf(k).views ?? {}) as Record<string, string>)) fileIds.add(id);
+    for (const id of (elOf(k).refs ?? []) as string[]) fileIds.add(id);
+  }
+  for (const { s } of sceneOut) for (const sh of s.shots) {
+    const f = sh.fields ?? {};
+    for (const id of Object.values((f.star ?? {}) as Record<string, string>)) fileIds.add(id);
+    for (const k of ["first", "last"]) if ((f.gen as any)?.[k]) fileIds.add((f.gen as any)[k]);
+    for (const t of ((f.tries ?? []) as any[]).slice(-5)) for (const id of t.files ?? []) fileIds.add(id);
+  }
+  const ids = [...fileIds];
+  const metas = new Map((await db.get(ids)).filter((m) => m.kind === "file" && !gone(m)).map((m) => [m.id, m]));
+  const live = ids.filter((id) => metas.has(id));
+  const urls = live.length ? await db.fileLinks(live) : [];
+  const link = new Map(live.map((id, i) => [id, urls[i]]));
+  const file = (id: string | undefined) => {
+    if (!id) return undefined;
+    const m = metas.get(id);
+    return m ? { file_id: id, name: m.title, type: m.fields?.type, ...(link.get(id) ? { url: link.get(id) } : {}) } : undefined;
+  };
+  const tz = await db.timeZone();
+  const stageOf = (f: Record<string, any>) => f.star?.video ? "take picked" : f.star?.still ? "still picked" : (f.tries ?? []).some((t: any) => t.files?.length || t.links?.length) ? "renders in" : (f.still || f.video) ? "prompted" : "planned";
+  let estimate = 0, spent = 0;
+  const unpriced = new Set<string>();
+  const pg = (piece.fields?.gen ?? {}) as Record<string, any>;
+  const out = sceneOut.map(({ s, uses }) => {
+    // Runs of shots made in one generation count once in the estimate.
+    let prevGroup: string | null = null;
+    const shotsOut = s.shots.map((sh, i) => {
+      const f = (sh.fields ?? {}) as Record<string, any>;
+      const g = (f.gen ?? {}) as Record<string, any>;
+      const group = f.group as string | undefined;
+      const made = f.made || "gen";
+      if (made !== "live") {
+        const lead = !group || group !== prevGroup;
+        if (lead) {
+          const run = group ? s.shots.slice(i).filter((x, j, a) => a.slice(0, j + 1).every((y) => y.fields?.group === group)) : [sh];
+          const model = (run[0].fields?.gen as any)?.model || pg.model || "";
+          const p = priceOf(list, model);
+          if (p) estimate += (p.unit === "picture" ? p.usd : p.usd * run.reduce((n, x) => n + secsOf(x), 0)) * (Number(pg.tries) > 0 ? Number(pg.tries) : 3);
+          else unpriced.add(model || "no model");
+        }
+      }
+      prevGroup = group ?? null;
+      for (const t of f.tries ?? []) if (Number(t.cost) > 0) spent += Number(t.cost);
+      const tries = ((f.tries ?? []) as any[]).filter((t) => t.files?.length || t.links?.length || t.cost);
+      return {
+        id: sh.id, code: shotCode({ show, piece: pc, scene: s.number, shot: f.n }), what: sh.text || "", framing: f.framing || "",
+        ...(made !== "gen" ? { made: made === "live" ? "filmed live" : "generated from footage" } : {}),
+        stage: stageOf(f),
+        still_prompt: f.still || "", video_prompt: f.video || "",
+        generation: {
+          model: g.model || pg.model || "", seconds: secsOf(sh),
+          ...(g.first ? { first_frame: file(g.first) } : {}), ...(g.last ? { last_frame: file(g.last) } : {}),
+          ...(g.sync ? { timed_to: g.sync } : {}),
+          ...(group ? { one_generation_with: s.shots.filter((x) => x.fields?.group === group && x.id !== sh.id).map((x) => shotCode({ show, piece: pc, scene: s.number, shot: x.fields?.n })) } : {}),
+        },
+        ...(f.star?.still || f.star?.video ? { starred: { ...(f.star.still ? { still: file(f.star.still) } : {}), ...(f.star.video ? { video: file(f.star.video) } : {}) } } : {}),
+        ...(tries.length ? {
+          tries: tries.slice(-5).map((t) => ({
+            id: t.id, when: t.at ? localDate(new Date(Number(t.at)).toISOString(), tz) : undefined, ...(t.by === CLAUDE ? { by: "Claude" } : {}),
+            ...(t.model ? { model: t.model } : {}), ...(t.secs ? { seconds: t.secs } : {}), ...(t.settings ? { settings: t.settings } : {}),
+            ...(t.cost !== undefined ? { cost_usd: t.cost, ...(t.cost_est ? { cost_estimated: true } : {}) } : {}),
+            ...(t.still && t.still !== f.still ? { still_prompt: t.still } : {}), ...(t.video && t.video !== f.video ? { video_prompt: t.video } : {}),
+            files: (t.files ?? []).map((id: string) => file(id)).filter(Boolean), ...(t.links?.length ? { links: t.links } : {}),
+          })),
+          ...(tries.length > 5 ? { earlier_tries: tries.length - 5 } : {}),
+        } : {}),
+      };
+    });
+    return { id: s.id, ...(s.number ? { number: s.number } : {}), heading: s.heading, elements: uses.map((id) => shape.byId.get(id)?.title).filter(Boolean), shots: shotsOut };
+  });
+  const checked = list.map((p) => p.checked ?? "").sort().at(-1);
+  return {
+    piece: piece.title, id: piece.id, world: world?.title,
+    rules: {
+      ...(prod.style ? { style: prod.style } : {}), ...(prod.aspect ? { frame: prod.aspect } : {}), frame_rate: prod.fps || "24",
+      ...(prod.constraints ? { always_and_never: prod.constraints } : {}),
+    },
+    kit: kit.map((k) => {
+      const x = elOf(k);
+      const views = Object.fromEntries((VIEWS[x.type] ?? []).filter((v) => x.views?.[v] && link.get(x.views[v])).map((v) => [VIEW_NAME[v], link.get(x.views[v])]));
+      const refs = ((x.refs ?? []) as string[]).map((id) => link.get(id)).filter(Boolean);
+      const tids = toolIds(k);
+      return {
+        id: k.id, name: k.title, type: x.type || "other", ...(x.also?.length ? { also_called: x.also } : {}),
+        ...(x.snippet ? { looks: x.snippet } : {}), ...(x.lighting ? { lighting: x.lighting } : {}),
+        ...(Object.keys(tids).length ? { tool_ids: tids } : {}), ...(Object.keys(views).length ? { sheet: views } : {}), ...(refs.length ? { references: refs } : {}),
+      };
+    }),
+    scenes: out,
+    cost: {
+      estimate_usd: Math.round(estimate * 100) / 100, tries_per_shot: Number(pg.tries) > 0 ? Number(pg.tries) : 3, ...(pg.model ? { model_for_finals: pg.model } : {}),
+      spent_usd: Math.round(spent * 100) / 100, ...(unpriced.size ? { no_price_for: [...unpriced] } : {}), prices_checked: checked,
+    },
+  };
+}
+
+/** A shot, live, in a piece Claude can see. */
+async function shotArg(db: Db, id: unknown): Promise<Entry> {
+  const sh = await one(db, id, "shot_id");
+  if (sh.kind !== "shot") throw new Bad("shot_id must be a shot (ids come from production).");
+  return sh;
+}
+
+/** Changes a shot's fields, reading it again if it changed in between (once). */
+async function changeShot(db: Db, id: string, make: (fields: Record<string, any>, sh: Entry) => Record<string, any>) {
+  for (let i = 0; i < 3; i++) {
+    const sh = await shotArg(db, id);
+    if (await db.change(sh.id, sh.updated_at, { fields: make({ ...(sh.fields ?? {}) }, sh) })) return;
+  }
+  throw new Bad("That shot keeps changing in the app just now. Try again in a moment.");
+}
+
+/** New prompts; the ones they replace stay as a try unless one has them already. */
+function withPrompts(f: Record<string, any>, still: string | undefined, video: string | undefined) {
+  const tries = [...(f.tries ?? [])];
+  const cur = { still: f.still || "", video: f.video || "" };
+  const kept = tries.some((t: any) => (t.still || "") === cur.still && (t.video || "") === cur.video);
+  if ((cur.still || cur.video) && !kept) tries.push({ id: newId("tr"), at: Date.now(), by: f.prompt_by || "me", ...cur, files: [] });
+  return { ...f, tries, still: still ?? cur.still, video: video ?? cur.video, prompt_by: CLAUDE };
+}
+
+async function updateShot(args: Record<string, unknown>, db: Db) {
+  const sh = await shotArg(db, args.shot_id);
+  const opt = (k: string, max = 8000) => (typeof args[k] === "string" ? (args[k] as string).trim().slice(0, max) : undefined);
+  const still = opt("still_prompt"), video = opt("video_prompt");
+  const gen: Record<string, unknown> = {};
+  const touched: string[] = [];
+  if (args.model !== undefined) { gen.model = opt("model", 120) ?? ""; touched.push("model"); }
+  if (args.seconds !== undefined && args.seconds !== "") {
+    const n = Number(args.seconds);
+    if (!(n > 0 && n <= 600)) throw new Bad("seconds must be a number from 0.5 to 600.");
+    gen.secs = Math.round(n * 10) / 10; touched.push("seconds");
+  } else if (args.seconds === "") { gen.secs = ""; touched.push("seconds"); }
+  const pics = new Set(((sh.fields?.tries ?? []) as any[]).flatMap((t) => t.files ?? []));
+  for (const [arg, key] of [["first_frame", "first"], ["last_frame", "last"]]) {
+    if (args[arg] === undefined) continue;
+    const v = opt(arg, 100) ?? "";
+    if (v && !pics.has(v)) throw new Bad(`${arg} must be a picture file id from this shot's tries (see production).`);
+    gen[key] = v; touched.push(arg);
+  }
+  if (args.timed_to !== undefined) { gen.sync = opt("timed_to", 400) ?? ""; touched.push("timed_to"); }
+  let group: boolean | undefined;
+  if (args.group_with_next !== undefined && args.group_with_next !== "") group = boolArg(args.group_with_next, true);
+  if (still === undefined && video === undefined && !touched.length && group === undefined) throw new Bad("Nothing to change: give prompts or generation details.");
+  // Grouping touches the next shot too.
+  let next: Entry | undefined;
+  if (group !== undefined) {
+    const sibs = (await db.kids([sh.parent_id!])).filter((r) => r.kind === "shot" && !gone(r)).sort(bySort);
+    next = sibs[sibs.findIndex((x) => x.id === sh.id) + 1];
+    if (group && !next) throw new Bad("It's the last shot in its scene, so there's no next shot to make it with.");
+  }
+  let gid: string | null = null;
+  await changeShot(db, sh.id, (f) => {
+    let out: Record<string, any> = still !== undefined || video !== undefined ? withPrompts(f, still, video) : f;
+    if (touched.length) {
+      const g = { ...(out.gen ?? {}), ...gen };
+      for (const k of Object.keys(g)) if (g[k] === "" || g[k] === null) delete g[k];
+      out = { ...out, gen: g };
+      if (!Object.keys(g).length) delete out.gen;
+    }
+    if (group === true) { gid = (out.group as string) || (next!.fields?.group as string) || newId("gr"); out = { ...out, group: gid }; }
+    if (group === false) { out = { ...out }; delete out.group; }
+    return { ...out, edited_by: CLAUDE };
+  });
+  if (group === true && next && next.fields?.group !== gid) await changeShot(db, next.id, (f) => ({ ...f, group: gid }));
+  return { shot: sh.id, changed: [...(still !== undefined ? ["still prompt"] : []), ...(video !== undefined ? ["video prompt"] : []), ...touched, ...(group !== undefined ? [group ? "made with the next shot" : "made on its own"] : [])] };
+}
+
+const MAX_FILE = 50 * 1024 * 1024;
+async function addTry(args: Record<string, unknown>, db: Db) {
+  const sh = await shotArg(db, args.shot_id);
+  const list = Array.isArray(args.results) ? args.results : args.results === undefined ? [] : [args.results];
+  if (list.length > 10) throw new Bad("Up to 10 results at a time.");
+  const keep = boolArg(args.keep, true);
+  const opt = (k: string, max: number) => (typeof args[k] === "string" && (args[k] as string).trim() ? (args[k] as string).trim().slice(0, max) : undefined);
+  const files: Entry[] = [];
+  const links: string[] = [];
+  const notKept: string[] = [];
+  for (const r of list) {
+    const url = typeof r === "string" ? r : (r as any)?.url;
+    const name = typeof r === "object" && r ? String((r as any).name ?? "").slice(0, 200) : "";
+    if (typeof url !== "string" || !/^https:\/\//i.test(url.trim())) throw new Bad("Each result needs an https link.");
+    const got = keep ? await db.fetchFile(url.trim()) : null;
+    if (!got || !/^(image|video)\//.test(got.type) || got.bytes.length > MAX_FILE) {
+      links.push(url.trim());
+      if (keep) notKept.push(url.trim());
+      continue;
+    }
+    const id = newId("fi");
+    await db.keepFile(id, got.bytes, got.type);
+    files.push(row("file", { id, title: name || got.name || `Result ${files.length + 1}`, fields: { type: got.type, size: got.bytes.length, shot: sh.id } }));
+  }
+  const { list: priceList } = await priceRow(db);
+  const model = opt("model", 120) ?? ((sh.fields?.gen as any)?.model as string | undefined);
+  let secs: number | undefined;
+  if (args.seconds !== undefined && args.seconds !== "") {
+    secs = Number(args.seconds);
+    if (!(secs > 0 && secs <= 600)) throw new Bad("seconds must be a number from 0.5 to 600.");
+  }
+  let cost: number | undefined;
+  let est = false;
+  if (args.cost_usd !== undefined && args.cost_usd !== "") {
+    cost = Number(args.cost_usd);
+    if (!(cost >= 0 && cost < 10000)) throw new Bad("cost_usd must be dollars, like 0.42.");
+  } else if (model) {
+    const p = priceOf(priceList, model);
+    const video = files.some((f) => String(f.fields.type).startsWith("video/")) || (!files.length && !!secs);
+    if (p) { cost = p.unit === "picture" ? p.usd * Math.max(1, files.length) : video ? p.usd * (secs ?? secsOf(sh)) : p.usd * Math.max(1, files.length); est = true; }
+  }
+  if (!files.length && !links.length && cost === undefined) throw new Bad("Give results (links), or at least what it cost.");
+  if (files.length) await db.insert(files);
+  const tryId = newId("tr");
+  await changeShot(db, sh.id, (f) => {
+    const t: Record<string, unknown> = {
+      id: tryId, at: Date.now(), by: CLAUDE,
+      still: opt("still_prompt", 8000) ?? f.still ?? "", video: opt("video_prompt", 8000) ?? f.video ?? "",
+      files: files.map((x) => x.id), ...(links.length ? { links } : {}),
+      ...(model ? { model } : {}), ...(secs ? { secs: Math.round(secs * 10) / 10 } : {}), ...(opt("settings", 2000) ? { settings: opt("settings", 2000) } : {}),
+      ...(cost !== undefined ? { cost: Math.round(cost * 100) / 100, ...(est ? { cost_est: true } : {}) } : {}),
+    };
+    return { ...f, tries: [...(f.tries ?? []), t] };
+  });
+  return {
+    shot: sh.id, try_id: tryId, kept: files.map((x) => ({ file_id: x.id, name: x.title, type: x.fields.type })),
+    ...(links.length ? { as_links: links } : {}), ...(notKept.length ? { note: "Some results couldn't be kept (not a picture or video, over 50 MB, or the link didn't open), so they're saved as links." } : {}),
+    ...(cost !== undefined ? { cost_usd: Math.round(cost * 100) / 100, ...(est ? { cost_estimated_from_prices: true } : {}) } : {}),
+  };
+}
+
+async function star(args: Record<string, unknown>, db: Db) {
+  const sh = await shotArg(db, args.shot_id);
+  const fileId = typeof args.file_id === "string" ? args.file_id.trim() : "";
+  if (!((sh.fields?.tries ?? []) as any[]).some((t) => (t.files ?? []).includes(fileId))) throw new Bad("That file isn't one of this shot's results (see production for file ids).");
+  const [meta] = await db.get([fileId]);
+  if (!meta || gone(meta)) throw new Bad("That file was removed.");
+  const k = String(meta.fields?.type ?? "").startsWith("video/") ? "video" : "still";
+  const off = boolArg(args.off, false);
+  await changeShot(db, sh.id, (f) => {
+    const s = { ...(f.star ?? {}) };
+    if (off) { if (s[k] === fileId) delete s[k]; } else s[k] = fileId;
+    return { ...f, star: s, star_by: CLAUDE };
+  });
+  return { shot: sh.id, [k]: off ? "unstarred" : "starred", file: meta.title };
+}
+
+async function prices(db: Db) {
+  const { row: r, list } = await priceRow(db);
+  return {
+    prices: list.map((p) => ({ model: p.model, ...(p.tool ? { where: p.tool } : {}), per: p.unit === "picture" ? "picture" : "second", usd: p.usd, ...(p.checked ? { checked: p.checked } : {}), ...(p.by ? { by: p.by === CLAUDE ? "Claude" : "the person" } : {}), ...(p.source ? { source: p.source } : {}) })),
+    ...(r ? {} : { note: "These are the starting prices from Nov 3, 2026; none have been saved yet." }),
+  };
+}
+
+async function updatePrices(args: Record<string, unknown>, db: Db) {
+  const { row: r, list } = await priceRow(db);
+  const next: Price[] = list.map((p) => ({ ...p }));
+  const day = today(await db.timeZone());
+  const changed: string[] = [], left: string[] = [];
+  for (const raw of Array.isArray(args.prices) ? args.prices : []) {
+    const o = (raw ?? {}) as Record<string, unknown>;
+    const model = typeof o.model === "string" ? o.model.trim().slice(0, 120) : "";
+    const usd = Number(o.usd);
+    if (!model || !(usd >= 0 && usd < 1000)) throw new Bad("Each price needs a model and usd (dollars per unit, like 0.08).");
+    const source = typeof o.source === "string" && /^https?:\/\//.test(o.source.trim()) ? o.source.trim().slice(0, 500) : undefined;
+    const i = next.findIndex((p) => normModel(p.model) === normModel(model));
+    const was = i >= 0 ? next[i] : null;
+    if (was && was.by && was.by !== CLAUDE && !source) { left.push(model); continue; }
+    const p: Price = {
+      ...(was ?? {}), model, ...(typeof o.tool === "string" && o.tool.trim() ? { tool: o.tool.trim().slice(0, 80) } : {}),
+      unit: o.unit === "picture" ? "picture" : o.unit === "second" ? "second" : was?.unit ?? "second",
+      usd: Math.round(usd * 10000) / 10000, checked: day, by: CLAUDE, ...(source ? { source } : {}),
+    };
+    if (i >= 0) next[i] = p; else next.push(p);
+    changed.push(model);
+  }
+  const removed: string[] = [];
+  for (const m of Array.isArray(args.remove) ? args.remove : []) {
+    const i = next.findIndex((p) => normModel(p.model) === normModel(m));
+    if (i >= 0) removed.push(next.splice(i, 1)[0].model);
+  }
+  if (!changed.length && !removed.length) throw new Bad(left.length ? `The person set ${left.join(", ")} themselves; give a source to change them.` : "Give prices to add or update, or models to remove.");
+  if (r && r.kind === "prices") {
+    if (!(await db.change(r.id, r.updated_at, { fields: { ...(r.fields ?? {}), list: next } }))) throw new Bad("The prices just changed in the app. Read them again and try once more.");
+  } else if (r) {
+    throw new Bad("Something else uses the prices id; leave it.");
+  } else {
+    await db.insert([row("prices", { id: PRICES_ID, title: "Prices", fields: { list: next } })]);
+  }
+  return { updated: changed, ...(removed.length ? { removed } : {}), ...(left.length ? { left_as_the_person_set_them: left } : {}), checked: day };
+}
+
 async function runTool(name: string, args: Record<string, unknown>, db: Db): Promise<unknown> {
   switch (name) {
     case "map": return map(db);
@@ -1248,6 +1778,12 @@ async function runTool(name: string, args: Record<string, unknown>, db: Db): Pro
     case "changes": return changes(args, db);
     case "undo_change": return undoChange(args, db);
     case "suggest_tidy": return suggestTidy(args, db);
+    case "production": return production(args, db);
+    case "update_shot": return updateShot(args, db);
+    case "add_try": return addTry(args, db);
+    case "star": return star(args, db);
+    case "prices": return prices(db);
+    case "update_prices": return updatePrices(args, db);
   }
   throw new Bad(`There's no tool called ${name}.`);
 }
@@ -1267,7 +1803,7 @@ export async function handle(msg: Rpc, db: Db): Promise<unknown | null> {
       return ok({
         protocolVersion: VERSIONS.includes(want) ? want : VERSIONS[1],
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "inkwell", title: "Inkwell", version: "1.2.0" },
+        serverInfo: { name: "inkwell", title: "Inkwell", version: "1.3.0" },
         instructions: INSTRUCTIONS,
       });
     }

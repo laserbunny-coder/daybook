@@ -78,7 +78,8 @@ const db: Db = {
   linkedFrom: async (ids) => rows.filter((r) => live(r) && r.links.some((l) => ids.includes(l))),
   byKind: async (kinds) => rows.filter((r) => kinds.includes(r.kind) && !r.deleted),
   updateAbout: async (id, patch) => { updates.push({ id, ...patch }); },
-  insert: async (rs) => { rows.push(...rs); },
+  // The database stamps each new row.
+  insert: async (rs) => { for (const r of rs) { r.created_at ??= new Date().toISOString(); r.updated_at ??= r.created_at; } rows.push(...rs); },
   timeZone: async () => "America/Los_Angeles",
   change: async (id, was, patch) => {
     const r = rows.find((x) => x.id === id);
@@ -287,5 +288,159 @@ assert.ok((await call("suggest_tidy", { suggestions: [{ type: "life", a: "pg-gif
 
 const tl: any = await handle({ jsonrpc: "2.0", id: 0, method: "tools/list" }, db);
 for (const t of ["mark_done", "move_line", "set_life_project", "changes", "undo_change", "suggest_tidy"]) assert.ok(tl.result.tools.some((x: any) => x.name === t), t);
+
+// ---------- production: shots out to the AI tools and results back ----------
+const kept = new Map<string, { bytes: Uint8Array; type: string }>();
+const fetched: string[] = [];
+Object.assign(db, {
+  fileLinks: async (ids: string[]) => ids.map((id) => (kept.has(id) || rows.some((r) => r.id === id && r.kind === "file") ? `https://files.test/${id}?sig=1` : null)),
+  keepFile: async (id: string, bytes: Uint8Array, type: string) => { kept.set(id, { bytes, type }); },
+  fetchFile: async (url: string) => {
+    fetched.push(url);
+    if (url.includes("big")) return null;
+    if (url.endsWith(".html")) return { bytes: new Uint8Array([60]), type: "text/html", name: "page.html" };
+    return { bytes: new Uint8Array([1, 2, 3]), type: url.endsWith(".mp4") ? "video/mp4" : "image/png", name: url.split("/").at(-1)! };
+  },
+});
+const ninjaWorld = rows.find((r) => r.id === "wd-ninja")!;
+ninjaWorld.fields = { production: { code: "NB", style: "Flat cel shading", aspect: "9:16", fps: "24", constraints: "Kenji is always a head shorter than Mom." } };
+const reel = rows.find((r) => r.id === "pr-reel")!;
+reel.fields = { ...reel.fields, code: "E01", numbered: true, gen: { model: "Kling 3.0", tries: 2 } };
+rows.push(
+  e("ac-r", "act", "pr-reel", { title: "Screenplay" }),
+  e("ch-r", "chapter", "ac-r", { title: "Script" }),
+  e("pp-1", "para", "ch-r", { sort: 1, text: "INT. KITCHEN - MORNING", fields: { el: "scene", code: "1" } }),
+  e("pp-2", "para", "ch-r", { sort: 2, text: "Mother flips a pancake.", fields: { el: "action" } }),
+  e("pp-3", "para", "ch-r", { sort: 3, text: "KENJI", fields: { el: "character" } }),
+  e("pp-4", "para", "ch-r", { sort: 4, text: "Sit.", fields: { el: "dialogue" } }),
+  e("pp-5", "para", "ch-r", { sort: 5, text: "EXT. DOJO - DAY", fields: { el: "scene", code: "2" } }),
+  e("pp-6", "para", "ch-r", { sort: 6, text: "Rain at the dojo gate.", fields: { el: "action" } }),
+  e("pg-chars", "page", "wd-ninja", { title: "Characters", sort: 5 }),
+  e("pg-mom", "page", "pg-chars", { title: "Mom", fields: { element: { type: "character", also: ["Mother"], snippet: "Short, calm, grey bun", views: { front: "fi-front" }, ids: { soul: "soul_123" }, look: "mom_v2" } } }),
+  e("pg-kitchen", "page", "wd-ninja", { title: "Kitchen", sort: 6, fields: { element: { type: "location", lighting: "Low morning sun through blinds" } } }),
+  e("fi-front", "file", null, { title: "Mom front.png", fields: { type: "image/png" } }),
+  e("fi-s1", "file", null, { title: "NB-E01-S01-01 a.png", fields: { type: "image/png", shot: "sh-1" } }),
+  e("sh-1", "shot", "pp-1", { sort: 1, text: "Mom flips the pancake", fields: { n: "1", framing: "Medium", piece: "pr-reel", still: "Mom at the stove", video: "She flips it high", gen: { secs: 4 }, tries: [{ id: "tr-1", at: Date.parse("2026-11-03T20:00:00Z"), by: "me", still: "Mom at the stove", video: "She flips it high", files: ["fi-s1"] }] } }),
+  e("sh-2", "shot", "pp-1", { sort: 2, text: "Pancake in the air", fields: { n: "2", piece: "pr-reel", gen: { secs: 3 } } }),
+  e("sh-3", "shot", "pp-5", { sort: 1, text: "The gate in the rain", fields: { n: "1", piece: "pr-reel", made: "live" } }),
+);
+
+// Reading a piece's production: rules, the kit with links, scenes and shots with codes.
+const pr = await call("production", { piece_id: "pr-reel" });
+assert.equal(pr.rules.frame, "9:16");
+assert.equal(pr.rules.always_and_never, "Kenji is always a head shorter than Mom.");
+const mom = pr.kit.find((k: any) => k.name === "Mom");
+assert.deepEqual(mom.tool_ids, { higgsfield_soul_id: "soul_123", comfyui_lora: "mom_v2" });
+assert.equal(mom.sheet.front, "https://files.test/fi-front?sig=1");
+assert.equal(pr.kit.find((k: any) => k.name === "Kitchen").lighting, "Low morning sun through blinds");
+assert.equal(pr.scenes.length, 2);
+assert.deepEqual(pr.scenes[0].elements, ["Mom", "Kitchen"], "Mom by another name, the kitchen in the heading");
+const s1 = pr.scenes[0].shots[0];
+assert.equal(s1.code, "NB-E01-S01-01");
+assert.equal(s1.stage, "renders in");
+assert.equal(s1.generation.model, "Kling 3.0", "the piece's model for finals where the shot has none");
+assert.equal(s1.generation.seconds, 4);
+assert.equal(s1.tries[0].files[0].url, "https://files.test/fi-s1?sig=1");
+assert.equal(pr.scenes[1].shots[0].made, "filmed live");
+// Estimate: shots 1 and 2 at Kling 3.0 ($0.08/s), 7 s, 2 tries; the live one isn't generated.
+assert.equal(pr.cost.estimate_usd, 1.12);
+assert.equal(pr.cost.prices_checked, "2026-11-03");
+const one1 = await call("production", { piece_id: "pr-reel", scene: "2" });
+assert.equal(one1.scenes.length, 1);
+assert.ok((await call("production", { piece_id: "pr-reel", scene: "9" })).error);
+assert.ok((await call("production", { piece_id: "pg-kenji" })).error);
+
+// New prompts: the old ones are kept with their try; generation details; a group with the next shot.
+const up = await call("update_shot", { shot_id: "sh-1", still_prompt: "Mom at the stove, low sun", model: "Seedance 2.0", seconds: 6, first_frame: "fi-s1", timed_to: "KENJI: Sit.", group_with_next: true });
+assert.ok(up.changed.includes("still prompt"));
+let sh1 = rows.find((r) => r.id === "sh-1")!;
+assert.equal(sh1.fields.still, "Mom at the stove, low sun");
+assert.equal(sh1.fields.video, "She flips it high");
+assert.equal(sh1.fields.prompt_by, "claude");
+assert.equal((sh1.fields.tries as any[]).length, 1, "the old prompts were already kept with their try");
+assert.deepEqual(sh1.fields.gen, { secs: 6, model: "Seedance 2.0", first: "fi-s1", sync: "KENJI: Sit." });
+assert.ok(sh1.fields.group);
+assert.equal(rows.find((r) => r.id === "sh-2")!.fields.group, sh1.fields.group, "the next shot joined");
+assert.ok((await call("update_shot", { shot_id: "sh-1", first_frame: "fi-nope" })).error, "frames come from the shot's own tries");
+assert.ok((await call("update_shot", { shot_id: "sh-3", group_with_next: true })).error, "the last shot has no next");
+assert.ok((await call("update_shot", { shot_id: "sh-1" })).error, "nothing to change");
+const grouped = await call("production", { piece_id: "pr-reel", scene: "1" });
+assert.deepEqual(grouped.scenes[0].shots[0].generation.one_generation_with, ["NB-E01-S01-02"]);
+// One generation of 9 s at Seedance 2.0 ($0.30/s), 2 tries.
+assert.equal(grouped.cost.estimate_usd, 5.4);
+await call("update_shot", { shot_id: "sh-1", seconds: "", timed_to: "" });
+assert.deepEqual(rows.find((r) => r.id === "sh-1")!.fields.gen, { model: "Seedance 2.0", first: "fi-s1" });
+
+// Results come home: kept as files (a page stays a link), with model, settings and cost.
+const tr = await call("add_try", { shot_id: "sh-1", results: ["https://cdn.gen.test/a/take1.mp4", { url: "https://cdn.gen.test/a/still.png", name: "NB-E01-S01-01 hf.png" }, "https://cdn.gen.test/view.html"], model: "Seedance 2.0", seconds: 6, settings: "seed 42, 1080p", cost_usd: 1.8 });
+assert.equal(tr.kept.length, 2);
+assert.deepEqual(tr.as_links, ["https://cdn.gen.test/view.html"]);
+assert.equal(tr.cost_usd, 1.8);
+sh1 = rows.find((r) => r.id === "sh-1")!;
+const last = (sh1.fields.tries as any[]).at(-1);
+assert.equal(last.by, "claude");
+assert.equal(last.model, "Seedance 2.0");
+assert.equal(last.settings, "seed 42, 1080p");
+assert.equal(last.still, "Mom at the stove, low sun", "made with the shot's current prompts");
+assert.equal(last.files.length, 2);
+assert.equal(kept.size, 2);
+const fileRow = rows.find((r) => r.id === tr.kept[1].file_id)!;
+assert.equal(fileRow.title, "NB-E01-S01-01 hf.png");
+assert.equal(fileRow.fields.shot, "sh-1", "the file knows its shot, so the app can put it back if a try is lost");
+assert.equal(fileRow.fields.by, "claude");
+// Without a cost: estimated from the price list.
+const tr2 = await call("add_try", { shot_id: "sh-2", results: ["https://cdn.gen.test/b.mp4"], model: "Kling 3.0", seconds: 5 });
+assert.equal(tr2.cost_usd, 0.4);
+assert.equal(tr2.cost_estimated_from_prices, true);
+const tr3 = await call("add_try", { shot_id: "sh-2", results: ["https://cdn.gen.test/big.mp4"] });
+assert.deepEqual(tr3.as_links, ["https://cdn.gen.test/big.mp4"]);
+assert.ok((await call("add_try", { shot_id: "sh-2", results: ["http://insecure.test/a.png"] })).error);
+assert.ok((await call("add_try", { shot_id: "sh-2" })).error);
+
+// Star: the video and the still each have their own star; off takes it away.
+const vid = tr.kept.find((k: any) => k.type === "video/mp4").file_id;
+await call("star", { shot_id: "sh-1", file_id: vid });
+await call("star", { shot_id: "sh-1", file_id: "fi-s1" });
+assert.deepEqual(rows.find((r) => r.id === "sh-1")!.fields.star, { video: vid, still: "fi-s1" });
+await call("star", { shot_id: "sh-1", file_id: "fi-s1", off: true });
+assert.deepEqual(rows.find((r) => r.id === "sh-1")!.fields.star, { video: vid });
+assert.ok((await call("star", { shot_id: "sh-2", file_id: vid })).error, "only the shot's own results");
+const after = await call("production", { piece_id: "pr-reel", scene: "1" });
+assert.equal(after.scenes[0].shots[0].stage, "take picked");
+assert.equal(after.scenes[0].shots[0].starred.video.url, `https://files.test/${vid}?sig=1`);
+assert.equal(after.cost.spent_usd, 2.2);
+
+// A shot changed in the app between read and write: read again and retry.
+let flips = 0;
+const realChange2 = db.change;
+db.change = async (id, was, patch) => (flips++ < 1 ? false : realChange2(id, was, patch));
+assert.ok(!(await call("update_shot", { shot_id: "sh-2", video_prompt: "It spins" })).error);
+db.change = realChange2;
+assert.equal(rows.find((r) => r.id === "sh-2")!.fields.video, "It spins");
+
+// Prices: the starting list, then Claude's updates (the person's own are left unless there's a source).
+const p0 = await call("prices");
+assert.ok(p0.note);
+assert.ok(p0.prices.some((p: any) => p.model === "Kling 3.0" && p.usd === 0.08));
+const pu = await call("update_prices", { prices: [{ model: "Kling 3.0", usd: 0.07, source: "https://higgsfield.ai/pricing" }, { model: "Kling 4.5", usd: 0.25, tool: "Kling API" }], remove: ["MiniMax H3"] });
+assert.deepEqual(pu.updated, ["Kling 3.0", "Kling 4.5"]);
+assert.deepEqual(pu.removed, ["MiniMax H3"]);
+let pl = rows.find((r) => r.id === "prices")!;
+assert.equal(pl.kind, "prices");
+const k3 = (pl.fields.list as any[]).find((p) => p.model === "Kling 3.0");
+assert.equal(k3.usd, 0.07);
+assert.equal(k3.by, "claude");
+assert.equal(k3.source, "https://higgsfield.ai/pricing");
+assert.ok(!(pl.fields.list as any[]).some((p) => p.model === "MiniMax H3"));
+(pl.fields.list as any[]).find((p) => p.model === "Kling 4.5").by = "me";
+const pu2 = await call("update_prices", { prices: [{ model: "Kling 4.5", usd: 0.3 }, { model: "Wan 3.0", usd: 0.09 }] });
+assert.deepEqual(pu2.left_as_the_person_set_them, ["Kling 4.5"], JSON.stringify(pu2));
+pl = rows.find((r) => r.id === "prices")!;
+assert.equal((pl.fields.list as any[]).find((p) => p.model === "Kling 4.5").usd, 0.25);
+assert.ok((await call("update_prices", { prices: [{ model: "X", usd: -1 }] })).error);
+assert.equal((await call("production", { piece_id: "pr-reel", scene: "1" })).cost.estimate_usd, 4.8, "Seedance 2.0 is still $0.30/s, now 5 s + 3 s");
+
+const tl2: any = await handle({ jsonrpc: "2.0", id: 0, method: "tools/list" }, db);
+for (const t of ["production", "update_shot", "add_try", "star", "prices", "update_prices"]) assert.ok(tl2.result.tools.some((x: any) => x.name === t), t);
 
 console.log("inkwell-mcp tools: all checks passed");
