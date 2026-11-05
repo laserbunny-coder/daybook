@@ -312,9 +312,9 @@ function blockDetail(el, b, same) {
     const sugLoose = sug && !cards.some(c => c.open.includes(sug.n));
     const list = cards.map(c => sug && c.open.includes(sug.n) ? { ...c, open: [sug.n, ...c.open.filter(n => n !== sug.n)] } : c).concat(sugLoose ? [{ g: sug.n, one: true }] : []).sort((x, y) => (x.g.o ?? 0) - (y.g.o ?? 0));
     const drag = list.length > 1 && cards[0]?.g.id !== t.id; // hold a card to drag it to a new place in the area's order
-    const card = c => { const rest = c.open.slice(1), m = more[c.g.id];
+    const card = c => {
       if (c.one) return `<div class="bk-card has-sug"${drag ? ` data-drag data-id="${c.g.id}"` : ''} style="--pc:${colorOf(c.g)}">${blkStep(c.g)}${why(c.g)}</div>`;
-      const top = sug && c.open[0] === sug.n;
+      const rest = c.open.slice(1), m = more[c.g.id], top = sug && c.open[0] === sug.n;
       return `<div class="bk-card${top ? ' has-sug' : ''}"${drag ? ` data-drag data-id="${c.g.id}"` : ''} style="--pc:${colorOf(c.g)}"><div class="bk-h"><span class="pdot"></span><button class="bk-name" data-act="open" data-id="${c.g.id}" data-dragok>${esc(c.g.t || 'Untitled')}</button><small>${agoText(c.last)}</small><button class="bk-f" data-act="blk-focus" data-id="${c.g.id}" title="Just this, one step at a time">Focus</button></div>
         ${blkStep(c.open[0])}${top ? why(sug.n) : ''}${m ? rest.map(n => blkStep(n)).join('') : ''}${rest.length ? `<button class="bk-more" data-act="blk-more" data-id="${c.g.id}">${m ? 'Show less' : `+ ${rest.length} more`}</button>` : ''}</div>`; };
     const lz = loose.filter(n => !sug || n !== sug.n); // loose tasks, less the Start here one
@@ -1001,7 +1001,12 @@ function setDetail(el, html) {
     o = op; f = fp;
   }
 }
+// If the panel can't be drawn, close it rather than leave an empty, invisible panel over the plan that swallows every click
 function renderDetail() {
+  try { drawDetail(); }
+  catch (e) { console.error('detail', e); S.open = null; const el = document.getElementById('detail'); el.hidden = true; el.innerHTML = ''; toast("Couldn't open that. Try again, or tell Claude."); }
+}
+function drawDetail() {
   const el = document.getElementById('detail'); let n = S.open && node(S.open);
   if (!n && typeof S.open === 'string' && S.open.startsWith('day:')) {
     const body0 = el.querySelector('.dt-body'), same0 = !el.hidden && body0?.dataset.id === S.open, sc = same0 ? body0.scrollTop : 0, [, aid, d] = S.open.split(':');
