@@ -1,7 +1,7 @@
 // Inkwell (the writing app) asks Claude for alternates: other words that fit
 // a sentence, or rewrites of a paragraph; and voice captures are written out
 // and outlined here (capture.ts), shared links get a snapshot (snapshot.ts), a day's page gets a
-// review (review.ts), the plot grid gets a thread filled in or its promises checked (grid.ts), a script gets its breakdown, shot lists, generation prompts and captions (production.ts), a draft gets editor's notes, a talk-through or two versions compared (revise.ts), tags get sorted into groups (tags.ts), old notes brought in from other apps get a home, title, about and tags suggested (bringin.ts), the workflow pages get homes for what came in, drawer picks, timeline events, ties, Develop steps and continuity checks (pages.ts), and recordings are written up in a mode, for the day
+// review (review.ts), the plot grid gets a thread filled in or its promises checked (grid.ts), a script gets its breakdown, shot lists, generation prompts and captions (production.ts), a Woven script gets its hidden scene headings filled in or a look for its genre (woven.ts), a draft gets editor's notes, a talk-through or two versions compared (revise.ts), tags get sorted into groups (tags.ts), old notes brought in from other apps get a home, title, about and tags suggested (bringin.ts), the workflow pages get homes for what came in, drawer picks, timeline events, ties, Develop steps and continuity checks (pages.ts), and recordings are written up in a mode, for the day
 // page or straight into a draft (voice.ts), and meeting recordings become notes (meeting.ts), a business meeting's tasks going to Acro HQ (acro.ts). It lives here because Inkwell syncs
 // through this same Supabase project and uses the same Claude key.
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
@@ -13,6 +13,7 @@ import { lookup } from "./enrich.ts";
 import { review } from "./review.ts";
 import { voice, voiceModes } from "./voice.ts";
 import { grid } from "./grid.ts";
+import { woven } from "./woven.ts";
 import { production } from "./production.ts";
 import { revise } from "./revise.ts";
 import { pages } from "./pages.ts";
@@ -128,6 +129,7 @@ Deno.serve(async (req) => {
     }
   }
   if (body && (body as { mode: string }).mode === "grid") return grid(client, body as never);
+  if (body && (body as { mode: string }).mode === "woven") return woven(client, body as never);
   if (body && (body as { mode: string }).mode === "production") return production(client, body as never);
   if (body && (body as { mode: string }).mode === "revise") return revise(client, body as never);
   if (body && (body as { mode: string }).mode === "tags") return sortTags(client, body as never);
