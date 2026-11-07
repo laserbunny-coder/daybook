@@ -2,7 +2,7 @@
 // a sentence, or rewrites of a paragraph; and voice captures are written out
 // and outlined here (capture.ts), shared links get a snapshot (snapshot.ts), a day's page gets a
 // review (review.ts), the plot grid gets a thread filled in or its promises checked (grid.ts), a script gets its breakdown, shot lists, generation prompts and captions (production.ts), a Woven script gets its hidden scene headings filled in or a look for its genre (woven.ts), a draft gets editor's notes, a talk-through or two versions compared (revise.ts), tags get sorted into groups (tags.ts), old notes brought in from other apps get a home, title, about and tags suggested (bringin.ts), the workflow pages get homes for what came in, drawer picks, timeline events, ties, Develop steps and continuity checks (pages.ts), and recordings are written up in a mode, for the day
-// page or straight into a draft (voice.ts), and meeting recordings become notes (meeting.ts), a business meeting's tasks going to Acro HQ (acro.ts). It lives here because Inkwell syncs
+// page or straight into a draft (voice.ts), and meeting recordings become notes (meeting.ts), the Catch-up page gets its one-line read of the day (catchup.ts), a business meeting's tasks going to Acro HQ (acro.ts). It lives here because Inkwell syncs
 // through this same Supabase project and uses the same Claude key.
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import { admin, cors, json, userFrom } from "../_shared/common.ts";
@@ -20,6 +20,7 @@ import { pages } from "./pages.ts";
 import { bringIn } from "./bringin.ts";
 import { meetingNotes, writeOutMeeting } from "./meeting.ts";
 import { sendToAcro } from "./acro.ts";
+import { catchup } from "./catchup.ts";
 import { makeTidy } from "../_shared/tidyrun.ts";
 
 const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
@@ -115,6 +116,7 @@ Deno.serve(async (req) => {
     try { return await voiceModes(user.id, body as never); } catch (err) { console.error(err); return json({ error: "Couldn't reach your modes. Try again." }, 500); }
   }
   if (body && (body as { mode: string }).mode === "review") return review(client, body as never);
+  if (body && (body as { mode: string }).mode === "catchup") return catchup(client, body as never);
   // A tidy pass now (the weekly one is made early on Monday): suggestions saved
   // as a batch for the app to show; nothing in the notes changes here.
   if (body && (body as { mode: string }).mode === "tidy") {

@@ -2,9 +2,11 @@
 // secret made in the app under "Connect to Claude"; whoever has the address
 // can read and change that person's tasks, so it's treated like a password.
 import { admin, cors } from "../_shared/common.ts";
-import { type Db, handle, type Note, type Row } from "./tools.ts";
+import { type Db, handle, type Note, type Row, type Update } from "./tools.ts";
 
 const COLS = "id,parent_id,title,notes,done,day,start_min,after_min,duration_min,sort,day_sort,color,due,link,kind,area_id,start,milestone,hard_deadline,waits_on,done_at,actual_minutes,time_log,planned,repeat_rule,series_id,occurs_on,focus_on,week_minutes,habit,day_targets,time_pref,days_done,labels,deleted";
+
+const UPDATE_COLS = "id,project,project_link,link,thread,text,place,state,created_at";
 
 const NOTE_COLS = "id,author,title,body,link,task_ids,created_at,read_at,kind,project,project_link,resolved_at";
 
@@ -115,6 +117,16 @@ function dbFor(userId: string): Db {
       const { data, error } = await sb.from("notes").update(patch).eq("user_id", userId).eq("id", id).select(NOTE_COLS).single();
       if (error) throw error;
       return data as Note;
+    },
+    async listUpdates(sinceIso, limit) {
+      const { data, error } = await sb.from("claude_updates").select(UPDATE_COLS).eq("user_id", userId).gte("created_at", sinceIso).order("created_at", { ascending: false }).limit(limit);
+      if (error) throw error;
+      return data as Update[];
+    },
+    async addUpdate(u) {
+      const { data, error } = await sb.from("claude_updates").insert({ ...u, user_id: userId }).select(UPDATE_COLS).single();
+      if (error) throw error;
+      return data as Update;
     },
   };
 }

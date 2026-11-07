@@ -6,7 +6,7 @@
 // raised by a thread in any Claude project. They stay out of Notes and show on the Plan until cleared (resolved_at).
 import { add, lsGet, lsSet, today } from './util.js';
 
-const COLS = 'id,author,title,body,link,task_ids,created_at,read_at,kind,project,project_link,resolved_at,offers';
+const COLS = 'id,author,title,body,link,task_ids,created_at,read_at,kind,project,project_link,resolved_at,offers,snoozed_until';
 let sb = null, userId = null, channel = null, key = null, retry = 0;
 let list = [];                 // newest first
 let reads = new Set();         // marked read here, not saved yet
@@ -18,8 +18,9 @@ const keep = () => { if (key) lsSet(key, { list, reads: [...reads], clears }); }
 const emit = () => { keep(); for (const f of listeners) f(); };
 export const all = () => list.filter(n => !n.kind);
 export const unread = () => all().filter(n => !n.read_at);
-/** What's waiting on the person across their Claude projects, oldest first. */
-export const needs = () => list.filter(n => n.kind && !n.resolved_at).sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
+/** What's waiting on the person across their Claude projects, oldest first. One set aside with Later
+ *  (on Inkwell's Catch-up) stays out of the list until its time comes. */
+export const needs = () => { const now = Date.now(); return list.filter(n => n.kind && !n.resolved_at && !(n.snoozed_until && Date.parse(n.snoozed_until) > now)).sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0)); };
 
 function load(k) { key = k; const c = lsGet(k, null); list = c?.list || []; reads = new Set(c?.reads || []); clears = c?.clears || {}; }
 const sort = () => list.sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
