@@ -3,7 +3,7 @@
 // The pretend database stamps deleted_at the way the trigger in
 // migrations/20261101230000_trash.sql does.
 import assert from "node:assert/strict";
-import { type Db, handle, INSTRUCTIONS, type Row } from "./tools.ts";
+import { type Db, handle, INSTRUCTIONS, type Row, type Update } from "./tools.ts";
 
 const today = new Date().toISOString().slice(0, 10);
 const add = (d: string, n: number) => { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
@@ -42,7 +42,10 @@ const db: Db = {
   async getFreeHours() { return 20; }, async setFreeHours() {}, async timeZone() { return "UTC"; },
   async listNotes() { return []; }, async addNote() { throw new Error("no"); },
   async listNeeds() { return []; }, async openNeed() { return null; }, async addNeed() { throw new Error("no"); }, async updateNeed() { throw new Error("no"); }, async getNeed() { return null; },
+  async listUpdates(since, limit) { return updates.filter((u) => u.created_at >= since).sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, limit); },
+  async addUpdate(u) { const r = { ...u, id: `u${updates.length + 1}`, created_at: new Date().toISOString() } as Update; updates.push(r); return r; },
 };
+const updates: Update[] = [];
 let n = 0;
 async function call(name: string, args: Record<string, unknown> = {}) {
   const r = await handle({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name, arguments: args } }, db) as { result: { content: { text: string }[]; isError?: boolean } };
@@ -149,3 +152,24 @@ await call("delete_item", { id: "rec" });
 assert.ok(store.get("rec")!.time_log![0].end);
 
 console.log("all trash checks passed");
+
+
+// Updates: a thread logs what it did; the Catch-up reads them back
+{
+  const bad = await call("log_update", { text: "x", project: "Inkwell" });
+  assert.match(bad.error, /link is required/);
+  const wrong = await call("log_update", { text: "x", project: "Inkwell", link: "https://claude.ai/code/project/chan_1?thread=t", state: "shipped" });
+  assert.match(wrong.error, /done, live or working/);
+  const ok = await call("log_update", { text: "Woven scripts are live", state: "live", project: "Inkwell", thread: "Build Woven scripts", link: "https://claude.ai/code/project/chan_1?thread=t", place: "https://laserbunny-coder.github.io/inkwell/?open=w1" });
+  assert.equal(ok.logged.state, "live"); assert.equal(ok.logged.place, "https://laserbunny-coder.github.io/inkwell/?open=w1");
+  assert.equal(updates[0].project_link, "https://claude.ai/code/project/chan_1");
+  const plain = await call("log_update", { text: "Started the catch-up", project: "Inkwell", link: "https://claude.ai/code/project/chan_1?thread=u" });
+  assert.equal(plain.logged.state, "done"); assert.equal(plain.logged.place, undefined);
+  const back = await call("list_updates");
+  assert.deepEqual(back.updates.map((u: { text: string }) => u.text).sort(), ["Started the catch-up", "Woven scripts are live"]);
+  assert.equal(back.updates.length, 2);
+  assert.equal((await call("list_updates", { project: "acro" })).updates.length, 0);
+  assert.ok(list.result.tools.some((x) => x.name === "log_update"));
+  assert.match(INSTRUCTIONS, /log_update/);
+}
+console.log("updates ok");

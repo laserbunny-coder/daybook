@@ -83,7 +83,15 @@ export type Db = {
   addNeed(n: Pick<Note, "author" | "title" | "body" | "link" | "kind" | "project" | "project_link">): Promise<Note>;
   updateNeed(id: string, patch: Partial<Pick<Note, "author" | "title" | "body" | "kind" | "project" | "project_link" | "created_at" | "resolved_at">>): Promise<Note>;
   getNeed(id: string): Promise<Note | null>;
+  /** Claude updates (log_update): what threads did, newest first, since this ISO time. */
+  listUpdates(sinceIso: string, limit: number): Promise<Update[]>;
+  addUpdate(u: Omit<Update, "id" | "created_at">): Promise<Update>;
 };
+
+/** One line a Claude thread logged when it posted a result, for the person's Catch-up. */
+export type Update = { id: string; project: string; project_link: string | null; link: string; thread: string | null; text: string; place: string | null; state: UpdateState; created_at: string };
+export type UpdateState = "done" | "live" | "working";
+const STATES: UpdateState[] = ["done", "live", "working"];
 
 /** A note Claude left for the person, shown in the app until they tap Got it, and kept in Notes after. */
 export type Note = { id: string; author: string; title: string; body: string; link: string; task_ids: string[]; created_at: string; read_at: string | null;
@@ -111,6 +119,7 @@ export const INSTRUCTIONS = `Daybook is this person's own task and calendar app.
 - A task can repeat (daily, weekdays, weekly on chosen days, every N weeks, or monthly), with an optional last day: pass repeat to add_task or update_item. The task is then a series that starts on its day. Each repeat shows on its own day and is checked off on its own. list_tasks with from and to lists the repeats in that range: each has its own id (series id~date) and a series_id. To change one day's repeat (move it, check it off, rename it), use its id; to change every repeat, use the series_id. A repeat moved off the plan (day null) is skipped. repeat: null stops a series repeating. Repeating tasks count in each week's scheduled hours but have no bar on the Roadmap.
 - Notes: post_note leaves the person a note they see in the app as a card the next time they open it (unread notes stack into one card), with a button back to the chat it came from, and it stays in their Notes history. Use it to tell them what a scheduled check changed, such as a morning plan check, with a short title, a few lines, the link to this chat, and the ids of the tasks you changed. list_notes reads back what you already told them, and whether they've read it.
 - Needs you: a line on the person's Plan lists what's waiting on them across all their Claude projects, grouped by project, oldest first. When this chat needs them (a decision only they can make, work blocked on them, or something ready for them to review or try), raise_needs_you with one short line, the kind, the Claude project's name, and the link to this chat. A chat has at most one open item: raising again from the same link updates it (blocked → review, say) instead of adding another. clear_needs_you as soon as it no longer needs them, such as once they've answered. list_needs_you shows what's open.
+- Updates: each time this chat posts a result to the person (something finished, went live, or started), log_update with one plain line of what changed, the state (done, live or working), the Claude project's name, this chat's title and its link, plus place (its Inkwell page or Daybook project) when the work has one. They read these on the Catch-up page in Inkwell to see what happened across all their Claude threads today, so write it for someone who wasn't watching ("Woven scripts are live: hidden scene headings, genre looks"), not a status code. One line per result, not per step; list_updates reads back what's been logged.
 - Area time: the person prefers to plan blocks of time for a whole area or a big project ("Filmmaking, 9 to 12", every Mon/Wed/Fri) over timing every task. In the app a block opens to the next step of each project in that area, so they pick what to do when they get there, and it fills with the time really worked. list_blocks shows them; add_block, update_block and remove_block change them (a block can repeat like a task). Areas can have rough hours a week (set_area_hours; list_projects shows them with this week's blocked hours). When planning their week, place area blocks around their calendar so each area gets about its hours, and only time single tasks that have a deadline or must happen at a set time. Blocks count as busy time.
 - Daily area targets: each area can have target hours for each day of the week (get_area_targets / set_area_targets), such as Business 3 h on weekdays and Personal 0 on Wednesday. To make up for a slow week, raise an area's hours for one date or add a block for it; there is no separate catch-up. The app shows a card per area at the top of each day's List with the target and the hours logged so far; the person starts and stops the area's own timer as often as they like, and time on any task, project or block in the area counts too. A single date can override its weekday's hours (set_area_targets with date and hours, such as a lighter Friday before a trip); progress and the app use the override for that day. time_pref (morning, afternoon, evening) is only a hint for when it fits. get_area_progress shows, per day and area, the target, the hours logged and which tasks the time went to: use it to see how the days really went before planning.
 - Order: every item has a place among its siblings (a project's steps; the projects and standalone tasks of an area; the inbox). position is its place, from 1, and sort is the number that keeps it there; the app's lists show the same order. Lists under a project or area come back in that order. reorder_items puts a project's steps or an area's items in a new order; update_item's position moves one item (first, last, or after another). Priority is an item's rank in its area, counting its projects and standalone tasks together (1 is first), so a standalone task can come before a project; set_project_priority changes it, and it's the order the person sees when dragging in the app's area lists.
@@ -315,6 +324,37 @@ export const TOOLS = [
       properties: {
         project: str("Only items from this Claude project."),
         include_cleared: { type: ["boolean", "string"], enum: [true, false, "true", "false"], description: "Also list cleared items, newest first after the open ones." },
+      },
+    },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "log_update",
+    title: "Log what this chat did",
+    description: "Adds one line to the person's Catch-up (in Inkwell): what this chat just did, so they can see what happened across all their Claude threads today. Call it each time you post a result to them: something finished (done), something now live for real (live), or work started or still going (working). Not for every small step.",
+    inputSchema: {
+      type: "object",
+      required: ["text", "project", "link"],
+      properties: {
+        text: str("One plain line of what changed, written for someone who wasn't watching, such as Woven scripts are live: hidden scene headings and genre looks (up to 200 characters)."),
+        state: { type: "string", enum: STATES, description: "done: a result is ready. live: it's out and working for real (deployed, posted, sent). working: started, or still going. Defaults to done." },
+        project: str("The name of the Claude project this chat belongs to, the same name you use for Needs you, such as Inkwell."),
+        thread: str("This chat's title, such as Build Woven scripts (up to 80 characters)."),
+        link: str("The address of this chat, so the person can jump straight to it. Must start with https:// or http://."),
+        project_link: str("The address of the Claude project itself, if you know it. Worked out from a claude.ai project thread link when left out."),
+        place: str("Where this work lives besides the chat, if it has a home: its page or world in Inkwell (an Inkwell link with ?open=) or its project in Daybook. Give it whenever there is one, so the person can go straight there."),
+      },
+    },
+  },
+  {
+    name: "list_updates",
+    title: "List logged updates",
+    description: "What Claude threads have logged with log_update, newest first: what changed, its state, project, thread and link, and when.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        since: str("Only updates on or after this day, YYYY-MM-DD (the person's local date). Defaults to today."),
+        project: str("Only updates from this Claude project."),
       },
     },
     annotations: { readOnlyHint: true },
@@ -961,8 +1001,37 @@ async function runNeeds(name: string, args: Record<string, unknown>, db: Db): Pr
   return { open: open.map((n) => needOut(n, tz)), ...(all ? { cleared: done.map((n) => needOut(n, tz)) } : {}), ...(open.length ? {} : { note: "Nothing is waiting on them." }) };
 }
 
+/** An update as Claude reads it back. */
+function updateOut(u: Update, tz: string | null) {
+  return { id: u.id, text: u.text, state: u.state, project: u.project, ...(u.thread ? { thread: u.thread } : {}), link: u.link, ...(u.place ? { place: u.place } : {}), at: localStamp(u.created_at, tz) };
+}
+
+async function runUpdates(name: string, args: Record<string, unknown>, db: Db): Promise<unknown> {
+  const tz = await db.timeZone();
+  if (name === "log_update") {
+    const text = textArg(args.text, "text", 200).trim(), project = textArg(args.project, "project", 60).trim();
+    if (!text) throw new Bad("text can't be empty: one line of what changed.");
+    if (!project) throw new Bad("project can't be empty: the name of the Claude project this chat belongs to.");
+    if (!has(args, "link")) throw new Bad("link is required: the address of this chat, so the person can jump to it.");
+    const state = (has(args, "state") && args.state ? String(args.state) : "done") as UpdateState;
+    if (!STATES.includes(state)) throw new Bad("state must be done, live or working.");
+    const link = linkArg(args.link);
+    const thread = has(args, "thread") && args.thread ? textArg(args.thread, "thread", 80).trim() || null : null;
+    const project_link = has(args, "project_link") && args.project_link ? linkArg(args.project_link) : projectLinkOf(link);
+    const place = has(args, "place") && args.place ? linkArg(args.place) : null;
+    return { logged: updateOut(await db.addUpdate({ text, state, project, thread, link, project_link, place }), tz) };
+  }
+  const day = has(args, "since") && args.since ? dayArg(args.since, "since") : zoned(Date.now(), tz).date;
+  const proj = typeof args.project === "string" ? args.project.trim().toLowerCase() : "";
+  // A day starts at local midnight; a day back is plenty of slack for any time zone
+  let rows = (await db.listUpdates(new Date(Date.parse(day + "T00:00:00Z") - 864e5).toISOString(), 300)).filter((u) => zoned(Date.parse(u.created_at), tz).date >= day);
+  if (proj) rows = rows.filter((u) => u.project.toLowerCase() === proj);
+  return { since: day, updates: rows.map((u) => updateOut(u, tz)), ...(rows.length ? {} : { note: "Nothing logged yet." }) };
+}
+
 export async function runTool(name: string, args: Record<string, unknown>, db: Db): Promise<unknown> {
   if (["raise_needs_you", "clear_needs_you", "list_needs_you"].includes(name)) return runNeeds(name, args, db);
+  if (name === "log_update" || name === "list_updates") return runUpdates(name, args, db);
   if (name === "set_free_hours") { const h = hoursArg(args.hours); await db.setFreeHours(h); return { free_hours_per_week: h }; }
   const t = new Tree(await db.load());
   if (["list_tasks", "list_projects", "get_item", "update_item", "add_task", "post_note", "list_notes", "get_next_task", "get_area_progress", "get_area_targets", "set_area_targets"].includes(name)) t.tz = await db.timeZone();
