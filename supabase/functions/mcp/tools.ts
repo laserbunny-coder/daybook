@@ -533,7 +533,7 @@ export const TOOLS = [
   },
 ];
 
-class Bad extends Error {}
+export class Bad extends Error {}
 
 function dayArg(v: unknown, name: string): string {
   if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v) || isNaN(Date.parse(v + "T00:00:00Z")) || new Date(v + "T00:00:00Z").toISOString().slice(0, 10) !== v) {
@@ -962,7 +962,7 @@ function projectLinkOf(link: string): string | null {
   return m ? m[1] : null;
 }
 
-async function runNeeds(name: string, args: Record<string, unknown>, db: Db): Promise<unknown> {
+export async function runNeeds(name: string, args: Record<string, unknown>, db: Db): Promise<unknown> {
   const tz = await db.timeZone();
   if (name === "raise_needs_you") {
     const kind = String(args.kind ?? "") as Kind;
@@ -1006,7 +1006,7 @@ function updateOut(u: Update, tz: string | null) {
   return { id: u.id, text: u.text, state: u.state, project: u.project, ...(u.thread ? { thread: u.thread } : {}), link: u.link, ...(u.place ? { place: u.place } : {}), at: localStamp(u.created_at, tz) };
 }
 
-async function runUpdates(name: string, args: Record<string, unknown>, db: Db): Promise<unknown> {
+export async function runUpdates(name: string, args: Record<string, unknown>, db: Db): Promise<unknown> {
   const tz = await db.timeZone();
   if (name === "log_update") {
     const text = textArg(args.text, "text", 200).trim(), project = textArg(args.project, "project", 60).trim();
