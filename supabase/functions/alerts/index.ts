@@ -7,46 +7,7 @@
 import { admin, cors, json, userFrom } from "../_shared/common.ts";
 import { send, type Sub, vapidPublic } from "../_shared/webpush.ts";
 import { SUBJECT, vapid } from "../_shared/vapid.ts";
-
-type Note = { id: string; user_id: string; author: string | null; title: string | null; body: string | null; link: string | null; kind: string | null; project: string | null; resolved_at: string | null };
-type Prefs = { review: boolean; needs: boolean; notes: boolean; week: boolean; month: boolean };
-const DEFAULTS: Prefs = { review: true, needs: true, notes: false, week: true, month: true };
-const KIND = { decision: "a decision", blocked: "blocked on you", review: "ready to review" } as Record<string, string>;
-const APP = "https://laserbunny-coder.github.io/daybook/";
-
-/** Which switch a note falls under. */
-export function kindOf(n: Pick<Note, "kind" | "author" | "title">): keyof Prefs {
-  if (n.kind) return "needs";
-  const inkwell = (n.author ?? "") === "Inkwell", title = n.title ?? "";
-  if (inkwell && title === "Your day review") return "review";
-  if (inkwell && (title.startsWith("Your week") || title === "Your tidy pass in Inkwell")) return "week";
-  if (inkwell && title.startsWith("Your month")) return "month";
-  return "notes";
-}
-
-const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s);
-
-/** What the notification says, and where tapping it goes. */
-export function message(n: Note) {
-  const k = kindOf(n);
-  if (k === "needs") {
-    return {
-      title: clip(n.title || "Something needs you", 80),
-      body: `${n.project ? n.project + " · " : ""}${KIND[n.kind!] ?? "needs you"}`,
-      tag: "needs-" + n.id, url: n.link || APP + "?needs", ttl: 24 * 3600,
-    };
-  }
-  if (k === "review") {
-    return { title: "Your day review", body: "Take a few minutes to look back over today in Inkwell.", tag: "review", url: n.link || APP, ttl: 3 * 3600 };
-  }
-  if (k === "week") {
-    return { title: clip(n.title || "Your week", 80), body: "Last week in Inkwell, and the things you said you'd do. Tap + to make any a task.", tag: "week", url: APP + "?notes", ttl: 24 * 3600 };
-  }
-  if (k === "month") {
-    return { title: clip(n.title || "Your month", 80), body: "Last month in Inkwell, summed up.", tag: "month", url: n.link || APP + "?notes", ttl: 48 * 3600 };
-  }
-  return { title: clip(n.title || `A note from ${n.author || "Claude"}`, 80), body: clip(n.body || "", 160), tag: "note-" + n.id, url: APP + "?notes", ttl: 12 * 3600 };
-}
+import { APP, DEFAULTS, INKWELL, kindOf, message, type Prefs, type SubRow, targets } from "./message.ts";
 
 async function deliver(subs: Sub[], payload: Record<string, unknown>, ttl: number) {
   const db = admin(), jwk = await vapid();
@@ -75,9 +36,10 @@ Deno.serve(async (req) => {
     const { data: p } = await db.from("alert_prefs").select("review,needs,notes,week,month").eq("user_id", n.user_id).maybeSingle();
     const prefs = { ...DEFAULTS, ...(p ?? {}) } as Prefs, k = kindOf(n);
     if (!prefs[k]) return json({ sent: 0, skipped: `${k} alerts are off` });
-    const { data: subs } = await db.from("push_subs").select("endpoint,p256dh,auth").eq("user_id", n.user_id);
-    const { ttl, ...m } = message(n);
-    return json({ sent: await deliver(subs ?? [], m, ttl), kind: k });
+    const { data: subs } = await db.from("push_subs").select("endpoint,p256dh,auth,app").eq("user_id", n.user_id);
+    const to = targets((subs ?? []) as SubRow[]);
+    const { ttl, ...m } = message(n, to.app);
+    return json({ sent: await deliver(to.subs, m, ttl), kind: k, app: to.app });
   }
 
   // From the app
@@ -88,7 +50,8 @@ Deno.serve(async (req) => {
     let q = db.from("push_subs").select("endpoint,p256dh,auth").eq("user_id", user.id);
     if (args.endpoint) q = q.eq("endpoint", args.endpoint);
     const { data: subs } = await q;
-    const sent = await deliver(subs ?? [], { title: "Daybook alerts are on", body: "This is how a Needs you or your 9 pm day review will look.", tag: "test", url: APP }, 600);
+    const ink = (args as { app?: string }).app === "inkwell";
+    const sent = await deliver(subs ?? [], { title: ink ? "Inkwell alerts are on" : "Daybook alerts are on", body: "This is how a Needs you or your 9 pm day review will look.", tag: "test", url: ink ? INKWELL : APP }, 600);
     return json({ sent, devices: subs?.length ?? 0 });
   }
   return json({ error: "Unknown action" }, 400);

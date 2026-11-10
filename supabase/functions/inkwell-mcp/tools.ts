@@ -22,6 +22,8 @@
 // tags and links narrow it down, and read opens one thing in full.
 
 import { oneSuggestion, type Item as TidyItem, type Row as TidyRow } from "../_shared/tidy.ts";
+import { Bad as LogBad, type Db as LogDb, type Note, runNeeds, runUpdates, TOOLS as LOG_SOURCE, type Update } from "../mcp/tools.ts";
+import { addDays, blank, daysIn, dueDay, firstOn, isRepeat, isStretch, repeatWord, roll, type RepeatRule, type Task, taskOf } from "./taskrules.ts";
 
 /** One Inkwell entry, as stored in writing_entries. */
 export type Entry = {
@@ -84,6 +86,18 @@ export type Db = {
   keepFile(id: string, bytes: Uint8Array, type: string): Promise<void>;
   /** Fetches a picture or video from the web (https only, up to 50 MB); null if it can't. */
   fetchFile(url: string): Promise<{ bytes: Uint8Array; type: string; name: string } | null>;
+  /** Every live line that is a task (fields.task). */
+  tasks(): Promise<Entry[]>;
+  /** Changes a settings entry's fields (such as the plan's free hours); false when it isn't there. */
+  setSettings(id: string, fields: Record<string, unknown>): Promise<boolean>;
+  // Needs you and Catch-up: the same lists Daybook's connector writes, which the app shows.
+  listNeeds(limit: number, includeCleared: boolean): Promise<Note[]>;
+  openNeed(link: string): Promise<Note | null>;
+  addNeed(n: Pick<Note, "author" | "title" | "body" | "link" | "kind" | "project" | "project_link">): Promise<Note>;
+  updateNeed(id: string, patch: Partial<Pick<Note, "author" | "title" | "body" | "kind" | "project" | "project_link" | "created_at" | "resolved_at">>): Promise<Note>;
+  getNeed(id: string): Promise<Note | null>;
+  listUpdates(sinceIso: string, limit: number): Promise<Update[]>;
+  addUpdate(u: Omit<Update, "id" | "created_at">): Promise<Update>;
 };
 
 const VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -108,7 +122,10 @@ export const INSTRUCTIONS = `Inkwell is this person's own writing app and notebo
 - For bigger tidying (two worlds that are the same thing, a tag that means the same as another, a line that belongs on a bible page, an idea for the Drawer, a world in the wrong area, a name that's a whole sentence), don't do it: suggest it with suggest_tidy. It waits on their tidy pass in the app until they tick yes or no. A weekly tidy pass is also made for them early each Monday.
 - Keep to the person's voice and don't add more than they asked for.
 - Say what you added and where, in plain words, since the person sees your reply, not the tool calls.
-- Production (AI video): a piece's shots, each with a code that never changes (NB-E01-S03A-04), prompts for its still and its video, how it's generated (model, seconds, first and last frame, the line it's timed to, and a group when several shots are made in one generation), and its tries with a star on the one that worked. The world's kit holds each character's sheet (front, three-quarter, side, back), each location's lighting line and angles, the show rules (frame, frame rate, always and never) and each tool's ID for an element (Higgsfield Soul ID or Element, ComfyUI LoRA, Kling reference). To make shots in another tool (Higgsfield, Kling, ComfyUI…): read them with production, write prompts that use the kit's looks, lighting, rules and tool IDs, and pass the reference picture links along. Bring results back with add_try (the file or link, model, settings, seconds, cost), star the one that worked with star, and keep prompts or generation details current with update_shot. Old prompts are never lost: they stay with the try that used them. Prices (prices, update_prices) feed the cost estimate on the Make tab; when you check prices, update them with the source.`;
+- Production (AI video): a piece's shots, each with a code that never changes (NB-E01-S03A-04), prompts for its still and its video, how it's generated (model, seconds, first and last frame, the line it's timed to, and a group when several shots are made in one generation), and its tries with a star on the one that worked. The world's kit holds each character's sheet (front, three-quarter, side, back), each location's lighting line and angles, the show rules (frame, frame rate, always and never) and each tool's ID for an element (Higgsfield Soul ID or Element, ComfyUI LoRA, Kling reference). To make shots in another tool (Higgsfield, Kling, ComfyUI…): read them with production, write prompts that use the kit's looks, lighting, rules and tool IDs, and pass the reference picture links along. Bring results back with add_try (the file or link, model, settings, seconds, cost), star the one that worked with star, and keep prompts or generation details current with update_shot. Old prompts are never lost: they stay with the try that used them. Prices (prices, update_prices) feed the cost estimate on the Make tab; when you check prices, update them with the source.
+- Tasks and plans live in Inkwell. A task is an ordinary line with a day, an estimate and a tick, and it lives where it was written: on a project's Steps page, on a daily page, or on the Tasks page for ones added straight to a plan. Today's page gathers every task on that day at its top (the person reorders it there), with Week, Weeks ahead and Pace beside it. list_tasks reads them (by day range, by project, done since a day); add_task adds one (put it in its project when it belongs to one, with notes as lines under it and a link back to where it came from); update_task moves it to another day, sets its estimate, makes it repeat or a habit, a stretch of work (until) or a date to hit (mark, hard when it can't move: never move a hard one); order_day sets a day's order; mark_done ticks it, and a repeating one comes round again on its next day. Each change is recorded as yours with an Undo. Keep a week's estimated hours within the person's free hours (free_hours). Habits have no hours. Only tasks owned by the person (owner me) are on their day; others are planning lines.
+- Needs you: when this chat needs the person (a decision only they can make, work blocked on them, something ready to review or try), raise_needs_you with one short line, the kind, the Claude project's name and this chat's link; raising again from the same link updates it; clear_needs_you once it no longer needs them. It shows in Inkwell's Catch-up and on Today.
+- Catch-up: each time this chat posts a result to the person, log_update with one plain line of what changed (done, live or working), the Claude project's name, this chat's title and link, plus place (its Inkwell link, ?open=) when the work has one. One line per result, not per step.`;
 
 const str = (description: string) => ({ type: "string", description });
 const LINES = {
@@ -117,7 +134,7 @@ const LINES = {
   items: { anyOf: [{ type: "string" }, { type: "object", required: ["text"], properties: { text: { type: "string" }, children: { type: "array" } } }] },
 };
 
-export const TOOLS = [
+export const TOOLS: Record<string, unknown>[] = [
   {
     name: "map",
     title: "Map of Inkwell",
@@ -442,6 +459,102 @@ export const TOOLS = [
     },
   },
 ];
+
+// Needs you and Catch-up: the same tools as Daybook's connector, writing the same lists.
+const LOG_NAMES = ["raise_needs_you", "clear_needs_you", "list_needs_you", "log_update", "list_updates"];
+for (const t of LOG_SOURCE.filter((x) => LOG_NAMES.includes(x.name))) {
+  TOOLS.push({ ...t, description: t.description.replace("Needs you list in Daybook: the line on their Plan", "Needs you list (in Inkwell's Catch-up and on Today)") });
+}
+
+const REPEAT = {
+  type: ["object", "null"],
+  description: "How it repeats (null stops it). It stays one line that comes round again: ticking it writes the day into its history and moves it on.",
+  properties: {
+    every: { type: "string", enum: ["day", "weekdays", "week", "month"] },
+    n: { type: "integer", description: "Every n-th day, week or month (1 to 52, default 1)." },
+    days: { type: "array", items: { type: "string", enum: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] }, description: "For week: the days it comes round." },
+    until: str("Last day it repeats, YYYY-MM-DD."),
+  },
+  required: ["every"],
+};
+const TASK_FIELDS = {
+  day: str("The day to do it, YYYY-MM-DD, \"today\" or \"tomorrow\"; null takes it off any day."),
+  est_minutes: { type: ["integer", "string", "null"], description: "How long it should take, in minutes (1 to 1440)." },
+  until: str("Makes it a stretch of work from its day through this day (a bar in Weeks ahead, not on one day's plan). YYYY-MM-DD, or null."),
+  mark: { type: ["string", "null"], enum: ["date", "hard", null], description: "A date to hit on its day: date, or hard when it can't move. null takes it off." },
+  repeat: REPEAT,
+  habit: { type: ["boolean", "string"], description: "A habit (with repeat): it shows on its days but has no hours." },
+  owner: str("Whose it is: me (the person, the default), or a name such as Nate. Only the person's are on their day."),
+};
+TOOLS.push(
+  {
+    name: "list_tasks",
+    title: "List tasks",
+    description: "Lists tasks: each with its words, day, estimate, whether it's done (and when, how long it really took), how it repeats, where it lives, the project it's in, and an Inkwell link. With from and/or to, the tasks on those days (a repeating one on each day it comes round; carried-over ones from before today are on today). Done ones are left out unless include_done or done_since.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: str("First day, YYYY-MM-DD, \"today\" or \"tomorrow\"."),
+        to: str("Last day, YYYY-MM-DD (defaults to from)."),
+        world_id: str("Only tasks in this project or world (ids from list_worlds)."),
+        query: str("Only tasks whose words contain this."),
+        unscheduled: { type: ["boolean", "string"], description: "Only tasks on no day yet." },
+        include_done: { type: ["boolean", "string"], description: "Include ticked ones." },
+        done_since: str("Only tasks ticked on or after this day, YYYY-MM-DD (and each time a repeating one was done)."),
+        everyone: { type: ["boolean", "string"], description: "Include tasks that are someone else's (owner other than me)." },
+      },
+    },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "add_task",
+    title: "Add a task",
+    description: "Adds a task: a line with a day, an estimate and a tick. It goes in its project (on the project's Steps page, made if needed), on a page or daily page you name (nested under a line there if you like), or on the Tasks page. Notes go as lines under it. Marked as written by Claude.",
+    inputSchema: {
+      type: "object",
+      required: ["text"],
+      properties: {
+        text: str("What to do, short. #tags and [[Page title]] links work. A time at the end (\"1h 30m\") is read as the estimate."),
+        to: str("Where it lives: a project or world id (its Steps page), a page or outline piece id, or a date or \"today\" for that daily page. Defaults to the Tasks page."),
+        under_line_id: str("Nest it under this line on that page."),
+        notes: { ...LINES, description: "Lines under the task, such as a short summary of where it came from." },
+        link: str("A web address it came from (a Claude chat, an HQ task…): added as a line under it."),
+        ...TASK_FIELDS,
+      },
+    },
+  },
+  {
+    name: "update_task",
+    title: "Change a task",
+    description: "Changes a task's day, estimate, stretch, date to hit, repeat, habit, owner, or how long it really took; or makes any line a task (give it a day or an estimate). Never its words. Recorded as your change; the person can undo it. A hard date (mark hard) never moves unless the person asks.",
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: {
+        id: str("The task (or line) id, from list_tasks, read or search."),
+        ...TASK_FIELDS,
+        actual_minutes: { type: ["integer", "string", "null"], description: "How long it really took, in minutes, for a ticked one (the last time, for a repeating one)." },
+        why: str("Optional: a few words on why, shown with the change."),
+      },
+    },
+  },
+  {
+    name: "order_day",
+    title: "Order a day's tasks",
+    description: "Sets the order of a day's tasks, as the person would by dragging them on Today. Tasks you leave out keep their places after the ones you list. Recorded as your change.",
+    inputSchema: {
+      type: "object",
+      required: ["day", "ids"],
+      properties: { day: str("The day, YYYY-MM-DD or \"today\"."), ids: { type: "array", items: { type: "string" }, description: "Task ids, first to last." } },
+    },
+  },
+  {
+    name: "free_hours",
+    title: "Free hours and how full the weeks are",
+    description: "How many hours a week the person has for tasks, and the estimated hours planned in this week and the next three (habits don't count). With hours, sets their number (only when they tell you).",
+    inputSchema: { type: "object", properties: { hours: { type: ["integer", "string"], description: "Sets the free hours per week, 1 to 168." } } },
+  },
+);
 
 class Bad extends Error {}
 
@@ -1150,7 +1263,7 @@ async function newPiece(args: Record<string, unknown>, db: Db) {
 // ---------- small changes, each recorded and undoable ----------
 
 type Change = {
-  type: "done" | "move" | "life"; target: string; title: string;
+  type: "done" | "move" | "life" | "task" | "order"; target: string; title: string;
   before: Record<string, unknown>; after: Record<string, unknown>; at: string; why?: string;
   undone_at?: string | null; undone_by?: string | null;
 };
@@ -1178,9 +1291,23 @@ async function markDone(args: Record<string, unknown>, db: Db) {
   const was = !!r.fields?.done;
   if (was === done) return { line: short(r.text), done, note: done ? "It was already ticked." : "It wasn't ticked." };
   const title = `${done ? "Ticked" : "Unticked"} “${short(r.text, 60)}”`;
-  const id = await record(db, { type: "done", target: r.id, title, before: { done: was }, after: { done }, ...(typeof args.why === "string" && args.why.trim() ? { why: short(args.why, 200) } : {}) });
-  await changeRow(db, r, { fields: claudeMark({ ...(r.fields ?? {}), done }, id) });
-  return { line: short(r.text), done, change_id: id };
+  // A task also keeps when it was done; a repeating one comes round again.
+  const t = taskOf(r.fields);
+  let task: Task | null = null;
+  let next: string | null = null;
+  let stays = done;
+  if (t) {
+    const tz = await db.timeZone();
+    const nowMs = Date.now();
+    task = { ...t, log: [...(t.log ?? [])] };
+    if (task.run) { task.log.push([task.run, nowMs]); task.run = null; }
+    task.done_at = done ? nowMs : null;
+    if (!done) task.actual = null;
+    if (done && isRepeat(task) && roll(task, today(tz), nowMs)) { stays = false; next = task.day; }
+  }
+  const id = await record(db, { type: "done", target: r.id, title, before: { done: was, ...(t ? { task: t } : {}) }, after: { done: stays }, ...(typeof args.why === "string" && args.why.trim() ? { why: short(args.why, 200) } : {}) });
+  await changeRow(db, r, { fields: claudeMark({ ...(r.fields ?? {}), done: stays, ...(task ? { task } : {}) }, id) });
+  return { line: short(r.text), done, ...(next ? { comes_round_again: next } : {}), change_id: id };
 }
 
 /** Where a line can go: a page, a daily page (made if needed) or an outline piece; and the line to nest under. */
@@ -1254,6 +1381,10 @@ function stillAsLeft(c: Change, r: Entry): boolean {
   if (c.type === "done") return !!r.fields?.done === !!c.after.done;
   if (c.type === "life") return (r.fields?.life === true) === !!c.after.life;
   if (c.type === "move") return r.parent_id === c.after.parent_id;
+  if (c.type === "task") {
+    const t = (r.fields?.task ?? {}) as Record<string, unknown>;
+    return Object.entries((c.after.task ?? {}) as Record<string, unknown>).every(([k, v]) => JSON.stringify(t[k] ?? null) === JSON.stringify(v ?? null));
+  }
   return false;
 }
 
@@ -1262,10 +1393,30 @@ async function undoChange(args: Record<string, unknown>, db: Db) {
   const c = cx?.fields?.change as Change | undefined;
   if (!cx || cx.kind !== "change" || !c || cx.deleted) throw new Bad("That isn't one of your changes (see changes for ids).");
   if (c.undone_at) return { change: c.title, note: "It was already undone." };
+  if (c.type === "order") {
+    const before = c.before.order as Record<string, number>, after = c.after.order as Record<string, number>;
+    for (const r of await db.get(Object.keys(before))) {
+      const t = taskOf(r.fields);
+      if (gone(r) || !t || (t.order || 0) !== after[r.id]) continue; // moved since: left as it is
+      await changeRow(db, r, { fields: { ...r.fields, task: { ...t, order: before[r.id] } } });
+    }
+    await db.markChange(cx.id, { ...cx.fields, change: { ...c, undone_at: new Date().toISOString(), undone_by: CLAUDE } });
+    return { undone: c.title };
+  }
   const [r] = await db.get([c.target]);
   if (!r || gone(r)) throw new Bad("What it changed is in the Trash now, so it's left as it is.");
   if (!stillAsLeft(c, r)) throw new Bad("The person has changed that since, so it's left as they have it.");
-  if (c.type === "done") await changeRow(db, r, { fields: { ...r.fields, done: !!c.before.done } });
+  if (c.type === "done") {
+    const fields: Record<string, unknown> = { ...r.fields, done: !!c.before.done };
+    if (c.before.task !== undefined) fields.task = c.before.task;
+    await changeRow(db, r, { fields });
+  }
+  if (c.type === "task") {
+    const fields: Record<string, unknown> = { ...r.fields };
+    if (c.before.task === null) { delete fields.task; if (c.before.box === null) delete fields.box; else fields.box = c.before.box; }
+    else fields.task = { ...(r.fields?.task as object), ...(c.before.task as object) };
+    await changeRow(db, r, { fields });
+  }
   if (c.type === "life") {
     const fields: Record<string, unknown> = { ...r.fields, life: !!c.before.life };
     if (!c.before.life) delete fields.life;
@@ -1758,6 +1909,395 @@ async function updatePrices(args: Record<string, unknown>, db: Db) {
   return { updated: changed, ...(removed.length ? { removed } : {}), ...(left.length ? { left_as_the_person_set_them: left } : {}), checked: day };
 }
 
+
+// ---------- tasks ----------
+
+const APP = "https://laserbunny-coder.github.io/inkwell/";
+const TASKS_PAGE = "page-tasks";
+const PLAN_ID = "settings-plan";
+const FREE_HOURS = 45;
+const DOW: Record<string, number> = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7 };
+const mine = (t: Task) => !t.owner || t.owner === "me";
+const hoursOf = (m: number) => Math.round(m / 6) / 10;
+
+/** A day argument for tasks: a date, today, tomorrow, null (no day), or undefined (not given). */
+async function taskDay(v: unknown, db: Db, name = "day"): Promise<string | null | undefined> {
+  if (v === undefined) return undefined;
+  if (v === null || v === "" || v === "null") return null;
+  const d = await dayArg(v, db);
+  if (!d) throw new Bad(`${name} must be a date (YYYY-MM-DD), "today" or "tomorrow".`);
+  return d;
+}
+function minutesArg(v: unknown, name: string): number | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null || v === "" || v === "null") return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 1 || n > 1440) throw new Bad(`${name} must be a whole number of minutes from 1 to 1440.`);
+  return n;
+}
+function ruleArg(v: unknown, day: string): RepeatRule | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null || v === "" || v === "null") return null;
+  const r = (typeof v === "string" ? (() => { try { return JSON.parse(v); } catch { return null; } })() : v) as Record<string, unknown> | null;
+  if (!r || typeof r !== "object" || !["day", "weekdays", "week", "month"].includes(String(r.every))) throw new Bad("repeat.every must be day, weekdays, week or month.");
+  const n = r.n === undefined || r.n === null ? 1 : Number(r.n);
+  if (!Number.isInteger(n) || n < 1 || n > 52) throw new Bad("repeat.n must be a whole number from 1 to 52.");
+  const rule: RepeatRule = { every: r.every as RepeatRule["every"], n, from: day };
+  if (Array.isArray(r.days) && r.days.length) {
+    const days = r.days.map((d) => DOW[String(d).slice(0, 3).toLowerCase()]);
+    if (days.some((d) => !d)) throw new Bad("repeat.days are mon, tue, wed, thu, fri, sat, sun.");
+    rule.days = [...new Set(days)].sort((a, b) => a - b);
+  }
+  if (r.until) {
+    if (typeof r.until !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(r.until)) throw new Bad("repeat.until must be YYYY-MM-DD.");
+    rule.until = r.until;
+  }
+  rule.from = firstOn(rule, day) || day;
+  return rule;
+}
+
+type Placed = { row: Entry; task: Task; where: string; world: Entry | null; root: Entry | null };
+/** Every task with where it lives; ones inside something in the Trash are left out. */
+async function placedTasks(db: Db, shape: Shape, today: string): Promise<Placed[]> {
+  const rows = (await db.tasks()).filter((r) => r.kind === "line" && !gone(r) && taskOf(r.fields) && !r.fields?.mirror);
+  // Lines nested under lines: fetch the lines in between, a level at a time.
+  const known = new Map<string, Entry>(rows.map((r) => [r.id, r]));
+  for (let round = 0; round < 8; round++) {
+    const want = [...new Set([...known.values()].map((r) => r.parent_id).filter((id): id is string => !!id && !known.has(id) && !shape.byId.has(id)))];
+    if (!want.length) break;
+    const got = await db.get(want);
+    for (const r of got) known.set(r.id, r);
+    for (const id of want) if (!known.has(id)) known.set(id, { ...row("line", { id }), deleted: true });
+  }
+  const at = (id: string | null) => (id ? known.get(id) ?? shape.byId.get(id) : undefined);
+  const out: Placed[] = [];
+  for (const r of rows) {
+    let root: Entry | null = null;
+    let ok = true;
+    let x = at(r.parent_id);
+    for (let i = 0; x && i < 60; i++) {
+      if (gone(x)) { ok = false; break; }
+      if (["day", "page", "chapter", "project", "world"].includes(x.kind)) { root = x; break; }
+      x = at(x.parent_id);
+    }
+    if (!ok || !root) continue;
+    if (root.kind === "day") { out.push({ row: r, task: taskOf(r.fields)!, where: `Daily page ${root.title || root.id.slice(4)}`, world: null, root }); continue; }
+    if (!shape.byId.has(root.id)) continue; // in the Trash
+    const t = taskOf(r.fields)!;
+    out.push({ row: r, task: isRepeat(t) ? { ...t, day: dueDay(t, today) } : t, where: shape.where(root) || root.title, world: shape.worldOf(root), root });
+  }
+  return out;
+}
+function taskOut(p: Placed, tz: string | null, on?: string) {
+  const t = p.task;
+  const done = !!p.row.fields?.done;
+  return {
+    id: p.row.id, text: p.row.text, ...(on && on !== t.day ? { on } : {}), day: t.day ?? null,
+    ...(t.est ? { est_minutes: t.est } : {}),
+    ...(done ? { done: true, ...(t.done_at ? { done_at: localDate(new Date(t.done_at).toISOString(), tz) } : {}), ...(t.actual ? { actual_minutes: t.actual } : {}) } : {}),
+    ...(isStretch(t) ? { until: t.until } : {}), ...(t.mark ? { mark: t.mark } : {}),
+    ...(isRepeat(t) ? { repeats: repeatWord(t.repeat), ...(t.habit ? { habit: true } : {}), times_done: (t.did ?? []).length } : {}),
+    ...(t.run ? { timer_running: true } : {}),
+    ...(!mine(t) ? { owner: t.owner } : {}),
+    where: p.where, ...(p.world ? { project: p.world.title, project_id: p.world.id } : {}),
+    ...(who(p.row) ? { by: who(p.row) } : {}),
+    link: `${APP}?open=${encodeURIComponent(p.row.id)}`,
+  };
+}
+
+async function listTasks(args: Record<string, unknown>, db: Db) {
+  const tz = await db.timeZone();
+  const now = today(tz);
+  const shape = new Shape(await db.outline());
+  let all = await placedTasks(db, shape, now);
+  if (!boolArg(args.everyone, false)) all = all.filter((p) => mine(p.task));
+  if (typeof args.world_id === "string" && args.world_id) {
+    const w = await one(db, args.world_id, "world_id");
+    all = all.filter((p) => p.world?.id === w.id || shape.worldOf(p.root ?? undefined)?.id === w.id || p.root?.id === w.id);
+  }
+  if (typeof args.query === "string" && args.query.trim()) {
+    const q = args.query.trim().toLowerCase();
+    all = all.filter((p) => (p.row.text || "").toLowerCase().includes(q));
+  }
+  if (args.done_since !== undefined && args.done_since !== null && args.done_since !== "") {
+    const since = await dayArg(args.done_since, db);
+    if (!since) throw new Bad("done_since must be a date, YYYY-MM-DD.");
+    const out: unknown[] = [];
+    for (const p of all) {
+      if (p.row.fields?.done && p.task.done_at && localDate(new Date(p.task.done_at).toISOString(), tz)! >= since) out.push(taskOut(p, tz));
+      for (const [day, min] of p.task.did ?? []) if (day >= since) out.push({ ...taskOut(p, tz), on: day, done: true, ...(min ? { actual_minutes: min } : {}) });
+    }
+    return { done_since: since, tasks: out.slice(0, 300) };
+  }
+  const withDone = boolArg(args.include_done, false);
+  if (boolArg(args.unscheduled, false)) {
+    const list = all.filter((p) => !p.task.day && (withDone || !p.row.fields?.done));
+    return { unscheduled: list.slice(0, 300).map((p) => taskOut(p, tz)) };
+  }
+  const from = await taskDay(args.from, db, "from");
+  const to = (await taskDay(args.to, db, "to")) ?? from;
+  if (from || to) {
+    const a = from ?? now, b = to && to >= a ? to : a;
+    if (Date.parse(b) - Date.parse(a) > 400 * 864e5) throw new Bad("Up to about a year at a time.");
+    const out: unknown[] = [];
+    for (const p of all) {
+      const done = !!p.row.fields?.done;
+      if (done && !withDone) continue;
+      if (isStretch(p.task)) { if (p.task.day! <= b && p.task.until! >= a) out.push(taskOut(p, tz)); continue; }
+      // Open ones from before today wait at the top of today.
+      if (!done && !isRepeat(p.task) && p.task.day && p.task.day < now && now >= a && now <= b) { out.push({ ...taskOut(p, tz, now), carried_from: p.task.day }); continue; }
+      for (const d of daysIn(p.task, a, b, now)) out.push(taskOut(p, tz, d));
+    }
+    const sortKey = (x: any) => `${x.on ?? x.day ?? "9999"}|${String(all.find((p) => p.row.id === x.id)?.task.order ?? 0).padStart(6, "0")}`;
+    out.sort((x, y) => sortKey(x).localeCompare(sortKey(y)));
+    return { from: a, to: b, today: now, tasks: out.slice(0, 400) };
+  }
+  const list = all.filter((p) => withDone || !p.row.fields?.done);
+  list.sort((x, y) => (x.task.day ?? "9999").localeCompare(y.task.day ?? "9999") || (x.task.order || 0) - (y.task.order || 0));
+  return { today: now, tasks: list.slice(0, 300).map((p) => taskOut(p, tz)) };
+}
+
+/** The end of a day's order, for a task joining it. */
+async function lastOrder(db: Db, shape: Shape, day: string | null, today: string): Promise<number> {
+  if (!day) return 0;
+  const on = (await placedTasks(db, shape, today)).filter((p) => p.task.day === day);
+  return Math.max(0, ...on.map((p) => p.task.order || 0)) + 1;
+}
+
+async function addTask(args: Record<string, unknown>, db: Db) {
+  const tz = await db.timeZone();
+  const now = today(tz);
+  const shape = new Shape(await db.outline());
+  let text = textArg(args.text, "text", 500);
+  let est = minutesArg(args.est_minutes, "est_minutes");
+  if (est === undefined) {
+    const m = /(?:^|\s)(\d+(?:[.,]\d+)?)\s*(h|hr|hrs|hours?|m|min|mins|minutes?)(?:\s*(\d+)\s*(?:m|min|mins|minutes))?$/i.exec(text);
+    if (m) {
+      const n = Number(m[1].replace(",", "."));
+      const mins = Math.round(/^h/i.test(m[2]) ? n * 60 + Number(m[3] || 0) : n);
+      const title = text.slice(0, m.index).trim();
+      if (title && mins > 0 && mins <= 1440) { text = title; est = mins; }
+    }
+  }
+  let day = await taskDay(args.day, db) ?? null;
+  const until = await taskDay(args.until, db, "until") ?? null;
+  const mark = args.mark === "date" || args.mark === "hard" ? args.mark : null;
+  let repeat = ruleArg(args.repeat, day && day > now ? day : now) ?? null;
+  if (repeat) day = repeat.from;
+  if ((until || mark) && !day) throw new Bad("A stretch (until) or a date to hit (mark) needs a day.");
+  if (until && day && until < day) throw new Bad("until must be on or after its day.");
+  const owner = typeof args.owner === "string" && args.owner.trim() && args.owner.trim().toLowerCase() !== "me" ? args.owner.trim().slice(0, 40) : null;
+
+  // Where it lives.
+  const rows: Entry[] = [];
+  let home: Entry;
+  let name: string;
+  const to = args.to;
+  const date = await dayArg(to, db);
+  if (to === undefined || to === null || to === "") {
+    const [p] = await db.get([TASKS_PAGE]);
+    home = p && !p.deleted ? p : row("page", { id: TASKS_PAGE, title: "Tasks", fields: {} });
+    if (!p || p.deleted) rows.push({ ...home, fields: {} });
+    else if (p.fields?.trashed) throw new Bad("The Tasks page is in the Trash; name another place with to.");
+    name = "the Tasks page";
+  } else if (date) {
+    const id = `day-${date}`;
+    const [d] = await db.get([id]);
+    home = d && !d.deleted ? d : row("day", { id, title: date, fields: {} });
+    if (!d || d.deleted) rows.push({ ...home, fields: {} });
+    name = `the daily page for ${date}`;
+  } else {
+    const target = await one(db, to, "to");
+    if (target.kind === "world") {
+      const id = `steps-${target.id}`;
+      const [st] = await db.get([id]);
+      if (st && st.fields?.trashed) throw new Bad(`${JSON.stringify(target.title)}'s Steps page is in the Trash; name another page with to.`);
+      if (st && !st.deleted) home = st;
+      else {
+        const after = Math.max(0, ...shape.under(target.id, "page").map((r) => r.sort || 0)) + GAP;
+        home = row("page", { id, title: "Steps", parent_id: target.id, sort: after, fields: {} });
+        rows.push({ ...home, fields: {} });
+      }
+      name = `${target.title} › Steps`;
+    } else if (target.kind === "page" || target.kind === "day" || (target.kind === "project" && typeOf(target) === "lines")) {
+      home = target;
+      name = shape.where(target) || target.title;
+    } else throw new Bad(`${JSON.stringify(target.title)} isn't a project, page, daily page or outline piece; tasks go there.`);
+  }
+  let parentId = home.id;
+  if (args.under_line_id !== undefined && args.under_line_id !== null && args.under_line_id !== "") {
+    const under = await one(db, args.under_line_id, "under_line_id");
+    if (under.kind !== "line") throw new Bad("under_line_id must be a line (ids come from read).");
+    let x: Entry | undefined = under;
+    for (let i = 0; x && x.id !== home.id && i < 40; i++) x = x.parent_id ? (await db.get([x.parent_id]))[0] : undefined;
+    if (!x) throw new Bad("That line isn't on that page.");
+    parentId = under.id;
+  }
+  const siblings = rows.some((r) => r.id === parentId) ? [] : (await db.kids([parentId])).filter((r) => r.kind === "line" && !r.deleted);
+  const sort = siblings.reduce((m, r) => Math.max(m, r.sort || 0), 0) + GAP;
+  const { content, links, text: plain } = inline(text, shape);
+  const task: Task = { ...blank(), day, est: est ?? null, order: await lastOrder(db, shape, day, now), ...(owner ? { owner } : {}), ...(until && !repeat ? { until } : {}), ...(mark && !repeat ? { mark } : {}), ...(repeat ? { repeat, habit: boolArg(args.habit, false) } : {}) };
+  const line = row("line", { id: newId("li"), parent_id: parentId, sort, text: plain, content, links, tags: tagsIn(plain), fields: { done: false, box: true, task } });
+  rows.push(line);
+  const notes: unknown[] = Array.isArray(args.notes) ? [...args.notes] : typeof args.notes === "string" && args.notes.trim() ? [args.notes] : [];
+  if (typeof args.link === "string" && args.link.trim()) {
+    if (!/^https?:\/\/\S+$/i.test(args.link.trim())) throw new Bad("link must start with https:// or http://.");
+    notes.push(args.link.trim());
+  }
+  if (notes.length) rows.push(...lineRows(notes, line.id, 0, shape));
+  await db.insert(rows);
+  return {
+    added: plain, id: line.id, to: name, day, ...(est ? { est_minutes: est } : {}), ...(repeat ? { repeats: repeatWord(repeat) } : {}),
+    link: `${APP}?open=${encodeURIComponent(line.id)}`,
+  };
+}
+
+/** The task fields a change touched, before and after, so it can be undone. */
+const TASK_KEYS = ["day", "est", "until", "mark", "repeat", "habit", "owner", "actual", "order", "did"] as const;
+function pick(t: Partial<Task> | null, keys: string[]) {
+  const o: Record<string, unknown> = {};
+  for (const k of keys) o[k] = t ? (t as Record<string, unknown>)[k] ?? null : null;
+  return o;
+}
+
+async function updateTask(args: Record<string, unknown>, db: Db) {
+  const tz = await db.timeZone();
+  const now = today(tz);
+  const r = await one(db, args.id, "id");
+  if (r.kind !== "line") throw new Bad("id must be a line (ids come from list_tasks, read or search).");
+  const was = taskOf(r.fields);
+  const t: Task = { ...blank(), ...(was ?? {}) };
+  const patch: Partial<Task> = {};
+  const day = await taskDay(args.day, db);
+  if (day !== undefined) {
+    patch.day = day;
+    if (was && isStretch(was) && day) patch.until = addDays(day, Math.round((Date.parse(was.until!) - Date.parse(was.day!)) / 864e5));
+    if (was && isRepeat(was) && !day) { patch.repeat = null; patch.habit = false; }
+    else if (was && isRepeat(was) && day) patch.repeat = { ...was.repeat!, from: firstOn({ ...was.repeat!, from: day }, day) || day };
+    if (day !== was?.day) patch.order = await lastOrder(db, new Shape(await db.outline()), day, now);
+  }
+  const est = minutesArg(args.est_minutes, "est_minutes");
+  if (est !== undefined) patch.est = est;
+  const until = await taskDay(args.until, db, "until");
+  if (until !== undefined) {
+    const d = patch.day ?? t.day;
+    if (until && !d) throw new Bad("A stretch needs a day to start from.");
+    if (until && d && until < d) throw new Bad("until must be on or after its day.");
+    patch.until = until;
+  }
+  if (args.mark !== undefined) {
+    if (![null, "", "null", "date", "hard"].includes(args.mark as string | null)) throw new Bad("mark must be date, hard or null.");
+    patch.mark = args.mark === "date" || args.mark === "hard" ? args.mark : null;
+    if (patch.mark && !(patch.day ?? t.day)) throw new Bad("A date to hit needs a day.");
+  }
+  if (args.repeat !== undefined) {
+    const base = (patch.day ?? t.day) && (patch.day ?? t.day)! > now ? (patch.day ?? t.day)! : now;
+    const rule = ruleArg(args.repeat, base);
+    patch.repeat = rule ?? null;
+    if (rule) { patch.day = rule.from; patch.until = null; patch.mark = null; }
+    else patch.habit = false;
+  }
+  if (args.habit !== undefined) {
+    const h = boolArg(args.habit, false);
+    if (h && !isRepeat({ ...t, ...patch } as Task)) throw new Bad("A habit repeats: give it a repeat too.");
+    patch.habit = h;
+  }
+  if (args.owner !== undefined) {
+    const o = typeof args.owner === "string" ? args.owner.trim() : "";
+    patch.owner = o && o.toLowerCase() !== "me" ? o.slice(0, 40) : null;
+  }
+  const actual = minutesArg(args.actual_minutes, "actual_minutes");
+  if (actual !== undefined) {
+    if (isRepeat(t) && (t.did ?? []).length && !r.fields?.done) {
+      const did = (t.did ?? []).map((d) => [...d] as [string, number | null, number]);
+      did[did.length - 1][1] = actual;
+      patch.did = did;
+    } else patch.actual = actual;
+  }
+  const keys = Object.keys(patch).filter((k) => JSON.stringify((t as Record<string, unknown>)[k] ?? null) !== JSON.stringify((patch as Record<string, unknown>)[k] ?? null));
+  if (!keys.length && was) return { task: short(r.text), note: "Nothing to change: it's already like that." };
+  if (!was && !("day" in patch) && !("est" in patch) && !("repeat" in patch)) throw new Bad("To make a line a task, give it a day or an estimate.");
+  const next: Task = { ...t, ...patch };
+  const bits: string[] = [];
+  if (keys.includes("day")) bits.push(next.day ? `to ${next.day}` : "off its day");
+  if (keys.includes("est")) bits.push(next.est ? `${next.est} min` : "no estimate");
+  if (keys.includes("repeat")) bits.push(next.repeat ? repeatWord(next.repeat).toLowerCase() : "no longer repeating");
+  if (keys.includes("until")) bits.push(next.until ? `through ${next.until}` : "one day");
+  if (keys.includes("mark")) bits.push(next.mark ? (next.mark === "hard" ? "a hard date" : "a date to hit") : "no date to hit");
+  if (keys.includes("owner")) bits.push(next.owner ? `${next.owner}'s` : "yours");
+  if (keys.includes("habit")) bits.push(next.habit ? "a habit" : "not a habit");
+  if (keys.includes("actual") || keys.includes("did")) bits.push(`took ${actual} min`);
+  const title = `${was ? "Changed" : "Made a task of"} “${short(r.text, 50)}”${bits.length ? `: ${bits.join(", ")}` : ""}`;
+  const id = await record(db, { type: "task", target: r.id, title, before: { task: was ? pick(was, keys) : null, box: r.fields?.box ?? null }, after: { task: pick(next, keys) }, ...(typeof args.why === "string" && args.why.trim() ? { why: short(args.why, 200) } : {}) });
+  await changeRow(db, r, { fields: claudeMark({ ...(r.fields ?? {}), box: true, task: next }, id) });
+  return { task: short(r.text), changed: bits, ...(was?.mark === "hard" && keys.includes("day") ? { note: "That was a hard date: make sure the person asked to move it." } : {}), change_id: id };
+}
+
+async function orderDay(args: Record<string, unknown>, db: Db) {
+  const tz = await db.timeZone();
+  const now = today(tz);
+  const day = await taskDay(args.day, db);
+  if (!day) throw new Bad("day must be a date or \"today\".");
+  if (!Array.isArray(args.ids) || !args.ids.length || args.ids.some((x) => typeof x !== "string")) throw new Bad("ids must be a list of task ids.");
+  const ids = [...new Set(args.ids as string[])];
+  const on = (await placedTasks(db, new Shape(await db.outline()), now)).filter((p) => p.task.day === day && !p.row.fields?.done && !isStretch(p.task));
+  const byId = new Map(on.map((p) => [p.row.id, p]));
+  const missing = ids.filter((id) => !byId.has(id));
+  if (missing.length) throw new Bad(`Not open tasks on ${day}: ${missing.join(", ")}. list_tasks shows the day's tasks.`);
+  const rest = on.filter((p) => !ids.includes(p.row.id)).sort((a, b) => (a.task.order || 0) - (b.task.order || 0)).map((p) => p.row.id);
+  const order = [...ids, ...rest];
+  const changed = order.map((id, n) => ({ p: byId.get(id)!, n: n + 1 })).filter(({ p, n }) => (p.task.order || 0) !== n);
+  if (!changed.length) return { day, note: "They're already in that order." };
+  const title = `Reordered ${day === now ? "today" : day}: ${order.slice(0, 3).map((id) => `“${short(byId.get(id)!.row.text, 30)}”`).join(", ")}${order.length > 3 ? "…" : ""}`;
+  const cx = await record(db, { type: "order", target: day, title, before: { order: Object.fromEntries(changed.map(({ p }) => [p.row.id, p.task.order || 0])) }, after: { order: Object.fromEntries(changed.map(({ p, n }) => [p.row.id, n])) } });
+  for (const { p, n } of changed) {
+    const live = taskOf(p.row.fields)!;
+    await changeRow(db, p.row, { fields: claudeMark({ ...p.row.fields, task: { ...live, order: n } }, cx) });
+  }
+  return { day, order: order.map((id) => short(byId.get(id)!.row.text, 60)), change_id: cx };
+}
+
+async function freeHours(args: Record<string, unknown>, db: Db) {
+  const tz = await db.timeZone();
+  const now = today(tz);
+  const [s] = await db.get([PLAN_ID]);
+  let free = Number(s?.fields?.free) > 0 ? Number(s!.fields.free) : FREE_HOURS;
+  let set = false;
+  if (args.hours !== undefined && args.hours !== null && args.hours !== "") {
+    const h = Number(args.hours);
+    if (!Number.isInteger(h) || h < 1 || h > 168) throw new Bad("hours must be a whole number from 1 to 168.");
+    if (s && !s.deleted) { if (!(await db.setSettings(PLAN_ID, { ...s.fields, free: h }))) throw new Bad("That just changed in the app. Try once more."); }
+    else await db.insert([row("settings", { id: PLAN_ID, title: "Plan", fields: { free: h } })]);
+    free = h;
+    set = true;
+  }
+  const all = (await placedTasks(db, new Shape(await db.outline()), now)).filter((p) => mine(p.task) && !p.task.habit && !isStretch(p.task));
+  const monday = addDays(now, -((new Date(now + "T00:00:00Z").getUTCDay() + 6) % 7));
+  const weeks = [0, 1, 2, 3].map((w) => {
+    const a = addDays(monday, w * 7), b = addDays(a, 6);
+    let mins = 0;
+    for (const p of all) {
+      if (p.row.fields?.done) { if (!isRepeat(p.task) && p.task.day && p.task.day >= a && p.task.day <= b) mins += p.task.actual ?? p.task.est ?? 0; continue; }
+      const carried = w === 0 && !isRepeat(p.task) && p.task.day && p.task.day < a;
+      mins += (carried ? 1 : daysIn(p.task, a, b, now).length) * (p.task.est || 0);
+    }
+    const h = hoursOf(mins);
+    return { week_of: a, planned_hours: h, ...(h > free ? { over_by: Math.round((h - free) * 10) / 10 } : {}) };
+  });
+  return { free_hours: free, ...(set ? { set: true } : {}), weeks };
+}
+
+/** Needs you and Catch-up go through the same code as Daybook's connector. */
+async function logTool(name: string, args: Record<string, unknown>, db: Db) {
+  try {
+    const ld = db as unknown as LogDb;
+    return name === "log_update" || name === "list_updates" ? await runUpdates(name, args, ld) : await runNeeds(name, args, ld);
+  } catch (e) {
+    if (e instanceof LogBad) throw new Bad(e.message);
+    throw e;
+  }
+}
+
 async function runTool(name: string, args: Record<string, unknown>, db: Db): Promise<unknown> {
   switch (name) {
     case "map": return map(db);
@@ -1784,7 +2324,13 @@ async function runTool(name: string, args: Record<string, unknown>, db: Db): Pro
     case "star": return star(args, db);
     case "prices": return prices(db);
     case "update_prices": return updatePrices(args, db);
+    case "list_tasks": return listTasks(args, db);
+    case "add_task": return addTask(args, db);
+    case "update_task": return updateTask(args, db);
+    case "order_day": return orderDay(args, db);
+    case "free_hours": return freeHours(args, db);
   }
+  if (LOG_NAMES.includes(name)) return logTool(name, args, db);
   throw new Bad(`There's no tool called ${name}.`);
 }
 

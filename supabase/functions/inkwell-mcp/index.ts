@@ -4,6 +4,11 @@
 // a password. It's a separate secret from Daybook's connector.
 import { admin, cors } from "../_shared/common.ts";
 import { type Db, type Entry, handle } from "./tools.ts";
+import type { Note, Update } from "../mcp/tools.ts";
+
+// Needs you items and Catch-up lines: the same lists Daybook's connector writes.
+const UPDATE_COLS = "id,project,project_link,link,thread,text,place,state,created_at";
+const NOTE_COLS = "id,author,title,body,link,task_ids,created_at,read_at,kind,project,project_link,resolved_at";
 
 const COLS = "id,kind,parent_id,sort,title,text,content,tags,type,fields,area_id,links,deleted,created_at,updated_at";
 // The outline leaves out the words, which is most of the size.
@@ -149,6 +154,50 @@ function dbFor(userId: string): Db {
       if (error) throw error;
     },
     fetchFile,
+    tasks: () => all(COLS, (q) => q.eq("kind", "line").eq("deleted", false).not("fields->task", "is", null)),
+    async setSettings(id, fields) {
+      const { data, error } = await sb.from("writing_entries").update({ fields }).eq("user_id", userId).eq("id", id).eq("kind", "settings").select("id");
+      if (error) throw error;
+      return (data ?? []).length > 0;
+    },
+    async listNeeds(limit, includeCleared) {
+      let q = sb.from("notes").select(NOTE_COLS).eq("user_id", userId).not("kind", "is", null);
+      if (!includeCleared) q = q.is("resolved_at", null);
+      const { data, error } = await q.order("created_at", { ascending: false }).limit(limit);
+      if (error) throw error;
+      return data as Note[];
+    },
+    async openNeed(link) {
+      const { data, error } = await sb.from("notes").select(NOTE_COLS).eq("user_id", userId).eq("link", link).not("kind", "is", null).is("resolved_at", null).maybeSingle();
+      if (error) throw error;
+      return data as Note | null;
+    },
+    async getNeed(id) {
+      if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+      const { data, error } = await sb.from("notes").select(NOTE_COLS).eq("user_id", userId).eq("id", id).not("kind", "is", null).maybeSingle();
+      if (error) throw error;
+      return data as Note | null;
+    },
+    async addNeed(n) {
+      const { data, error } = await sb.from("notes").insert({ ...n, task_ids: [], user_id: userId }).select(NOTE_COLS).single();
+      if (error) throw error;
+      return data as Note;
+    },
+    async updateNeed(id, patch) {
+      const { data, error } = await sb.from("notes").update(patch).eq("user_id", userId).eq("id", id).select(NOTE_COLS).single();
+      if (error) throw error;
+      return data as Note;
+    },
+    async listUpdates(sinceIso, limit) {
+      const { data, error } = await sb.from("claude_updates").select(UPDATE_COLS).eq("user_id", userId).gte("created_at", sinceIso).order("created_at", { ascending: false }).limit(limit);
+      if (error) throw error;
+      return data as Update[];
+    },
+    async addUpdate(u) {
+      const { data, error } = await sb.from("claude_updates").insert({ ...u, user_id: userId }).select(UPDATE_COLS).single();
+      if (error) throw error;
+      return data as Update;
+    },
     async timeZone() {
       const { data, error } = await sb.auth.admin.getUserById(userId);
       if (error) throw error;
