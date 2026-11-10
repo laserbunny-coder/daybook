@@ -20,10 +20,18 @@
 //   POST …/scribe  JSON { action: "redo", original, mode, app } -> { text, mode }
 //   POST …/scribe  JSON { action: "save-mode", mode: { id?, name, prompt, apps, model?, keep? } } -> { mode }
 //   POST …/scribe  JSON { action: "delete-mode", id } -> { ok }
+//   POST …/scribe  multipart: action=fix, audio, text, before, after, how (selection|last|before), mode, app
+//                                           -> { said, text, learn, unchanged }  (the words with the spoken
+//                                              change made; `learn`: names they spelled out, to remember)
+//   GET  …/scribe/spellings                 -> { spellings }
+//   POST …/scribe  JSON { action: "remember", term } -> { spellings }
+//   POST …/scribe  JSON { action: "forget", term }   -> { spellings }
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import { admin, cors } from "../_shared/common.ts";
 import { hear } from "../inkwell/speech.ts";
-import { keepInInkwell, namesFrom } from "./keep.ts";
+import { keepInInkwell } from "./keep.ts";
+import { AROUND_MAX, finishFix, FIX_HINT, FIX_SCHEMA, FIX_SYSTEM, fixContent, fixModel, TARGET_MAX } from "./fix.ts";
+import { forget, remember, spellingsOf, termsFor } from "./spellings.ts";
 import { pick as pickMode, write } from "../inkwell/voice.ts";
 import { cleanApps, deleteMode, type Mode, type Model, MODEL_IDS, modelOf, MODELS, modesOf, PROMPT_MAX, saveMode } from "./modes.ts";
 
@@ -154,11 +162,11 @@ async function rewrite(said: string, mode: Mode, app: string): Promise<string> {
 
 // Writes out an uploaded recording; errors come back as a ready reply.
 type Heard = { said: string; by?: string; audio: File };
-async function writeOut(form: FormData, userId: string): Promise<Heard | Response> {
+async function writeOut(form: FormData, userId: string, hint = HINT): Promise<Heard | Response> {
   const audio = form.get("audio");
   if (!(audio instanceof File) || !audio.size) return reply({ error: "No recording came through." }, 400);
   try {
-    const heard = await hear(audio, audio.name || "scribe.m4a", { hint: HINT, terms: await namesFrom(userId) });
+    const heard = await hear(audio, audio.name || "scribe.m4a", { hint, terms: await termsFor(userId) });
     return { said: heard.text, by: heard.by, audio };
   } catch (err) {
     const e = err as Error & { code?: string; status?: number };
@@ -175,6 +183,7 @@ Deno.serve(async (req) => {
 
   try {
     if (req.method === "GET" && new URL(req.url).pathname.endsWith("/modes")) return reply({ modes: await modesOf(userId) });
+    if (req.method === "GET" && new URL(req.url).pathname.endsWith("/spellings")) return reply({ spellings: await spellingsOf(userId) });
     if (req.method !== "POST") return reply({ error: "Not found" }, 404);
 
     const isForm = (req.headers.get("Content-Type") ?? "").includes("multipart/form-data");
@@ -260,6 +269,38 @@ Deno.serve(async (req) => {
         mode: { id: current.id || null, name: clean(out.name, 40) || current.name, prompt, apps: cleanApps(out.apps), model: modelOf(out.model) ?? current.model, keep: !!current.keep },
       });
     }
+
+    if (action === "fix" && form) {
+      // Line breaks as the phone has them (form data can turn them into \r\n on the way).
+      const nl = (v: FormDataEntryValue | null) => String(v ?? "").replace(/\r\n?/g, "\n");
+      const text = nl(form.get("text"));
+      if (!text.trim()) return reply({ error: "There's nothing to fix there. Select some words first." }, 400);
+      // Cut short, the rest would be lost when the fix is typed over it.
+      if (text.length > TARGET_MAX) return reply({ error: "That's too much to change at once. Select a smaller part." }, 400);
+      const heard = await writeOut(form, userId, FIX_HINT);
+      if (heard instanceof Response) return heard;
+      const said = heard.said.trim();
+      if (!said) return reply({ said: "", text, learn: [], unchanged: true });
+      const mode = pick(form.get("mode"));
+      const out = await ask(FIX_SYSTEM, fixContent({
+        text,
+        before: nl(form.get("before")).slice(-AROUND_MAX),
+        after: nl(form.get("after")).slice(0, AROUND_MAX),
+        how: clean(form.get("how"), 20),
+        said,
+        modeName: mode.name,
+        modePrompt: mode.prompt,
+        app: clean(form.get("app"), 100),
+      }), FIX_SCHEMA, fixModel(mode.model, text.length));
+      return reply({ said, ...finishFix(text, out) });
+    }
+
+    if (action === "remember" && body) {
+      const kept = await remember(userId, body.term);
+      return typeof kept === "string" ? reply({ error: kept }, 400) : reply({ spellings: kept });
+    }
+
+    if (action === "forget" && body) return reply({ spellings: await forget(userId, body.term) });
 
     if (action === "save-mode" && body && typeof body.mode === "object" && body.mode) {
       const saved = await saveMode(userId, modes, body.mode as Record<string, unknown>);
