@@ -78,7 +78,7 @@ Daybook installs to the home screen and syncs with the computer.
 ## How it's built
 
 - A plain HTML, CSS and JavaScript web app with no build step (`index.html`, `app.css`, `js/`). It installs to the home screen and works offline (`sw.js`, `manifest.webmanifest`).
-- [Supabase](https://supabase.com) for Google sign-in, the database (`supabase/migrations`) and live sync between devices.
+- [Supabase](https://supabase.com) for Google sign-in, the database (its migrations and server functions now live in the [inkwell repository](https://github.com/laserbunny-coder/inkwell/tree/main/supabase)) and live sync between devices.
 - Supabase Edge Functions:
   - `calendar` reads Google Calendar events. It is read-only.
   - `ask` sends the question and a summary of the planner to Claude. Claude proposes changes, and the app applies them with an Undo button.
